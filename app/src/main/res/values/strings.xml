@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">一句话待办</string>
+
+    <!-- Groups -->
+    <string name="group_today">今天</string>
+    <string name="group_tomorrow">明天</string>
+    <string name="group_this_week">本周</string>
+    <string name="group_later">更晚</string>
+    <string name="group_no_date">无日期</string>
+    <string name="group_archived">已归档</string>
+
+    <!-- Add sheet -->
+    <string name="add_hint">说一句话：如「周五 下午3点 交周报」</string>
+    <string name="add_add">添加</string>
+
+    <!-- Reminder words -->
+    <string name="reminder_prefix_today">今天 · </string>
+    <string name="reminder_prefix_tomorrow">明天 · </string>
+
+    <!-- Completion toast -->
+    <string name="done">已完成</string>
+    <string name="undo">撤销</string>
+    <string name="task_completed">已完成「%1$s」</string>
+</resources>

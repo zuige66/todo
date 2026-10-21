@@ -1,0 +1,69 @@
+# ============================================================
+# Oneline (com.lirui.oneline) — Android / Gradle Kotlin DSL
+# ============================================================
+
+# ---------- 1. Gradle 构建产物 ----------
+.gradle/
+.kotlin/
+build/
+app/build/
+*/build/
+*/.kotlin/
+.ksp/
+
+# ---------- 2. 本机 / 机密配置（★ 绝不能提交）----------
+# SDK 绝对路径
+local.properties
+# 签名密钥与口令
+keystore.properties
+*.keystore
+*.jks
+*.jks.old
+
+# ---------- 3. 打包产物 ----------
+*.apk
+*.ap_
+*.aab
+*.aab.tmp
+output.json
+output-metadata.json
+app/release/
+app/debug/
+
+# ---------- 4. IDE ----------
+.idea/
+*.iml
+*.ipr
+*.iws
+out/
+.project
+.classpath
+.settings/
+.nav/
+*.swp
+*~
+
+# ---------- 5. 操作系统 ----------
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+desktop.ini
+ehthumbs.db
+
+# ---------- 6. Android 杂项 ----------
+captures/
+.externalNativeBuild/
+.cxx/
+*.log
+lint-report.html
+lint-results*.xml
+native-libs/
+
+# ---------- 7. 本项目临时验证目录 ----------
+_smoke/
+
+# ---------- 8. Agent 工作区（会话日志、抓取的截图等，仅本机）----------
+.workbuddy/
