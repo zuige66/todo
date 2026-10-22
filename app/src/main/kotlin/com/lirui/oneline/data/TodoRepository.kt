@@ -55,13 +55,13 @@ class TodoRepository(private val context: Context) {
         return LocalTime.of(mo / 60, mo % 60)
     }
 
-    /** Settings test button: a 「通知测试（事件）」 todo due at the next whole minute. */
+    /** Settings test button: a 「通知测试 该办了」 todo due at the next whole minute. */
     suspend fun addTestInOneMinute(): Long {
         val zone = AppTime.ZONE
         val due = ZonedDateTime.now(zone).withSecond(0).withNano(0).plusMinutes(1)
         val epoch = due.toInstant().toEpochMilli()
         val id = dao.insert(Todo(
-            title = "通知测试（事件）",
+            title = "通知测试 该办了",
             detail = "下一分钟到期",
             dueAtMillis = epoch,
             hasExactTime = true

@@ -25,6 +25,9 @@ object NotificationHelper {
      */
     private const val NOTIFICATION_ID_TEST = 1001
 
+    /** 「完成」态的正文，正式提醒与测试通知共用一份，避免两处写法漂移。 */
+    private const val DONE_TEXT = "已完成 · 点「撤回」可恢复"
+
     /** Action ids handled by [NotificationActionReceiver]. */
     const val ACTION_COMPLETE = "com.lirui.oneline.action.COMPLETE"
     const val ACTION_UNDO = "com.lirui.oneline.action.UNDO"
@@ -91,18 +94,21 @@ object NotificationHelper {
         silent: Boolean = false
     ) {
         if (!canPostNotifications(context)) return
-        // 详情那句文案用 todoId 当种子取，**不能用随机**：
+        // 文案用 todoId 当种子取，**不能用随机**：
         // 「完成 / 撤回」是同一 notification id 的原地重发，随机会让每点一次按钮文案就换一条，
         // 看起来像 bug。同一条待办从生到死必须是同一句。
         val quote = Quotes.forTodo(todoId)
-        val body = if (done) "已完成 · 点「撤回」可恢复" else message
+        // ★ 正文（折叠态唯一那一行）必须放**文案**，不能放 message。
+        // 教训：上一版把文案塞进 BigTextStyle，正文留 message，结果澎湃的折叠态只渲染
+        // contentText，用户看到的还是"该办了"，等于文案根本没出现过。
+        // message（该办了 / 提前提醒 / 还没完成…）退到大字区第一行，展开才看得到。
+        val body = if (done) DONE_TEXT else quote
+        val detail = if (done) DONE_TEXT else "$message\n\n$quote"
         val builder = NotificationCompat.Builder(context, CHANNEL_REMINDER)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(title)
             .setContentText(body)
-            // 折叠时只显示 body；展开后才是「body + 空行 + 一句文案」。
-            // 国产 ROM（澎湃 / ColorOS / Funtouch）默认就是折叠态，所以这行是"点开才有"的详情。
-            .setStyle(NotificationCompat.BigTextStyle().bigText("$body\n\n$quote"))
+            .setStyle(NotificationCompat.BigTextStyle().bigText(detail))
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
             .setContentIntent(openAppIntent(context, todoId, done))
@@ -132,8 +138,8 @@ object NotificationHelper {
      *
      * 按钮只翻转这条通知自己的状态（「完成」⇄「撤回」），不碰数据库，原因见 [EXTRA_IS_TEST]。
      *
-     * @param quote 走 `BigTextStyle`：折叠时看到的是 [message]（比如「该办了」），
-     *   展开后才显示这行长文案。国产 ROM 很多默认就是折叠态，这正好当"详情"用。
+     * @param quote 直接进 `setContentText` —— 折叠态那一行就是它。别塞进 BigTextStyle：
+     *   折叠态不渲染大字区，等于文案根本没出现过（踩过一次）。
      */
     fun postTest(
         context: Context,
@@ -143,11 +149,14 @@ object NotificationHelper {
         done: Boolean = false
     ) {
         if (!canPostNotifications(context)) return
-        val body = if (done) "已完成 · 点「撤回」可恢复" else message
+        // 与真实提醒同一套排布：折叠态正文就是文案，message 退到大字区第一行。
+        val body = if (done) DONE_TEXT else (quote ?: message)
+        val detail = if (done || quote == null) body else "$message\n\n$quote"
         val builder = NotificationCompat.Builder(context, CHANNEL_REMINDER)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(title)
             .setContentText(body)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(detail))
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
             .setContentIntent(openAppIntent(context, 0L, done))
@@ -165,9 +174,6 @@ object NotificationHelper {
                     quote
                 )
             )
-        if (quote != null) {
-            builder.setStyle(NotificationCompat.BigTextStyle().bigText("$body\n\n$quote"))
-        }
         try {
             NotificationManagerCompat.from(context).notify(NOTIFICATION_ID_TEST, builder.build())
         } catch (_: SecurityException) {

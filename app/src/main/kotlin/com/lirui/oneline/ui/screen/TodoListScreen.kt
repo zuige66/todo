@@ -374,11 +374,11 @@ private fun TodoAppContent(
                     onExactAlarmSettings = onExactAlarmSettings,
                     onTestNotification = {
                         if (NotificationHelper.canPostNotifications(context)) {
-                            // 标题/正文是固定的，"详情"每次随机一条文案 —— 顺带能看出
-                            // 不同长度在通知栏里会不会被截断。
+                            // 标题/正文与「新建下一分钟测试待办」那条完全一致：
+                            // 标题带「该办了」，正文直接放文案（折叠态就能看见）。
                             NotificationHelper.postTest(
                                 context,
-                                "通知测试（事件）",
+                                "通知测试 该办了",
                                 "该办了",
                                 quote = Quotes.random()
                             )
