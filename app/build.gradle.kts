@@ -54,9 +54,11 @@ android {
         // 0.6.0 = 设置页重排：提醒可靠性(含后台常驻)置顶并带状态徽章、逾期/默认时刻并入「提醒」、
         //         通知标题+文案合并「通知样式」、自动顺延进「列表与待办」；关于页隐藏浮层顶栏（hero 即页头）；
         //         「沉浸式顶栏」开关退役。
+        // 0.6.1 = 修后台常驻关不掉（setEnabled 关闭分支误返 true）；归档撤销条不再被浮层顶栏挡住
+        //         （移到顶栏下方并跟随其位移）；关于页排序改 开发者→应用→项目（两字标题）。
         // 每次发版：versionCode 必须单调递增（Android 用它判断升级），versionName 给人看。
-        versionCode = 12
-        versionName = "0.6.0"
+        versionCode = 13
+        versionName = "0.6.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

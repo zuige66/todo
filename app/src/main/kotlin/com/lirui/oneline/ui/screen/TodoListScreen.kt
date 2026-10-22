@@ -542,12 +542,18 @@ private fun TodoAppContent(
                                     justCompleted = null
                                 },
                                 onDismiss = { justCompleted = null },
-                                modifier = Modifier.padding(
-                                    start = 16.dp,
-                                    end = 16.dp,
-                                    top = statusBarDp + 8.dp,
-                                    bottom = 8.dp
-                                )
+                                // ★ 位置：顶栏【下方】（statusBar + 64 + 8），并跟着顶栏一起位移。
+                                //   原来只让出 statusBar，撤销条正好落在浮层顶栏后面 ——
+                                //   归档完"通知不见了"，下滑收起顶栏才露出来（用户 0.6.0 反馈）。
+                                modifier = Modifier
+                                    .padding(horizontal = 16.dp)
+                                    .graphicsLayer {
+                                        translationY = topBarCollapse.offset.floatValue
+                                    }
+                                    .padding(
+                                        top = statusBarDp + TOP_BAR_BODY_HEIGHT + 8.dp,
+                                        bottom = 8.dp
+                                    )
                             )
                         }
                     }

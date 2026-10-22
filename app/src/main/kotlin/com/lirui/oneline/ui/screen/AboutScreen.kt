@@ -304,7 +304,9 @@ fun AboutScreen(
                 // hero 是叠在上层的（不是列表项），这里留出等高空位让它可见。
                 Spacer(Modifier.height(heroHeight))
             }
-            item { AboutSectionTitle("关于应用") }
+            item { AboutSectionTitle("开发者") }
+            item { DeveloperCard() }
+            item { AboutSectionTitle("应用") }
             item {
                 AboutCard {
                     InfoRow("版本", "$versionName ($versionCode)")
@@ -319,9 +321,7 @@ fun AboutScreen(
                     )
                 }
             }
-            item { AboutSectionTitle("开发者") }
-            item { DeveloperCard() }
-            item { AboutSectionTitle("关于项目") }
+            item { AboutSectionTitle("项目") }
             item {
                 AboutCard {
                     LinkRow("GitHub 仓库", "zuige66/todo") { openUrl(context, REPO_URL) }

@@ -145,6 +145,10 @@ object KeepAlive {
     /**
      * 用户拨动开关。
      *
+     * ★ 返回值的语义是「**调用之后服务最终在不在跑**」，不是「操作成功没成功」。
+     *   v0.6.0 这里在关闭分支也 return true，调用方拿它更新开关状态，
+     *   结果点了"关闭"→ 开关被写回 true → 看着永远关不掉。
+     *
      * ★ 顺序是「先启动、成功了才落盘」：开关的状态必须反映**服务真的在跑**，
      *   否则会出现"设置里是开的、通知栏没有、服务也没起"的假象（Android 12+ 后台
      *   启动前台服务会被直接拒绝，这个分支是真实存在的）。
@@ -153,7 +157,7 @@ object KeepAlive {
         if (!enabled) {
             SettingsRepo.setKeepAliveEnabled(context, false)
             stop(context)
-            return true
+            return false
         }
         val ok = start(context)
         SettingsRepo.setKeepAliveEnabled(context, ok)
