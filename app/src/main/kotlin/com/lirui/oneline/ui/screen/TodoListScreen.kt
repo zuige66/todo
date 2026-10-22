@@ -375,10 +375,10 @@ private fun TodoAppContent(
                     onTestNotification = {
                         if (NotificationHelper.canPostNotifications(context)) {
                             // 标题/正文与「新建下一分钟测试待办」那条完全一致：
-                            // 标题带「该办了」，正文直接放文案（折叠态就能看见）。
+                            // emoji 与状态语由 NotificationHelper 统一拼，这里只给原始标题。
                             NotificationHelper.postTest(
                                 context,
-                                "通知测试 该办了",
+                                "通知测试",
                                 "该办了",
                                 quote = Quotes.random()
                             )
