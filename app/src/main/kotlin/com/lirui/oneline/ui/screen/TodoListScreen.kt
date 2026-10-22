@@ -576,17 +576,19 @@ private fun TodoAppContent(
                 .fillMaxWidth()
                 .height(topBarHeight)
                 .align(Alignment.TopCenter)
-                // ★ 底色画在**这一层滑动容器**上，不指望 TopAppBar 内部的 Surface。
-                //   v0.5.1 把 alpha 加在了整个容器上（想淡出标题），结果连底色一起淡掉：
-                //   收起过程中上面变成一片透明，底下的列表直接透上来 —— 这就是"上面空白、
-                //   能看到下面的东西"。现在底色不参与淡出，只有标题淡。
-                .background(MaterialTheme.colorScheme.surfaceContainer)
-                .clipToBounds()
+                // ★★★ graphicsLayer 必须放在 background **之前**。
+                //   Compose 的修饰符链是"左外右内"：graphicsLayer 只包住**它右边**的绘制。
+                //   v0.5.2/0.5.3 写成了 `.background().clipToBounds().graphicsLayer{}`——
+                //   底色画在层外面，translationY 动的是层内的 TopAppBar，底色纹丝不动。
+                //   这就是四轮都修不好的真因：文字和底色根本不在同一个坐标系里。
+                //   现在顺序是 层 → 底色 → 裁剪：三者一起平移，整条同时离场。
                 .graphicsLayer {
                     // 延迟读取：滚动时只改 RenderNode 的 translationY，不重组。
                     // 位移上限 = 整条高度，滑到底就是彻底离场（内容顶到状态栏下面）。
                     translationY = topBarCollapse.offset.floatValue
                 }
+                .background(MaterialTheme.colorScheme.surfaceContainer)
+                .clipToBounds()
         ) {
             Column(Modifier.fillMaxSize()) {
                 Spacer(Modifier.height(statusBarDp))

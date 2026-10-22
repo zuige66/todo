@@ -256,3 +256,34 @@
 结论：**标题和底色必须同时离场**，不要给标题单独做淡出。位移 1:1（列表滚多少、顶栏就走多少），
 到 statusBar+64 时整条离开屏幕，内容顶到状态栏下面。
 中间那段"细条正在滑走"是正常的离场过程，不是卡住。
+
+### 0.5.4：四轮修不好的真因 —— graphicsLayer 的修饰符顺序
+
+顶栏"纹丝不动"的真正原因不是几何、不是淡出，是 **Compose 修饰符链的包含关系**：
+
+```
+修饰符链：左 = 外层，右 = 内层；graphicsLayer 只包住它【右边】的绘制。
+```
+
+v0.5.2/0.5.3 的写法：
+
+```kotlin
+.background(surfaceContainer)   // 画在层外 → translationY 管不到
+.clipToBounds()
+.graphicsLayer { translationY = ... }   // 层只包住里面的 TopAppBar
+```
+
+于是底色永远不动，只有 TopAppBar 在动/淡出 —— "文字没了栏还在"（0.5.2）、
+"栏完全不动"（0.5.3）全是这一个原因。v0.5.0 能动是因为 graphicsLayer 直接挂在
+TopAppBar 的 modifier 上、链里没有底色。
+
+正确写法：
+
+```kotlin
+.graphicsLayer { translationY = ... }   // 先建层
+.background(surfaceContainer)           // 底色画进层内 → 跟着动
+.clipToBounds()
+```
+
+**判据（写代码前先想）**：要让"底色 + 内容"作为一个整体做绘制期变换，
+graphicsLayer 必须是链条上最靠左的那个绘制类修饰符。

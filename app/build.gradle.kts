@@ -49,9 +49,11 @@ android {
         //         白名单时也能打开页面（原来直接 return，点了没反应）、可靠性行只保留「前往」。
         // 0.5.3 = 去掉标题单独淡出：标题和底色必须同时离场，否则会出现
         //         "文字没了、下面还留一条空底色"（用户报的"导航栏还在，只是文字消失"）。
+        // 0.5.4 = 修顶栏不动的真因：graphicsLayer 写在 background 之后，层只包住内部内容，
+        //         底色画在层外 → translationY 永远动不了底色。调整修饰符顺序（层→底色→裁剪）。
         // 每次发版：versionCode 必须单调递增（Android 用它判断升级），versionName 给人看。
-        versionCode = 10
-        versionName = "0.5.3"
+        versionCode = 11
+        versionName = "0.5.4"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
