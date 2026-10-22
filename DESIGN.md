@@ -1783,3 +1783,97 @@ translateY = (108 - 12) / 2 - 2.4 = 45.6
 
 本轮没动：它改的是用户桌面上的图标外观，属于视觉决策，不跟崩溃修复混在一次提交里。
 
+---
+
+## 32. 圆圈归档时的「灰色方块」与归档页没有回弹（2026-10-22）
+
+两个现象，一个是我们写错了，另一个根本不是 bug。分开说。
+
+### 32.1 灰色方块：ripple 被裁在了方形节点上
+
+**现象**：点待办前面的圆圈 → 圆里出现一个比圆大一圈的**灰色正方形**，边缘是直角。
+
+**根因**（`TodoListScreen.kt` 的 `CheckCircle`）：
+
+```kotlin
+Box(modifier = modifier.size(26.dp).clickable(onClick = onClick)) { ... }
+```
+
+- 节点是 **26dp × 26dp 的正方形**
+- 里面画的圆：`radius = size.minDimension / 2 - strokeW` = `13 - 2` = **11dp**（直径 22dp）
+- `clickable` 默认用 `LocalIndication`（Material3 `ripple()`），它的 `bounded` 默认 `true`
+  → **涟漪被裁在节点的边界内，也就是那个正方形里**
+
+于是 26dp 的方块套在 22dp 的圆外面。颜色是默认的 `LocalContentColor`（`onSurface`）降 alpha，
+在 `primaryContainer` 那种淡紫底上看起来就是一块脏灰。
+
+**为什么它偏偏在"点下去"那一帧最明显**：`checked` 一置 true，600ms 填充弧线开始，
+填充圆是 `fillColor`（primary 深紫），压在上面；方块露在四周，两种颜色一撞就特别扎眼。
+
+**修法**（`CheckCircle`）：
+
+```kotlin
+val indication = remember(fillColor) { ripple(color = fillColor) }
+
+Box(
+    modifier = modifier
+        .size(26.dp)
+        .clip(CircleShape)          // ← 关键：把涟漪一起裁成圆
+        .clickable(
+            interactionSource = remember { MutableInteractionSource() },
+            indication = indication,
+            onClick = onClick
+        ),
+    ...
+)
+```
+
+两个细节：
+
+1. **必须 `clip`，不能只改 `ripple(radius = 11.dp)`。** 有界 ripple 会以**落点**为圆心扩散；
+   点在角落时，半径 11dp 的圆会被矩形边界切出一条直边 —— 又是"圆角方块"。裁成圆之后，
+   无论点在哪，可见边界永远是那个圆。
+2. **颜色要染色成 `fillColor`，并且要 `remember`。** 染色让涟漪和随后的填充是同一个颜色，
+   读起来是"填充从按下处开始"而不是"多了一下闪光"；`ripple()` 每次调用返回新实例，
+   不缓存会让涟漪状态在重组时被重建（手指还按着，涟漪闪一下重来）。
+
+### 32.2 归档页没有回弹：Compose 按「能不能滚」决定要不要 overscroll
+
+**现象**：首页、设置在顶部继续上滑会有拉伸回弹；归档页没有。
+
+**这不是缺陷，是 Compose 的既定行为**，源码依据 `Scrollable.kt:839-840`：
+
+```kotlin
+private val shouldDispatchOverscroll
+    get() = scrollableState.canScrollForward || scrollableState.canScrollBackward
+```
+
+只有当列表**向前或向后本来就能滚**时，才把剩余滚动量交给 overscroll（EdgeEffect 拉伸）。
+归档页条目本来就不满一屏 → `canScrollForward == false && canScrollBackward == false`
+→ 剩余量直接丢弃，一帧拉伸都不会有。
+
+所以判据是**这一页内容够不够长**，不是"这是哪一页"：首页只有一两条待办时同样没有回弹，
+归档攒到超过一屏时同样会有。
+
+**处理建议：不动。** 想强制一致只有两条路，都更糟：
+
+| 方案 | 代价 |
+|---|---|
+| 给归档列表底部加不可见占位撑过一屏 | 多出一段能滚的空白，比"没有回弹"更怪 |
+| 全局 `LocalOverscrollFactory provides null` 关掉回弹 | 三页一致，但丢掉 Android 12+ 的原生拉伸手感，且首页/设置的现有手感被拉平 |
+
+### 32.3 顺带记录：圆圈触摸区只有 26dp
+
+`CheckCircle` 的可点区域就是 26dp，低于 Android 建议的 48dp 最小触摸目标。
+本轮**没有改**：把它扩到 48dp 会改变行高（当前行内垂直 padding 10dp，内容高度由圆圈撑起），
+属于布局决策。要改的话做法是外层 48dp 只承担点击、内层 26dp 画圆，
+同时把行内 padding 相应减小 —— 需要重新量一遍行高，不跟这次视觉修复混在一起。
+
+### 32.4 验证
+
+- `assembleRelease` 通过；单测 **163 条全绿**
+- 确认 `classes/.../TodoListScreenKt.class`（12:00 重编）里已引用 `RippleKt` 与 `CircleShape`
+- APK `dist/oneline-0.3-release.apk`
+- 真机待验：按下圆圈应看到**圆形**涟漪（primary 色），与填充弧线同色；不再有直角方块
+
+

@@ -47,6 +47,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
@@ -66,6 +67,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ripple
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -1506,8 +1508,23 @@ private fun CheckCircle(progress: Float, overdue: Boolean, onClick: () -> Unit, 
     else MaterialTheme.colorScheme.primary
     val fillColor = if (overdue) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
 
+    // 触摸反馈必须裁成圆，颜色必须跟填充弧线一致：
+    // clickable 的 ripple 是「有界」的，边界就是节点本身 —— 这里是 26dp 的**方形**，
+    // 而里面画的圆只有 22dp，不裁的话按下时是一个套在圆外面的灰色方块（视觉上像块脏底）。
+    // 染色成 fillColor 是为了让涟漪和随后的 600ms 填充是同一个颜色，
+    // 读起来是"填充从按下处开始"，而不是"多了一下闪光"。
+    // 注意 remember：ripple() 每次调用都返回新实例，不缓存会把涟漪状态重建一遍。
+    val indication = remember(fillColor) { ripple(color = fillColor) }
+
     Box(
-        modifier = modifier.size(26.dp).clickable(onClick = onClick),
+        modifier = modifier
+            .size(26.dp)
+            .clip(CircleShape)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = indication,
+                onClick = onClick
+            ),
         contentAlignment = Alignment.Center
     ) {
         Canvas(Modifier.fillMaxSize()) {
