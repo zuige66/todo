@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Widget 专用颜色。为什么不用 ?attr/colorSurface 这类主题属性：
+  RemoteViews 的布局跑在 Launcher 进程里，拿不到本应用的主题 —— 只能用资源 id，
+  靠 values / values-night 两份副本跟随系统深浅色。
+-->
+<resources>
+    <!-- 接近 App 的 surface，比纯黑/纯白柔和一点，和桌面壁纸不打架 -->
+    <color name="widget_bg">#F6F6F3</color>
+    <color name="widget_text">#1B1B1A</color>
+    <color name="widget_text_secondary">#77756E</color>
+    <color name="widget_divider">#E2E0DA</color>
+    <!-- 行首圆圈：未完成态 = 主色描边空心 -->
+    <color name="widget_circle_stroke">#0F766E</color>
+    <!-- 逾期红：和列表里同一个色系 -->
+    <color name="widget_overdue">#B3261E</color>
+    <!-- 行点击的按压反馈（RemoteViews 上做不了 ripple，用淡淡的实色） -->
+    <color name="widget_row_pressed">#EDECE7</color>
+</resources>

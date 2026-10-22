@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  行的按压反馈。RemoteViews 不支持 ripple，用一张"圆角实色"的 state list：
+  pressed 时换深一点的底色，让用户知道点中了。
+-->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_pressed="true">
+        <shape android:shape="rectangle">
+            <solid android:color="@color/widget_row_pressed" />
+            <corners android:radius="14dp" />
+        </shape>
+    </item>
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="@android:color/transparent" />
+            <corners android:radius="14dp" />
+        </shape>
+    </item>
+</selector>

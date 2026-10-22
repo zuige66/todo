@@ -96,6 +96,28 @@
                 android:value="日程提醒常驻：用于及时响应提醒通知上的操作，用户可在设置里关闭" />
         </service>
 
+        <!-- 桌面小组件：一个 provider，纵横可拉。2×2 = 紧凑行 4 条；拉高 = 标准行 6 条。
+             exported=false：系统（Launcher）通过 APPWIDGET_UPDATE 触达，
+             不需要别的应用来更新；COMPLETE 动作只来自我们自己的 PendingIntent。 -->
+        <receiver
+            android:name=".widget.TodoWidgetProvider"
+            android:exported="false"
+            android:label="@string/widget_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="com.lirui.oneline.widget.action.COMPLETE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.action.APPWIDGET_UPDATE"
+                android:resource="@xml/todo_widget_info" />
+        </receiver>
+
+        <!-- Widget 列表的数据源。BIND_REMOTE_VIEWS 是系统权限：只有 Launcher 能绑定它。 -->
+        <service
+            android:name=".widget.TodoWidgetService"
+            android:exported="false"
+            android:permission="android.permission.BIND_REMOTE_VIEWS" />
+
         <!-- 把内部存储里的 update/ 目录以 content:// 交给系统安装器。
              authority 必须与 UpdateDownloadService 里 "$packageName.fileprovider" 一致。 -->
         <provider

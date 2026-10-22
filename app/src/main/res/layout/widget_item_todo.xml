@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  标准行（2×4 / 4×4 用）。
+
+  行结构：[圆圈] [标题（弹性，单行省略）] [日期]
+  圆圈是独立的 view（widget_circle），点它 = 直接完成（PendingIntent 走广播）；
+  整行点 = 打开 App。两个 PendingIntent 挂在不同的 view 上，互不冲突。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_row"
+    android:layout_width="match_parent"
+    android:layout_height="46dp"
+    android:background="@drawable/widget_row_bg"
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:paddingStart="6dp"
+    android:paddingEnd="10dp">
+
+    <ImageView
+        android:id="@+id/widget_circle"
+        android:layout_width="20dp"
+        android:layout_height="20dp"
+        android:contentDescription="@string/done"
+        android:src="@drawable/widget_circle" />
+
+    <TextView
+        android:id="@+id/widget_title"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:ellipsize="end"
+        android:maxLines="1"
+        android:paddingStart="10dp"
+        android:textColor="@color/widget_text"
+        android:textSize="14sp" />
+
+    <TextView
+        android:id="@+id/widget_due"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:maxLines="1"
+        android:paddingStart="8dp"
+        android:textColor="@color/widget_text_secondary"
+        android:textSize="11sp" />
+</LinearLayout>

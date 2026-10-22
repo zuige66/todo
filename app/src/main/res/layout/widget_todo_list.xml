@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Widget 主布局：头部 + 列表 + 空状态。
+
+  ★ 高度自适应逻辑在 TodoWidgetProvider 里（读 AppWidgetOptions 的 heightDp）：
+   - 高 < 200dp（2×2）：item 用 widget_item_todo_compact，最多 4 条
+   - 否则（2×4 / 4×4）：item 用 widget_item_todo，最多 6 条
+  ListView 的 adapter 通过 RemoteViewsService 提供（RemoteViews 的列表必须这么干，
+  Launcher 进程里跑的是我们的 Service，数据同步查 Room）。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/widget_bg"
+    android:orientation="vertical">
+
+    <!-- 头部：标题 + 条数。不加刷新按钮 —— 点击列表/圆圈之外的地方就是打开 App，
+         足够覆盖"刷新"诉求，且少一个元素少一分误触。 -->
+    <LinearLayout
+        android:id="@+id/widget_header"
+        android:layout_width="match_parent"
+        android:layout_height="26dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="14dp"
+        android:paddingEnd="14dp">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="@string/widget_label"
+            android:textColor="@color/widget_text"
+            android:textSize="13sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/widget_count"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="@color/widget_text_secondary"
+            android:textSize="11sp"
+            tools:text="4 条"
+            xmlns:tools="http://schemas.android.com/tools" />
+    </LinearLayout>
+
+    <ListView
+        android:id="@+id/widget_list"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:clipToPadding="false"
+        android:divider="@null"
+        android:paddingStart="10dp"
+        android:paddingEnd="10dp"
+        android:paddingBottom="6dp"
+        android:scrollbars="none" />
+
+    <TextView
+        android:id="@+id/widget_empty"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:gravity="center"
+        android:text="@string/widget_empty"
+        android:textColor="@color/widget_text_secondary"
+        android:textSize="13sp"
+        android:visibility="gone" />
+</LinearLayout>

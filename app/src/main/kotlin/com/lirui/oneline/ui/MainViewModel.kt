@@ -11,6 +11,7 @@ import com.lirui.oneline.data.model.Todo
 import com.lirui.oneline.parser.Parser
 import com.lirui.oneline.parser.ParsedTodo
 import com.lirui.oneline.util.AppTime
+import com.lirui.oneline.widget.WidgetUpdater
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -88,7 +89,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         lastParses = parsedList
         lastParse = parsedList.firstOrNull()
         // One todo per parsed date ("明天后天晚上开会" -> two reminders).
-        viewModelScope.launch { parsedList.forEach { repo.addFromParsed(it) } }
+        viewModelScope.launch {
+            parsedList.forEach { repo.addFromParsed(it) }
+            WidgetUpdater.refreshAsync(getApplication())
+        }
         return AddResult.Success
     }
 
@@ -102,13 +106,19 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val final = if (keepRepeat) parsed else parsed.copy(repeatDays = 0)
         lastParse = final
         lastParses = listOf(final)
-        viewModelScope.launch { repo.editFromParsed(id, final) }
+        viewModelScope.launch {
+            repo.editFromParsed(id, final)
+            WidgetUpdater.refreshAsync(getApplication())
+        }
         return AddResult.Success
     }
 
     /** Create a "测试通知" todo due at the next whole minute (settings page test button). */
     fun addTestInOneMinute() {
-        viewModelScope.launch { repo.addTestInOneMinute() }
+        viewModelScope.launch {
+            repo.addTestInOneMinute()
+            WidgetUpdater.refreshAsync(getApplication())
+        }
     }
 
     fun archive(id: Long) {
@@ -157,6 +167,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 if (!repo.archive(id)) {
                     _messages.tryEmit("这条待办已经不在了")
                 }
+                WidgetUpdater.refreshAsync(getApplication())
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (error: Throwable) {
@@ -171,12 +182,18 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun unarchive(id: Long) {
         _pendingArchive.update { it - id }
-        viewModelScope.launch { repo.unarchive(id) }
+        viewModelScope.launch {
+            repo.unarchive(id)
+            WidgetUpdater.refreshAsync(getApplication())
+        }
     }
 
     fun delete(id: Long) {
         _pendingArchive.update { it - id }
-        viewModelScope.launch { repo.delete(id) }
+        viewModelScope.launch {
+            repo.delete(id)
+            WidgetUpdater.refreshAsync(getApplication())
+        }
     }
 }
 

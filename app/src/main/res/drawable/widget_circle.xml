@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  行首圆圈：未完成态 = 主色描边空心圆。
+  完成动作点了直接刷新列表（RemoteViews 里做不了打勾动画），
+  所以不需要 selected/pressed 状态图。
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="oval">
+    <stroke
+        android:width="2dp"
+        android:color="@color/widget_circle_stroke" />
+    <solid android:color="@android:color/transparent" />
+    <size
+        android:width="20dp"
+        android:height="20dp" />
+</shape>

@@ -22,4 +22,10 @@
     <string name="done">已完成</string>
     <string name="undo">撤销</string>
     <string name="task_completed">已完成「%1$s」</string>
+
+    <!-- Home screen widget -->
+    <string name="widget_label">待办</string>
+    <string name="widget_description">显示最近的待办，点行首圆圈直接完成</string>
+    <string name="widget_empty">暂无待办，点 + 添加</string>
+    <string name="widget_header_count">%1$d 条</string>
 </resources>

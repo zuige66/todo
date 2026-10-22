@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  紧凑行（2×2 用）：同样的结构，行高压到 34dp、字号降一档，
+  让 160dp 的高度里塞得下 4 条（zuige 要求 2×2 也显示最近 4 条）。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_row"
+    android:layout_width="match_parent"
+    android:layout_height="34dp"
+    android:background="@drawable/widget_row_bg"
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:paddingStart="4dp"
+    android:paddingEnd="8dp">
+
+    <ImageView
+        android:id="@+id/widget_circle"
+        android:layout_width="16dp"
+        android:layout_height="16dp"
+        android:contentDescription="@string/done"
+        android:src="@drawable/widget_circle" />
+
+    <TextView
+        android:id="@+id/widget_title"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:ellipsize="end"
+        android:maxLines="1"
+        android:paddingStart="8dp"
+        android:textColor="@color/widget_text"
+        android:textSize="12sp" />
+
+    <TextView
+        android:id="@+id/widget_due"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:maxLines="1"
+        android:paddingStart="6dp"
+        android:textColor="@color/widget_text_secondary"
+        android:textSize="10sp" />
+</LinearLayout>
