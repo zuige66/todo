@@ -1876,4 +1876,69 @@ private val shouldDispatchOverscroll
 - APK `dist/oneline-0.3-release.apk`
 - 真机待验：按下圆圈应看到**圆形**涟漪（primary 色），与填充弧线同色；不再有直角方块
 
+---
+
+## 33. 开发者卡片：头像补回 + 展开时重叠（2026-10-22）
+
+### 33.1 重叠的真正原因：Surface 的 content 是 Box，不是 Column
+
+抄 HyperMeloLock 关于页时把 `Card` 换成了本项目统一的 `Surface`，但漏了一件事：
+
+```kotlin
+// 原版（HyperMeloLock）
+Card(...) {                    // Card 的 content 是 ColumnScope → 子节点纵向排列
+    Row { 头像 + 名字 + 箭头 }
+    if (expanded) Column { 两项外链 }
+}
+
+// 本项目（错）
+Surface(...) {                 // Surface 的 content 没有作用域 → 子节点全进同一个 Box
+    Row { ... }
+    if (expanded) Column { ... }
+}
+```
+
+`Surface` 的四个重载内部都是 `Box(propagateMinConstraints = true) { content() }`
+（material3 `Surface.kt` 第 130 / 238 / 347 / 456 行）。所以 `Row` 和展开的 `Column`
+**在 Z 轴上叠在一起**——点开就是"两行链接压在头像卡头上"。
+
+**修法**：Surface 里自己补一层 `Column`。
+
+> 通则：`Surface` / `Box` / `Scaffold` 的 content 都**不带布局方向**，连续写多个子节点
+> 一律是层叠。要纵向排列就得自己套 `Column`。`Card` / `Column` / `Row` 才带作用域。
+
+### 33.2 为什么"卡了一下"：animateContentSize 不裁子内容
+
+原来是给整张卡挂 `animateContentSize`。它只动画**父节点尺寸**，**不裁切子内容** ——
+展开的那 300ms 里，子项已经按最终高度画出来了，卡片还在长高，
+视觉上就是"内容先蹦出来、容器再追上去"，和上面的重叠叠在一起格外乱。
+
+改成展开区自带 `AnimatedVisibility(expandVertically + fadeIn)`
+（`expandVertically` 内部走 `SizeTransform`，**默认裁剪**），节奏由子项自己掌握：
+
+- 展开：`spring(DampingRatioLowBouncy)` → 带一点回弹
+- 收起：`spring(DampingRatioNoBouncy)` → 收起时不弹，避免"收回去又顶出来一下"
+
+### 33.3 头像
+
+`res/drawable-nodpi/dev_avatar.jpg`（500×500，72 KB）从
+`D:/Workplace/Hyper Music Scape Lock/app/src/main/res/drawable-nodpi/` 直接取来，
+与 HyperMeloLock 关于页同一张图。圆裁 56dp + `ContentScale.Crop`。
+
+放 `drawable-nodpi` 是刻意的：不走密度缩放，任何 dpi 下都按原图解码，
+再由 `ContentScale.Crop` 裁成圆——否则系统会按屏幕密度重新采样一遍，圆裁边缘会糊。
+
+之前那个"渐变圆 + 首字母 z"是占位符，不是设计。
+
+### 33.4 验证
+
+- `assembleRelease` 通过；`aapt2 dump resources` 确认 `drawable/dev_avatar` 已进包（0x7f050000）
+- APK 9382447 → **9455595** 字节（+73148，正好是这张 JPEG，说明资源确实打进去而不是复用了缓存）
+- **真机已装**：`adb install -r` → Success，`lastUpdateTime=2026-10-22 12:32:53`，
+  `versionCode=3 / versionName=0.3`
+- 启动验证：`am start` 后 `topResumedActivity=com.lirui.oneline/.MainActivity`，无启动崩溃
+- **未能自动验收**：该设备拒绝 `INJECT_EVENTS`（`adb shell input tap` 抛 SecurityException），
+  关于页需要点两下才到，只能靠手指。重叠与头像这两项属"静态可证 + 视觉待确认"。
+
+
 

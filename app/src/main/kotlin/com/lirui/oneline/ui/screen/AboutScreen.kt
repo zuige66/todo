@@ -7,11 +7,15 @@ import android.net.Uri
 import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -65,6 +69,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -376,10 +381,11 @@ private fun LinkRow(title: String, summary: String, onClick: () -> Unit) {
 }
 
 /**
- * 开发者卡片：头像块 + 名称 + GitHub 号 + 箭头，整头可点、就地弹性展开/收起
- * （`animateContentSize` + 箭头旋转 90°），展开区是 GitHub / Blog 两项外链。
+ * 开发者卡片：头像 + 名称 + GitHub 号 + 箭头，整头可点、就地弹性展开/收起
+ * （`AnimatedVisibility` 的 expandVertically + 箭头旋转 90°），展开区是 GitHub / Blog 两项外链。
  *
- * 没有头像图片，用主题色渐变圆 + 首字母代替，换配色时也跟着变。
+ * 头像用真图 `res/drawable-nodpi/dev_avatar.jpg`（500×500，与 HyperMeloLock 关于页同一张），
+ * 圆裁 56dp。早先偷懒画了个渐变圆 + 首字母"z"，那个是占位，不是成品。
  */
 @Composable
 private fun DeveloperCard() {
@@ -398,63 +404,75 @@ private fun DeveloperCard() {
     Surface(
         shape = MaterialTheme.shapes.extraLarge,
         color = cs.primaryContainer,
-        modifier = Modifier
-            .fillMaxWidth()
-            .animateContentSize(
-                animationSpec = spring(
-                    dampingRatio = Spring.DampingRatioLowBouncy,
-                    stiffness = Spring.StiffnessMediumLow
-                )
-            )
+        modifier = Modifier.fillMaxWidth()
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable { expanded = !expanded }
-                .padding(horizontal = 18.dp, vertical = 14.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
+        // ★ 这层 Column 不是装饰，是修 bug 的：
+        // `Surface` 的 content **没有作用域**，所有子节点都被塞进同一个 Box（Z 轴堆叠），
+        // 所以 `Row(...); if (expanded) Column(...)` 会让展开区直接**压在卡头上**。
+        // 原版 HyperMeloLock 用的是 `Card`，Card 的 content 是 ColumnScope，才没有这个问题。
+        Column {
+            Row(
                 modifier = Modifier
-                    .size(56.dp)
-                    .clip(CircleShape)
-                    .background(Brush.linearGradient(listOf(cs.primary, cs.tertiary))),
-                contentAlignment = Alignment.Center
+                    .fillMaxWidth()
+                    .clickable { expanded = !expanded }
+                    .padding(horizontal = 18.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    "z",
-                    fontSize = 26.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = cs.onPrimary
+                // 头像与 HyperMeloLock 关于页同一张：res/drawable-nodpi/dev_avatar.jpg（500×500）。
+                // 放 drawable-nodpi 是刻意的：不要密度缩放，圆裁后按 56dp 原样裁切。
+                Image(
+                    painter = painterResource(R.drawable.dev_avatar),
+                    contentDescription = "开发者头像",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .size(56.dp)
+                        .clip(CircleShape)
+                )
+                Column(modifier = Modifier.padding(start = 14.dp)) {
+                    Text(
+                        DEVELOPER_NAME,
+                        fontSize = 19.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = cs.onSurface
+                    )
+                    Text(
+                        "@$DEVELOPER_HANDLE",
+                        fontSize = 14.sp,
+                        color = cs.onSurfaceVariant
+                    )
+                }
+                Spacer(Modifier.weight(1f))
+                Icon(
+                    Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                    contentDescription = null,
+                    modifier = Modifier
+                        .padding(start = 12.dp)
+                        .graphicsLayer { rotationZ = arrowRotation },
+                    tint = cs.onSurfaceVariant
                 )
             }
-            Column(modifier = Modifier.padding(start = 14.dp)) {
-                Text(
-                    DEVELOPER_NAME,
-                    fontSize = 19.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = cs.onSurface
-                )
-                Text(
-                    "@$DEVELOPER_HANDLE",
-                    fontSize = 14.sp,
-                    color = cs.onSurfaceVariant
-                )
-            }
-            Spacer(Modifier.weight(1f))
-            Icon(
-                Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                contentDescription = null,
-                modifier = Modifier
-                    .padding(start = 12.dp)
-                    .graphicsLayer { rotationZ = arrowRotation },
-                tint = cs.onSurfaceVariant
-            )
-        }
-        if (expanded) {
-            Column(modifier = Modifier.padding(bottom = 8.dp)) {
-                LinkRow("GitHub", DEVELOPER_HANDLE) { openUrl(context, DEVELOPER_GITHUB_URL) }
-                LinkRow("博客", "blog.zuiges.com") { openUrl(context, DEVELOPER_BLOG_URL) }
+            // 展开区用 AnimatedVisibility（带 clip）而不是给整张卡加 animateContentSize：
+            // 后者只动画父节点尺寸、**不裁子内容**，展开的那 300ms 里子项会先按最终高度画出来，
+            // 看上去就是"内容已经在那了、卡片还在长高"——和上面的重叠 bug 叠在一起特别明显。
+            AnimatedVisibility(
+                visible = expanded,
+                enter = expandVertically(
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioLowBouncy,
+                        stiffness = Spring.StiffnessMediumLow
+                    )
+                ) + fadeIn(),
+                exit = shrinkVertically(
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioNoBouncy,
+                        stiffness = Spring.StiffnessMediumLow
+                    )
+                ) + fadeOut()
+            ) {
+                Column(modifier = Modifier.padding(bottom = 8.dp)) {
+                    LinkRow("GitHub", DEVELOPER_HANDLE) { openUrl(context, DEVELOPER_GITHUB_URL) }
+                    LinkRow("博客", "blog.zuiges.com") { openUrl(context, DEVELOPER_BLOG_URL) }
+                }
             }
         }
     }
