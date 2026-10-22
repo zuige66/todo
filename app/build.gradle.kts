@@ -56,9 +56,11 @@ android {
         //         「沉浸式顶栏」开关退役。
         // 0.6.1 = 修后台常驻关不掉（setEnabled 关闭分支误返 true）；归档撤销条不再被浮层顶栏挡住
         //         （移到顶栏下方并跟随其位移）；关于页排序改 开发者→应用→项目（两字标题）。
+        // 0.6.2 = 添加弹层预览卡片收紧（14/12/8，与输入框同宽同重）；「通知样式」改名「通知」，
+        //         提醒文案真正并入同卡，新增「常驻通知文案」编辑（保存即原地重建常驻通知）。
         // 每次发版：versionCode 必须单调递增（Android 用它判断升级），versionName 给人看。
-        versionCode = 13
-        versionName = "0.6.1"
+        versionCode = 14
+        versionName = "0.6.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

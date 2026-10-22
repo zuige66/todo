@@ -31,6 +31,8 @@ object SettingsRepo {
     private const val KEY_HOME_BUCKETS = "home_buckets"
     private const val KEY_CUSTOM_QUOTES = "custom_quotes"
     private const val KEY_KEEP_ALIVE = "keep_alive"
+    private const val KEY_KEEPALIVE_NOTIF_TITLE = "keepalive_notif_title"
+    private const val KEY_KEEPALIVE_NOTIF_TEXT = "keepalive_notif_text"
 
     const val FOLLOW_SYSTEM = 0
     const val LIGHT = 1
@@ -165,6 +167,31 @@ object SettingsRepo {
     fun setKeepAliveEnabled(context: Context, enabled: Boolean) {
         context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
             .edit().putBoolean(KEY_KEEP_ALIVE, enabled).apply()
+    }
+
+    // ---------- 常驻通知文案（后台常驻那条通知的标题/正文） ----------
+    //
+    // 默认值与 KeepAliveService 里原先硬编码的字符串一致 —— 改这里不会让
+    // "升级后通知文案突然变了"。空串是合法值：用户清空标题时用应用名兜底
+    // （通知标题为空会被系统折叠成包名，反而难看）。
+
+    const val DEFAULT_KEEPALIVE_TITLE = "提醒服务运行中"
+    const val DEFAULT_KEEPALIVE_TEXT = "点击查看待办 · 可在设置里关闭"
+
+    fun keepAliveNotifStyle(context: Context): KeepAliveNotifStyle {
+        val p = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+        return KeepAliveNotifStyle(
+            title = p.getString(KEY_KEEPALIVE_NOTIF_TITLE, null) ?: DEFAULT_KEEPALIVE_TITLE,
+            body = p.getString(KEY_KEEPALIVE_NOTIF_TEXT, null) ?: DEFAULT_KEEPALIVE_TEXT
+        )
+    }
+
+    fun saveKeepAliveNotif(context: Context, title: String, body: String) {
+        context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KEY_KEEPALIVE_NOTIF_TITLE, title)
+            .putString(KEY_KEEPALIVE_NOTIF_TEXT, body)
+            .apply()
     }
 
     // ---------- 提醒文案池 (custom quotes) ----------
@@ -343,4 +370,10 @@ data class NotificationStyle(
     val titleTemplate: String,
     val done: String,
     val dueWord: String
+)
+
+/** 常驻通知（后台常驻服务）的标题与正文。 */
+data class KeepAliveNotifStyle(
+    val title: String,
+    val body: String
 )

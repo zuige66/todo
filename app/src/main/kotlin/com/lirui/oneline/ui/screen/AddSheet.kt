@@ -182,11 +182,15 @@ private fun PreviewCard(parses: List<ParsedTodo>) {
         // 与设置页卡片、待办行同一套卡片色（Tokens.cardBackground），
         // 不再用 surfaceContainerHigh —— 那是中性灰，和主题配色对不上。
         color = MaterialTheme.colorScheme.cardBackground,
+        // ★ 与输入框/按钮严格同宽：三者都在同一个 Column 里 fillMaxWidth，
+        //   任何一方用 wrapContentWidth 或额外的水平 padding 都会破坏对齐。
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+            // 12dp 而不是 16dp：预览卡片是"辅助信息"，不该比输入框还厚重
+            // （用户反馈它"往下突出、压不住"，主要就是这块内边距太肥）。
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             if (items.size > 1) {
                 Text(

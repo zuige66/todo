@@ -155,6 +155,7 @@ import com.lirui.oneline.util.Format
 import com.lirui.oneline.util.HomeBoard
 import com.lirui.oneline.util.HomeBucket
 import com.lirui.oneline.util.HomeGrouping
+import com.lirui.oneline.util.KeepAliveNotifStyle
 import com.lirui.oneline.util.NotificationStyle
 import com.lirui.oneline.util.Quotes
 import com.lirui.oneline.util.SettingsRepo
@@ -1190,8 +1191,9 @@ private fun SettingsScreen(
         }
 
         // ═══ 3. 通知样式 ═══
-        // 原「通知标题」「提醒文案」两节合并：都是"通知长什么样"，没有分 two 节的理由。
-        item { SectionHeader("通知样式") }
+        // ═══ 3. 通知（v0.6.2 由「通知样式」改名）═══
+        // 一张卡装三样"通知长什么样"：标题模板、提醒文案、常驻通知文案。
+        item { SectionHeader("通知") }
         item {
             SettingsCard {
                 NotificationTitleEditor(
@@ -1209,12 +1211,7 @@ private fun SettingsScreen(
                         Toast.makeText(context, "通知标题已保存", Toast.LENGTH_SHORT).show()
                     }
                 )
-            }
-        }
-
-        item { SectionHeader("提醒文案") }
-        item {
-            SettingsCard {
+                ItemDivider()
                 QuotesEditor(
                     text = quotesText,
                     expanded = quotesExpanded,
@@ -1243,6 +1240,8 @@ private fun SettingsScreen(
                         ).show()
                     }
                 )
+                ItemDivider()
+                KeepAliveNotifEditor()
             }
         }
 
@@ -1605,6 +1604,81 @@ private fun PreviewLine(label: String, title: String) {
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
+    }
+}
+
+/**
+ * 「常驻通知文案」编辑器（v0.6.2 新增，设置 → 通知）。
+ *
+ * 编辑的是「后台常驻」开启后常驻在通知栏那条通知的标题和正文。
+ * 与「通知标题」同一套交互约定：草稿 + 脏标记 + 显式保存（不边打边写盘）。
+ *
+ * ★ 保存后调 [KeepAlive.refresh]：服务在跑就同一个通知 id 原地重建，
+ *   否则用户改完文案发现通知栏还是旧字，会以为保存失败了。
+ */
+@Composable
+private fun KeepAliveNotifEditor() {
+    val context = LocalContext.current
+    val initial = remember { SettingsRepo.keepAliveNotifStyle(context) }
+    var title by remember { mutableStateOf(initial.title) }
+    var body by remember { mutableStateOf(initial.body) }
+    var saved by remember { mutableStateOf(initial) }
+    val dirty = title != saved.title || body != saved.body
+
+    val fieldColors = OutlinedTextFieldDefaults.colors(
+        focusedBorderColor = MaterialTheme.colorScheme.primary,
+        unfocusedBorderColor = MaterialTheme.colorScheme.fieldBorder,
+        focusedContainerColor = MaterialTheme.colorScheme.fieldSurface,
+        unfocusedContainerColor = MaterialTheme.colorScheme.fieldSurface
+    )
+
+    Column(
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Text("常驻通知文案", style = MaterialTheme.typography.bodyLarge)
+        Text(
+            "开启「后台常驻」后常驻在通知栏的那条通知。留空标题会用应用名兜底。",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        OutlinedTextField(
+            value = title,
+            onValueChange = { title = it },
+            label = { Text("标题") },
+            singleLine = true,
+            shape = MaterialTheme.shapes.extraLarge,
+            colors = fieldColors,
+            modifier = Modifier.fillMaxWidth()
+        )
+        OutlinedTextField(
+            value = body,
+            onValueChange = { body = it },
+            label = { Text("正文") },
+            singleLine = true,
+            shape = MaterialTheme.shapes.extraLarge,
+            colors = fieldColors,
+            modifier = Modifier.fillMaxWidth()
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (dirty) {
+                TextButton(onClick = { title = saved.title; body = saved.body }) { Text("还原") }
+            }
+            TextButton(
+                enabled = dirty,
+                onClick = {
+                    SettingsRepo.saveKeepAliveNotif(context, title, body)
+                    saved = KeepAliveNotifStyle(title, body)
+                    // 服务在跑就原地重建通知（同一个 id），不用等它被杀后重启。
+                    KeepAlive.refresh(context)
+                    Toast.makeText(context, "常驻通知文案已保存", Toast.LENGTH_SHORT).show()
+                }
+            ) { Text("保存") }
+        }
     }
 }
 

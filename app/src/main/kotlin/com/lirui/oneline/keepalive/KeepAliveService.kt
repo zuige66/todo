@@ -1,5 +1,6 @@
 package com.lirui.oneline.keepalive
 
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -98,18 +99,26 @@ class KeepAliveService : Service() {
         nm.createNotificationChannel(channel)
     }
 
-    private fun buildNotification() = NotificationCompat.Builder(this, CHANNEL_KEEPALIVE)
-        .setSmallIcon(R.drawable.ic_notification)
-        .setContentTitle("提醒服务运行中")
-        .setContentText("点击查看待办 · 可在设置里关闭")
-        .setOngoing(true)
-        .setSilent(true)
-        .setShowWhen(false)
-        .setPriority(NotificationCompat.PRIORITY_LOW)
-        .setCategory(NotificationCompat.CATEGORY_SERVICE)
-        .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
-        .setContentIntent(openAppIntent())
-        .build()
+    private fun buildNotification(): Notification {
+        // 文案可编辑（设置 → 通知 → 常驻通知文案），默认值见 SettingsRepo。
+        // 空标题用应用名兜底：系统会把空标题折叠成包名，反而难看。
+        val style = SettingsRepo.keepAliveNotifStyle(this)
+        val appName = runCatching {
+            packageManager.getApplicationLabel(applicationInfo).toString()
+        }.getOrDefault("提醒服务")
+        return NotificationCompat.Builder(this, CHANNEL_KEEPALIVE)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(style.title.ifBlank { appName })
+            .setContentText(style.body)
+            .setOngoing(true)
+            .setSilent(true)
+            .setShowWhen(false)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
+            .setContentIntent(openAppIntent())
+            .build()
+    }
 
     private fun openAppIntent(): PendingIntent = PendingIntent.getActivity(
         this,
@@ -176,6 +185,19 @@ object KeepAlive {
     /** 开机 / 升级后按用户上次的选择恢复。失败就算了，不能因此崩掉广播接收器。 */
     fun startIfEnabled(context: Context) {
         if (isEnabled(context) && !isRunning) start(context)
+    }
+
+    /**
+     * 服务正在跑时，用**新文案重建**那条常驻通知（同一个 id，原地更新）。
+     *
+     * 用户在设置里改完常驻通知文案时调用 —— 否则要等服务被杀后重启才生效，
+     * 看着就像"改了没用"。不 stop 再 start：那会让通知先消失再出现，闪一下。
+     */
+    fun refresh(context: Context) {
+        if (!isRunning) return
+        val intent = Intent(context, KeepAliveService::class.java)
+        if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(intent)
+        else context.startService(intent)
     }
 
     fun stop(context: Context) {
