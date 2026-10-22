@@ -15,9 +15,18 @@ object Format {
         return "%d月%d日 %s".format(Locale.CHINA, d.monthValue, d.dayOfMonth, WEEKDAYS_CN[d.dayOfWeek.value - 1])
     }
 
-    /** Short date label with weekday for the add-sheet preview, e.g. "10月24日 周六". */
-    fun dateShort(d: LocalDate): String =
-        "%d月%d日 %s".format(Locale.CHINA, d.monthValue, d.dayOfMonth, WEEKDAYS_CN[d.dayOfWeek.value - 1])
+    /**
+     * Short date label with weekday for the add-sheet preview, e.g. "10月24日 周六".
+     *
+     * 跨年时必须带上年份：没写年份的「1月2日」在 10 月输入会被顺延到**明年**，
+     * 不显示年份的话用户看不出它到底落在哪一年，会以为解析错了。
+     */
+    fun dateShort(d: LocalDate, today: LocalDate = AppTime.today()): String {
+        val md = "%d月%d日 %s".format(
+            Locale.CHINA, d.monthValue, d.dayOfMonth, WEEKDAYS_CN[d.dayOfWeek.value - 1]
+        )
+        return if (d.year != today.year) "%d年 %s".format(Locale.CHINA, d.year, md) else md
+    }
 
     /** Time label: whole hours read "15点", otherwise "15:30". */
     fun timeLabel(t: java.time.LocalTime): String =

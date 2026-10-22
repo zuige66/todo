@@ -35,6 +35,16 @@ class FormatTest {
         assertEquals("2027年 1月15日 周五 15点", Format.dueLine(epoch(2027, 1, 15, 15), today))
     }
 
+    // ---- 添加弹层预览的日期 chip：跨年必须显示年份 ----
+    // 「1月二日」在 10 月输入会被顺延到明年，不显示年份用户看不出落在哪一年。
+    @Test fun dateShort_sameYear_hasNoYear() {
+        assertEquals("10月24日 周六", Format.dateShort(LocalDate.of(2026, 10, 24), today))
+    }
+
+    @Test fun dateShort_otherYear_showsYear() {
+        assertEquals("2027年 1月2日 周六", Format.dateShort(LocalDate.of(2027, 1, 2), today))
+    }
+
     // ---- 只写日期（无精确时刻）的待办：过了那一天才算逾期，不该 09:00 一过就变红 ----
     @Test fun dateOnly_todayIsNotOverdue_whenDefaultTimeHasPassed() {
         // 只写"今天"：默认提醒时刻 09:00 虽然过了，但整天都还算数

@@ -295,9 +295,12 @@ class ParserTest {
         assertFalse(r.dateError)
     }
 
-    @Test fun absoluteMmDd_past_errors() {
+    // 没写年份的月日：已过去就顺延到明年，不再报错（用户决策 2026-10-22）
+    @Test fun absoluteMmDd_past_rollsToNextYear() {
         val r = parse("9月1日开学")
-        assertTrue(r.dateError)
+        assertEquals("开学", r.title)
+        assertEquals(LocalDate.of(2027, 9, 1), r.dueDate)
+        assertFalse(r.dateError)
     }
 
     @Test fun numericShortMd() {
@@ -319,14 +322,84 @@ class ParserTest {
         assertEquals(LocalDate.of(2027, 1, 21), r.dueDate)
     }
 
-    @Test fun numericShortMd_past_errors() {
+    @Test fun numericShortMd_past_rollsToNextYear() {
         val r = parse("9.1 开学")
-        assertTrue(r.dateError)
+        assertEquals(LocalDate.of(2027, 9, 1), r.dueDate)
+        assertFalse(r.dateError)
     }
 
     @Test fun separatorVariants() {
         assertEquals(LocalDate.of(2026, 10, 23), parse("10/23 体检").dueDate)
         assertEquals(LocalDate.of(2026, 10, 23), parse("10-23 体检").dueDate)
+    }
+
+    // ---- 中文数字日期（用户实测：1月二日）----
+    @Test fun chineseNumeral_monthDay_mixedWithAscii() {
+        // 用户原话「1月二日，开会」：ASCII 月 + 中文数字日 必须都认
+        val r = parse("1月二日，开会")
+        assertEquals("开会", r.title)
+        assertEquals(LocalDate.of(2027, 1, 2), r.dueDate) // 今年 1/2 已过 -> 明年
+        assertNull(r.detail)
+        assertFalse(r.dateError)
+    }
+
+    @Test fun chineseNumeral_monthDay_allChinese() {
+        val r = parse("一月二日 开会")
+        assertEquals("开会", r.title)
+        assertEquals(LocalDate.of(2027, 1, 2), r.dueDate)
+    }
+
+    @Test fun chineseNumeral_teensAndThirtyOne() {
+        // 十二 / 三十一 是三位汉字，正则要吃得下
+        val r = parse("十二月三十一号 盘点")
+        assertEquals("盘点", r.title)
+        assertEquals(LocalDate.of(2026, 12, 31), r.dueDate)
+    }
+
+    // 「十」既是一位、又不属于 零~九：chineseNumber 的分支顺序曾经把 `十` 解析成 null，
+    // 于是「十月」「十号」整体匹配失败。这里钉住它。
+    @Test fun chineseNumeral_ten() {
+        assertEquals(LocalDate.of(2027, 10, 3), parse("十月三日 开会").dueDate)
+        assertEquals(LocalDate.of(2026, 11, 10), parse("十号 交租").dueDate)
+    }
+
+    @Test fun chineseNumeral_absYearMonthDay() {
+        val r = parse("2026年十月二十四日 开会")
+        assertEquals("开会", r.title)
+        assertEquals(LocalDate.of(2026, 10, 24), r.dueDate)
+    }
+
+    @Test fun chineseNumeral_dayOnly_rollsToNextMonth() {
+        // 今天 10/21，本月的 2 号已过 -> 下个月 2 号
+        val r = parse("二号 交房租")
+        assertEquals("交房租", r.title)
+        assertEquals(LocalDate.of(2026, 11, 2), r.dueDate)
+        assertFalse(r.dateError)
+    }
+
+    @Test fun chineseNumeral_nextMonthKeyword() {
+        val r = parse("下个月五号 交房租")
+        assertEquals("交房租", r.title)
+        assertEquals(LocalDate.of(2026, 11, 5), r.dueDate)
+    }
+
+    // 显式写了年份就不顺延，过去的仍然报错
+    @Test fun explicitYear_past_stillErrors() {
+        val r = parse("2026年1月2日 开会")
+        assertTrue(r.dateError)
+    }
+
+    // 2/29 在非闰年会落到下一个闰年
+    @Test fun leapDay_rollsToNextLeapYear() {
+        val r = parse("2月29日 检查")
+        assertEquals(LocalDate.of(2028, 2, 29), r.dueDate)
+        assertFalse(r.dateError)
+    }
+
+    // 本月 31 号还没过 -> 就是本月
+    @Test fun dayOnly_thisMonthStillAhead() {
+        val r = parse("三十一号 交租")
+        assertEquals(LocalDate.of(2026, 10, 31), r.dueDate)
     }
 
     // ---- times ----

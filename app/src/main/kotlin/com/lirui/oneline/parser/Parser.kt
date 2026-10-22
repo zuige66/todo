@@ -18,7 +18,11 @@ import java.util.regex.Pattern
  * - current-week weekday already past this week => dateError
  * - 下周X / 下个星期X / 下礼拜X => next week
  * - numeric short dates M.D / YY.M.D / YYYY.M.D accept . - / separators; 2-digit year -> 20yy
- * - any recognized date resolved to the past => dateError
+ * - **date digits may be Chinese numerals** (一~三十一): `1月二日` / `十二月三十一号` / `二号`
+ * - explicit year (2026年1月2日 / 26.1.2) resolved to the past => dateError
+ * - **no year given** (1月2日 / 5号) resolved to the past => roll forward silently
+ *   (next year for 月日, next month for 日号) — never a dateError
+ * - any other recognized date (weekday / keyword-anchored) resolved to the past => dateError
  * - year/month keywords: 今年 / 明年 / 下一年 / 从这个月 (本月/下个月) (+ optional X月/X日)
  * - times: HH:mm, N点, N点半, N点一刻, N点三刻, N点M(分), with day-period prefixes
  * - night words (今晚/明晚/后晚/今夜...) imply a 12h->24h shift for a following bare hour
@@ -74,15 +78,26 @@ class Parser(
     // year / month anchor keywords, longest first
     private val yearMonthKeywords = listOf("下一年", "下个月", "明年", "今年", "本月")
 
+    /**
+     * 日期里的"数字位"：ASCII 1-2 位，或中文数字（一 / 十二 / 三十一）。
+     *
+     * 「1月二日」「十二月三十一号」这类中文数字写法在日常输入里非常常见。之前只认 `\d`，
+     * `1月二日` 会在 `1` + `月` 之后卡在 `二` 上，整条正则匹配失败 —— 日期一个字段都没解析
+     * 出来，原样掉进标题，用户看到的就是"根本没识别"。
+     *
+     * 故意不写成 `(?:...)`：调用处统一用 `($numPat)` 包一层拿捕获组，组号才不会错位。
+     */
+    private val numPat = "\\d{1,2}|[一二三四五六七八九十]{1,3}"
+
     // numeric date prefixes (lookingAt; no trailing anchor so a trailing title stays)
     // `(?:[日号])?` is required: "2026年10月24日开会" would otherwise leave a stray "日"
     // at the head of the title ("日开会").
     private val num3Re = Pattern.compile("^((?:19|20)?\\d{2})[-./](\\d{1,2})[-./](\\d{1,2})(?:[日号])?")
     private val absYearRe =
-        Pattern.compile("^((?:19|20)\\d{2})[年\\-/.](\\d{1,2})[月\\-/.](\\d{1,2})(?:[日号])?")
-    private val monthDayRe = Pattern.compile("^(\\d{1,2})[月\\-/.](\\d{1,2})(?:日|号)?")
-    private val dayOnlyRe = Pattern.compile("^(\\d{1,2})(?:日|号)")
-    private val monthOnlyRe = Pattern.compile("^(\\d{1,2})月")
+        Pattern.compile("^((?:19|20)\\d{2})[年\\-/.]($numPat)[月\\-/.]($numPat)(?:[日号])?")
+    private val monthDayRe = Pattern.compile("^($numPat)[月\\-/.]($numPat)(?:[日号])?")
+    private val dayOnlyRe = Pattern.compile("^($numPat)(?:[日号])")
+    private val monthOnlyRe = Pattern.compile("^($numPat)月")
 
     // ---------- time ----------
 
@@ -321,30 +336,81 @@ class Parser(
                     2 -> if (yearStr.toInt() < 70) 2000 + yearStr.toInt() else 1900 + yearStr.toInt()
                     else -> yearStr.toInt()
                 }
-                acc.setDate(safeDate(year, m.group(2)!!.toInt(), m.group(3)!!.toInt()), today)
-                return rest.substring(m.end())
+                val d = safeDate(year, m.group(2)!!.toInt(), m.group(3)!!.toInt())
+                if (d != null) {
+                    acc.setDate(d, today)
+                    return rest.substring(m.end())
+                }
             }
         }
         absYearRe.matcher(rest).let { m ->
             if (m.lookingAt()) {
-                acc.setDate(safeDate(m.group(1)!!.toInt(), m.group(2)!!.toInt(), m.group(3)!!.toInt()), today)
-                return rest.substring(m.end())
+                val month = numOf(m.group(2)!!)
+                val day = numOf(m.group(3)!!)
+                val d = if (month != null && day != null) {
+                    safeDate(m.group(1)!!.toInt(), month, day)
+                } else null
+                if (d != null) {
+                    acc.setDate(d, today)
+                    return rest.substring(m.end())
+                }
             }
         }
+        // 只写月日 / 只写日号：**没写年份**，已过去就顺延到下一次，不报 dateError。
+        // 显式写了年份的分支在上面，仍然是"过去即报错"——用户明确指定了年份就不该悄悄改。
         monthDayRe.matcher(rest).let { m ->
             if (m.lookingAt()) {
-                acc.setDate(safeDate(today.year, m.group(1)!!.toInt(), m.group(2)!!.toInt()), today)
-                return rest.substring(m.end())
+                val d = nextMonthDay(numOf(m.group(1)!!), numOf(m.group(2)!!))
+                if (d != null) {
+                    acc.setDate(d, today)
+                    return rest.substring(m.end())
+                }
             }
         }
         dayOnlyRe.matcher(rest).let { m ->
             if (m.lookingAt()) {
-                acc.setDate(safeDate(today.year, today.monthValue, m.group(1)!!.toInt()), today)
-                return rest.substring(m.end())
+                val d = nextDayOfMonth(numOf(m.group(1)!!))
+                if (d != null) {
+                    acc.setDate(d, today)
+                    return rest.substring(m.end())
+                }
             }
         }
 
         return rest
+    }
+
+    /**
+     * 「1月2日」「1月二日」这类**只写月日、没写年份**的日期。
+     *
+     * 今年这一天已经过去就顺延到明年（用户决策：不报错、不要求手改）。
+     * 2月29日在非闰年 `LocalDate.of` 会抛异常，这里逐年往后找到下一个能成立的年份。
+     */
+    private fun nextMonthDay(month: Int?, day: Int?): LocalDate? {
+        if (month == null || day == null) return null
+        if (month !in 1..12 || day !in 1..31) return null
+        var year = today.year
+        repeat(9) {
+            val d = safeDate(year, month, day)
+            if (d != null && !d.isBefore(today)) return d
+            year++
+        }
+        return null
+    }
+
+    /**
+     * 只写「X号 / X日」：默认本月，本月的这一天已经过去就顺延到下个月。
+     * 该月天数不够时取当月最后一天（"31号" 落在小月 -> 30 号），与 `rollYearMonth` 一致。
+     */
+    private fun nextDayOfMonth(day: Int?): LocalDate? {
+        if (day == null || day !in 1..31) return null
+        var first = today.withDayOfMonth(1)
+        repeat(14) {
+            val d = first.withDayOfMonth(day.coerceAtMost(first.lengthOfMonth()))
+            if (!d.isBefore(today)) return d
+            first = first.plusMonths(1)
+        }
+        return null
     }
 
     /**
@@ -372,7 +438,7 @@ class Parser(
         // optional "X月"
         monthOnlyRe.matcher(s).let { m ->
             if (m.lookingAt()) {
-                month = m.group(1)!!.toInt()
+                month = numOf(m.group(1)!!)
                 s = s.substring(m.end())
             }
         }
@@ -380,7 +446,7 @@ class Parser(
         var day: Int? = null
         dayOnlyRe.matcher(s).let { m ->
             if (m.lookingAt()) {
-                day = m.group(1)!!.toInt()
+                day = numOf(m.group(1)!!)
                 s = s.substring(m.end())
             }
         }
@@ -576,6 +642,9 @@ class Parser(
         return d
     }
 
+    /** ASCII 数字或中文数字（一~三十一）-> Int；都不是则返回 null。 */
+    private fun numOf(s: String): Int? = s.toIntOrNull() ?: chineseNumber(s)
+
     /** Map a Chinese numeral hour (一两..十二) to an Int, or null for non-Chinese text. */
     private fun chineseToInt(s: String): Int? = when (s) {
         "零" -> 0
@@ -599,8 +668,10 @@ class Parser(
         if (s.isEmpty()) return null
         val digit = { c: Char -> "零一二三四五六七八九".indexOf(c).takeIf { it >= 0 } }
         return when {
-            s.length == 1 -> digit(s[0])
+            // `十` 必须排在 `length == 1` 之前：它既是一位、又不属于 零~九，
+            // 顺序反了会走到 digit('十') = null，导致「十月」「十号」全部解析失败。
             s == "十" -> 10
+            s.length == 1 -> digit(s[0])
             s.length == 2 && s[1] == '十' -> {
                 // 二十 / 三十 / 四十 …
                 val d = digit(s[0]) ?: return null
