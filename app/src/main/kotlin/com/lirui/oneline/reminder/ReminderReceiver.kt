@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import com.lirui.oneline.data.AppDatabase
+import com.lirui.oneline.util.SettingsRepo
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -31,10 +32,13 @@ class ReminderReceiver : BroadcastReceiver() {
                 val dao = AppDatabase.get(appContext).todoDao()
                 val todo = dao.getById(todoId)
                 if (todo != null && !todo.archived) {
+                    // DUE 的状态语「该办了」允许用户在设置页改；
+                    // 其余三种是固定语义（提前提醒 / 1小时后到期 / 还没完成），不开放自定义。
+                    val dueWord = SettingsRepo.notificationStyle(appContext).dueWord
                     val message = when (ReminderEngine.Reminder.Kind.entries.getOrNull(kind)) {
                         ReminderEngine.Reminder.Kind.GRADED -> "提前提醒"
                         ReminderEngine.Reminder.Kind.EXACT_PREP -> "1小时后到期"
-                        ReminderEngine.Reminder.Kind.DUE -> "该办了"
+                        ReminderEngine.Reminder.Kind.DUE -> dueWord
                         ReminderEngine.Reminder.Kind.OVERDUE -> "还没完成，别忘了哦"
                         else -> "提醒"
                     }

@@ -14,6 +14,7 @@ import androidx.core.content.ContextCompat
 import com.lirui.oneline.MainActivity
 import com.lirui.oneline.R
 import com.lirui.oneline.util.Quotes
+import com.lirui.oneline.util.SettingsRepo
 
 object NotificationHelper {
 
@@ -29,11 +30,9 @@ object NotificationHelper {
     private const val DONE_TEXT = "已完成 · 点「撤回」可恢复"
 
     // ── 标题装饰 emoji ────────────────────────────────────────────────────────
-    // 选型原则：只用老 Unicode（≤ 9.0）、绝不用 ZWJ 组合（👨‍💻 这类在多数字体里会碎成
-    // 两三个字符），并且最多各两个 —— 一个 emoji 约 1.2 个汉字宽，多了会把待办名挤没。
-    private const val EMOJI_TODO = "🚀🚀"
-    private const val EMOJI_TIME = "⏳⏳"
-    private const val EMOJI_DONE = "🎉🎉"
+    // 默认值（🚀🚀 / ⏳⏳ / 🎉🎉）已挪到 SettingsRepo.DEFAULT_NOTIF_*，用户可在设置页
+    // 「通知标题」里自行修改。选型原则保留在那边：老 Unicode、不用 ZWJ 组合、最多各两个
+    // —— 一个 emoji 约 1.2 个汉字宽，多了会把待办名挤没。
 
     /** Action ids handled by [NotificationActionReceiver]. */
     const val ACTION_COMPLETE = "com.lirui.oneline.action.COMPLETE"
@@ -110,7 +109,7 @@ object NotificationHelper {
         val body = if (done) DONE_TEXT else quote
         val builder = NotificationCompat.Builder(context, CHANNEL_REMINDER)
             .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle(decoratedTitle(title, message, done))
+            .setContentTitle(composeTitle(context, title, message, done))
             .setContentText(body)
             // 正文本身就是文案，大字区只是给它更多行 —— 折叠态的 contentText 放长句会被
             // 省略号截断，展开后才是完整一句。
@@ -155,11 +154,11 @@ object NotificationHelper {
         done: Boolean = false
     ) {
         if (!canPostNotifications(context)) return
-        // 与真实提醒完全同一套：标题走 [decoratedTitle]，正文放文案。
+        // 与真实提醒完全同一套：标题走 [composeTitle]，正文放文案。
         val body = if (done) DONE_TEXT else (quote ?: message)
         val builder = NotificationCompat.Builder(context, CHANNEL_REMINDER)
             .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle(decoratedTitle(title, message, done))
+            .setContentTitle(composeTitle(context, title, message, done))
             .setContentText(body)
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
             .setPriority(NotificationCompat.PRIORITY_HIGH)
@@ -187,17 +186,35 @@ object NotificationHelper {
     }
 
     /**
-     * 通知标题的排布：`事件 + 空格 + 🚀🚀 + 状态语 + ⏳⏳`；完成后换成 `事件 + 空格 + 🎉🎉`。
+     * 通知标题的排布：`事件 + 空格 + lead + 状态语 + tail`；完成后换成 `事件 + 空格 + done`。
      *
      * 间距是 zuige 定死的：**「事件」与后面 emoji 之间有且只有一个空格**，
      * emoji 与状态语之间不留空格（`开组会 🚀🚀该办了⏳⏳`）。
      * 只影响通知栏；列表里的待办名不带任何装饰。
      *
-     * 状态语复用的是 [message]（该办了 / 提前提醒 / 1小时后到期 / 还没完成，别忘了哦），
+     * 四段装饰全部来自 [SettingsRepo.notificationStyle]，用户在设置页「通知标题」改。
+     * 任一段是空串就整段不出现 —— 连它前后的空格一起省掉，否则会留下双空格或行尾空格
+     * （通知标题是单行，行尾空格看不出来，但截断行为会莫名提前）。
+     *
+     * 状态语复用 [message]（该办了 / 提前提醒 / 1小时后到期 / 还没完成，别忘了哦），
      * 所以四种提醒类型共用这一套版式，不用各写一遍。
+     *
+     * 设置页的实时预览也调这里，保证「预览」与「真发出来的」不可能不一致。
      */
-    private fun decoratedTitle(title: String, message: String, done: Boolean): String =
-        if (done) "$title $EMOJI_DONE" else "$title $EMOJI_TODO$message$EMOJI_TIME"
+    fun composeTitle(context: Context, title: String, message: String, done: Boolean = false): String {
+        val style = SettingsRepo.notificationStyle(context)
+        return if (done) {
+            joinSpace(title, style.done)
+        } else {
+            // message 已经由调用方解析好（DUE 用的是设置里的 dueWord，其余是固定状态语），
+            // 这里只管拼接，不再二次判断提醒类型。
+            joinSpace(title, style.lead) + message + style.tail
+        }
+    }
+
+    /** 空段直接丢掉，避免拼出双空格。 */
+    private fun joinSpace(a: String, b: String): String =
+        if (b.isEmpty()) a else if (a.isEmpty()) b else "$a $b"
 
     /** Removes a todo's notification (e.g. after undo puts it back in the list). */
     fun cancelReminder(context: Context, todoId: Long) {

@@ -1708,6 +1708,11 @@ if (parser.seekToStartTag().name != "vector") {
 
 ### 31.4 修法
 
+> **⚠️ 本节已被 §38 取代（2026-10-22）。** 换品牌图标时 `ic_about_logo.xml` 已删除，
+> 关于页改成 `painterResource(R.drawable.ic_launcher_foreground)`（白勾 PNG，位图）
+> 配一块紫色 `Surface`。下面的内容保留下来只为记录**当时的判断过程**和
+> 「`painterResource` 只认 `<vector>` 或位图」这条红线，**不要照抄代码**。
+
 新建 `res/drawable/ic_about_logo.xml`：同样两条 path 原样搬过来，
 用 `group` 的 translate 把并集包围盒 `(0..20, 4..24)`（20×20）挪进 24×24 viewport 正中：
 
@@ -2177,6 +2182,169 @@ private fun decoratedTitle(title: String, message: String, done: Boolean): Strin
   `🚀` `🎉` 是增补平面（U+1F680 / U+1F389），dex 用 MUTF-8 存代理对，
   用 UTF-8 grep 搜不到**属于正常**，不代表没打进包
 - 待手指验收：完成一条待办 → 标题应变成 `事件 🎉🎉`
+
+> **§38 起已改造**：`decoratedTitle(title, message, done)` 改名为
+> `composeTitle(context, title, message, done)`，三段 emoji 不再写死在代码里，
+> 而是从「设置 → 通知标题」读。§37.3 的选型红线仍然有效，只是现在它是**默认值**，
+> 用户可以改。见 §38.3。
+
+## 38. 换图标 / 改项目名 / 通知标题做成设置项（2026-10-22）
+
+### 38.1 新图标：只取白勾，紫底交给 adaptive-icon
+
+素材是仓库根目录的 `icon1_1024_transparent.png`：1024×1024 透明底，
+紫色十二角花瓣徽章 + 白色对勾。
+
+**结论：这张图不能整张塞进 `<foreground>`。** 原因不是技术做不到，是几何问题：
+
+- 自适应图标 = `background`（纯色/图形）+ `foreground`（符号），两层叠在一起；
+- 花瓣本身就是**紫色**，如果 `background` 也用紫色，花瓣会与底色完全融合 →
+  768 万像素的图形只剩中间那个白勾可见，花瓣等于白画；
+- 如果 `background` 用白色去衬托花瓣，圆形遮罩下就是一个**白底大亮块**，
+  深色壁纸下极其扎眼，而且 48dp 桌面上花瓣的十二个角根本分辨不出来。
+
+所以按 Android 官方图标的通行做法拆两层：
+
+| 层 | 内容 | 资源 |
+|---|---|---|
+| background | 纯色 `#6650A3` | `values/colors.xml` → `ic_launcher_background` |
+| foreground | 白色对勾，透明底 | `drawable-{m,h,xh,xxh,xxxh}dpi/ic_launcher_foreground.png` |
+
+底色不是估的，是从原图**统计出来的**：对全部不透明像素做 5-bit 量化直方图取众数，
+得到 `#6650A3`（579,195 px，占绝对多数）。旧品牌色 `#00696A` 深青就此退役。
+
+**白勾是抠出来的，不是画出来的。** 抠图不能用一个"接近白"的硬阈值 ——
+花瓣到白勾之间有一圈抗锯齿过渡，硬阈值会切出锯齿边。做法是把最低通道线性映射：
+
+```java
+int lo = Math.min(r, Math.min(g, b));          // 紫底 92，白勾 255
+float t = clamp((lo - badgeMin) / (255 - badgeMin), 0, 1);
+int a = Math.round(t * srcAlpha);              // 过渡区自然得到半透明
+```
+
+实测白勾包围盒 `270,314 – 760,702`（491×389），按**画布宽度的 50%** 缩放居中。
+
+### 38.2 生成脚本与安全区
+
+`Icon2.java`（临时文件，未入库）按 5 个密度各出一张，画布 = `108dp × density`：
+
+| 密度 | 画布 | 白勾 |
+|---|---|---|
+| mdpi | 108px | 54×43 |
+| hdpi | 162px | 81×64 |
+| xhdpi | 216px | 108×86 |
+| xxhdpi | 324px | 162×128 |
+| xxxhdpi | 432px | 216×171 |
+
+108dp 画布里只有中间 **72dp** 是安全区，外围 18dp 会被各家 launcher 的遮罩切掉。
+白勾宽 54dp = 安全区的 75%，离边缘还有余量，圆形 / 圆角方形 / 方形三种遮罩下都不会被切。
+
+> **必须删掉旧的 `drawable/ic_launcher_foreground.xml`。** 它和新 PNG 同名同类型，
+> Android 资源合并时**同限定符下 XML 优先于 PNG**（`drawable/` 与 `drawable-xxxhdpi/`
+> 是不同限定符，密度更高的会赢，但 mdpi 那档没有对应目录就会落到 `drawable/` 的 XML）。
+> 留着它 = 换了等于没换，而且只在部分密度上错，极难察觉。已删除。
+
+### 38.3 关于页跟着换：`ic_about_logo.xml` 退役
+
+关于页原先用 `R.drawable.ic_about_logo`（白心 + 深青竖条，"竖条压在心上形成缺口"）。
+品牌色一换那个竖条就露馅，所以整块换掉：
+
+```kotlin
+private val LogoBackground = Color(0xFF6650A3)   // 必须 == ic_launcher_background
+
+Surface(shape = RoundedCornerShape(24.dp), color = LogoBackground, modifier = Modifier.size(88.dp)) {
+    Image(painter = painterResource(R.drawable.ic_launcher_foreground), modifier = Modifier.fillMaxSize())
+}
+```
+
+- 现在关于页那个方块和桌面图标是**同一个构图**（纯色底 + 白勾），一眼能对上；
+- 原先的 `.padding(20.dp)` 去掉了：`ic_launcher_foreground` 自带 108dp 坐标系，
+  白勾只占中间 50%，再加 padding 会让勾缩到 24dp，明显偏小；
+- `painterResource` 这次喂的是 **PNG 位图**，不是 `<vector>`，两条合法路径之一（见 §31）。
+
+`res/drawable/ic_about_logo.xml` 已删除。
+
+### 38.4 项目名 → Todo
+
+| 位置 | 值 | 说明 |
+|---|---|---|
+| `settings.gradle.kts` → `rootProject.name` | `Todo` | Gradle 工程名，只影响 IDE / 构建输出路径 |
+| `values/strings.xml` → `app_name` | `Todo` | **桌面图标下的显示名**，用户真正看得见的那个 |
+| `AboutScreen` 的标题 | `stringResource(R.string.app_name)` | 原来写死「一句话待办」，改名就得动两处 |
+
+关于页标题改成读 `app_name` 后，下次改名只动 `strings.xml` 一处。
+
+> 包名 `com.lirui.oneline` **没动**。改包名等于换一个 App：设备上会并存两个图标，
+> 旧的待办数据、闹钟、通知渠道全部留在旧包里。要改得单独做一次带迁移的版本。
+
+### 38.5 通知标题做成设置项
+
+版式不变，只是四段都可配：
+
+```
+事件 + 空格 + 前缀 + 提醒语 + 后缀        ← 未完成
+事件 + 空格 + 完成装饰                    ← 已完成
+```
+
+存储（`SettingsRepo`，沿用 `oneline_settings`）：
+
+| 键 | 默认值 | 界面标签 |
+|---|---|---|
+| `notif_due_word` | `该办了` | 提醒语 |
+| `notif_lead_emoji` | `🚀🚀` | 前缀装饰 |
+| `notif_tail_emoji` | `⏳⏳` | 后缀装饰 |
+| `notif_done_emoji` | `🎉🎉` | 完成后装饰 |
+
+**两条实现约束**：
+
+1. **空串是合法值，含义是"不要这一段"**，不是"回退默认"。
+   所以一律 `getString(key, DEFAULT)` —— 键存在且值为空串时返回空串，与"从没设过"能区分。
+   别写成 `takeIf { it.isNotBlank() } ?: DEFAULT`，那样用户永远清不掉 emoji。
+2. **拼的时候要把空段连同它的空格一起丢掉**：
+
+   ```kotlin
+   fun joinSpace(a: String, b: String): String =
+       if (b.isEmpty()) a else if (a.isEmpty()) b else "$a $b"
+   ```
+
+   不这么做的话，清空前缀会拼出 `开组会  该办了⏳⏳`（双空格）或
+   `开组会 ` （行尾空格）—— 标题是单行，行尾空格看不见，但会让省略号提前出现。
+
+**输入框按 code point 限长**，不用 `String.length`：
+
+```kotlin
+if (next.codePointCount(0, next.length) <= maxCodePoints) onValueChange(next)
+```
+
+`🚀` 是 U+1F680，UTF-16 里占两个 char。用 `take(4)` 限长有概率把一个 emoji 从中间劈开，
+存进去就是半个代理对，界面上显示成 `?`。这里的选择是**超长就整段拒绝**，不做截断。
+
+**预览直接调 `NotificationHelper.composeTitle()`**，不在 UI 里另拼一遍。
+上一轮刚踩过「测试通知与真实提醒是两套写法」的坑（§34），预览再抄一份必然重演。
+
+预览正文固定取 `Quotes.short.first()`，不能用 `Quotes.random()` ——
+输入框每敲一个字就重组一次，随机取会让正文不停跳。
+
+### 38.6 提醒语只替换 DUE 一种
+
+`ReminderReceiver` 里四种状态语，只有 DUE 开放自定义：
+
+| Kind | 状态语 | 可配 |
+|---|---|---|
+| GRADED | 提前提醒 | 否 |
+| EXACT_PREP | 1小时后到期 | 否 |
+| DUE | `dueWord` | **是** |
+| OVERDUE | 还没完成，别忘了哦 | 否 |
+
+后三种是固定语义，让用户改反而会让通知失去信息量（把「提前提醒」改成「该办了」，
+用户就分不清这条是提前通知还是到点通知）。
+
+### 38.7 验证
+
+- `:app:compileReleaseKotlin` 通过
+- `:app:testReleaseUnitTest` 全绿（163 条）
+- `:app:assembleRelease` 通过，release 签名覆盖安装成功
+- 图标已用三种遮罩（圆形 / 圆角方形 / 方形）合成预览图目视核对，白勾未被裁切
 
 
 

@@ -74,6 +74,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -111,9 +112,11 @@ private const val COLOR_INTERPOLATION_SECONDS = 12f
 
 /**
  * 图标底色。必须与 `values/colors.xml` 里的 `ic_launcher_background` 完全一致 ——
- * `ic_about_logo.xml` 里那道竖条就是拿这个色当"镂空"用的，差一点就会露出色块。
+ * 关于页这块圆角方块就是拿它当"桌面图标"的替身，差一点就能看出与桌面那个不是同一个。
+ *
+ * 已换成 icon1_1024_transparent.png 的徽章紫 #6650A3（旧品牌色是 #00696A 深青）。
  */
-private val LogoBackground = Color(0xFF00696A)
+private val LogoBackground = Color(0xFF6650A3)
 
 @Composable
 fun AboutScreen(onBack: () -> Unit) {
@@ -269,20 +272,20 @@ fun AboutScreen(onBack: () -> Unit) {
                     shadowElevation = 6.dp,
                     modifier = Modifier.size(88.dp)
                 ) {
-                    // 只画矢量「标记」，圆角底色由上面的 Surface 提供。
-                    // 千万别改回 R.mipmap.ic_launcher：那是 <adaptive-icon>，
-                    // painterResource 只认 <vector>，会在组合这一帧抛
+                    // 只画「白勾」这一层，紫色底由上面的 Surface 提供 —— 与桌面自适应图标
+                    // 完全同一个构图（background = 纯色，foreground = 白勾）。
+                    // 千万别改回 R.mipmap.ic_launcher：那是 <adaptive-icon> 容器，
+                    // painterResource 只认 <vector> 或位图，会在组合这一帧抛
                     // IllegalArgumentException 把关于页打崩（DESIGN §31）。
                     Image(
-                        painter = painterResource(R.drawable.ic_about_logo),
+                        painter = painterResource(R.drawable.ic_launcher_foreground),
                         contentDescription = null,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(20.dp)
+                        modifier = Modifier.fillMaxSize()
                     )
                 }
                 Text(
-                    "一句话待办",
+                    // 跟着 app_name 走，别再写死 —— 应用名改一次要动的地方越少越好。
+                    stringResource(R.string.app_name),
                     modifier = Modifier.padding(top = 18.dp),
                     fontSize = 30.sp,
                     fontWeight = FontWeight.Bold,

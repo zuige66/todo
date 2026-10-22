@@ -59,7 +59,8 @@ class TodoRepository(private val context: Context) {
      * Settings test button: a 「通知测试」 todo due at the next whole minute.
      *
      * 标题只写「通知测试」，**不要**把「该办了」写进来 —— 那是提醒状态语，
-     * 由 `NotificationHelper.decoratedTitle` 拼成 `通知测试 🚀🚀该办了⏳⏳`。
+     * 由 `NotificationHelper.composeTitle` 拼成 `通知测试 🚀🚀该办了⏳⏳`
+     * （状态语与 emoji 现在都可在设置页改，默认值即此）。
      * 写进标题会变成「通知测试 该办了 🚀🚀该办了⏳⏳」。
      */
     suspend fun addTestInOneMinute(): Long {

@@ -69,6 +69,7 @@ import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ripple
 import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -375,11 +376,12 @@ private fun TodoAppContent(
                     onTestNotification = {
                         if (NotificationHelper.canPostNotifications(context)) {
                             // 标题/正文与「新建下一分钟测试待办」那条完全一致：
-                            // emoji 与状态语由 NotificationHelper 统一拼，这里只给原始标题。
+                            // emoji 与状态语由 NotificationHelper 统一拼，这里只给原始标题，
+                            // 状态语取设置里的 dueWord（用户可能已经不用「该办了」）。
                             NotificationHelper.postTest(
                                 context,
                                 "通知测试",
-                                "该办了",
+                                SettingsRepo.notificationStyle(context).dueWord,
                                 quote = Quotes.random()
                             )
                         } else {
@@ -806,6 +808,15 @@ private fun SettingsScreen(
     val context = LocalContext.current
     // Used to keep at least one board visible.
     val visibleBoardCount = boardOrder.count { it !in hiddenBoards }
+
+    // 通知标题的四段装饰。**就地持有即可**：它们只参与通知标题的拼装，
+    // 不进主题、不影响列表，没必要上浮到 MainActivity 再原样传回来（那样会多 8 个参数）。
+    // 放在这里而不是 LazyColumn 的 item 里，是为了不被滚动回收掉、造成输入框内容闪回。
+    val initialNotif = SettingsRepo.notificationStyle(context)
+    var notifDueWord by remember { mutableStateOf(initialNotif.dueWord) }
+    var notifLead by remember { mutableStateOf(initialNotif.lead) }
+    var notifTail by remember { mutableStateOf(initialNotif.tail) }
+    var notifDone by remember { mutableStateOf(initialNotif.done) }
     androidx.compose.foundation.lazy.LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
@@ -818,6 +829,65 @@ private fun SettingsScreen(
                 ToggleItem("到点提醒", "到设定时间再提醒一次", remindAtDue, onSetRemindAtDue)
                 ItemDivider()
                 ToggleItem("提前提醒", "提前 7/3/1 天及 1 小时", remindInAdvance, onSetRemindInAdvance)
+            }
+        }
+
+        item { SectionHeader("通知标题") }
+        item {
+            SettingsCard {
+                TextInputItem(
+                    title = "提醒语",
+                    hint = "到点时接在事件名后面，如「该办了」",
+                    value = notifDueWord,
+                    placeholder = SettingsRepo.DEFAULT_NOTIF_DUE_WORD,
+                    maxCodePoints = 10,
+                    onValueChange = {
+                        notifDueWord = it
+                        SettingsRepo.setNotifDueWord(context, it)
+                    }
+                )
+                ItemDivider()
+                TextInputItem(
+                    title = "前缀装饰",
+                    hint = "事件名与提醒语之间，留空则不显示",
+                    value = notifLead,
+                    placeholder = SettingsRepo.DEFAULT_NOTIF_LEAD,
+                    maxCodePoints = 4,
+                    onValueChange = {
+                        notifLead = it
+                        SettingsRepo.setNotifLead(context, it)
+                    }
+                )
+                ItemDivider()
+                TextInputItem(
+                    title = "后缀装饰",
+                    hint = "提醒语末尾，留空则不显示",
+                    value = notifTail,
+                    placeholder = SettingsRepo.DEFAULT_NOTIF_TAIL,
+                    maxCodePoints = 4,
+                    onValueChange = {
+                        notifTail = it
+                        SettingsRepo.setNotifTail(context, it)
+                    }
+                )
+                ItemDivider()
+                TextInputItem(
+                    title = "完成后装饰",
+                    hint = "勾选完成后整条标题换成「事件 + 这个」，留空则只留事件名",
+                    value = notifDone,
+                    placeholder = SettingsRepo.DEFAULT_NOTIF_DONE,
+                    maxCodePoints = 4,
+                    onValueChange = {
+                        notifDone = it
+                        SettingsRepo.setNotifDone(context, it)
+                    }
+                )
+                ItemDivider()
+                NotificationTitlePreview(
+                    title = "开组会",
+                    doneWord = notifDueWord,
+                    doneEmoji = notifDone
+                )
             }
         }
 
@@ -1043,6 +1113,123 @@ private fun ItemDivider() {
         modifier = Modifier.padding(start = 16.dp, end = 16.dp),
         color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
     )
+}
+
+/**
+ * 单行文本设置项（标签 + 说明 + 输入框）。
+ *
+ * 长度上限按 **code point** 而不是 `String.length` 计：emoji 是代理对，
+ * 用 `length` 限长会把一个 emoji 从中间劈开，存进去就是半个字符（界面上显示成 ？）。
+ * 这里的做法是「超了就整段拒绝」，而不是 `take(n)` —— 后者必然劈开代理对。
+ */
+@Composable
+private fun TextInputItem(
+    title: String,
+    hint: String,
+    value: String,
+    placeholder: String,
+    maxCodePoints: Int,
+    onValueChange: (String) -> Unit
+) {
+    val cs = MaterialTheme.colorScheme
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 12.dp)
+    ) {
+        Text(title, style = MaterialTheme.typography.bodyLarge, color = cs.onSurface)
+        Text(
+            hint,
+            style = MaterialTheme.typography.bodySmall,
+            color = cs.onSurfaceVariant,
+            modifier = Modifier.padding(top = 2.dp)
+        )
+        OutlinedTextField(
+            value = value,
+            onValueChange = { next ->
+                if (next.codePointCount(0, next.length) <= maxCodePoints) onValueChange(next)
+            },
+            singleLine = true,
+            placeholder = { Text(placeholder, color = cs.onSurfaceVariant) },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 8.dp),
+            shape = RoundedCornerShape(12.dp)
+        )
+    }
+}
+
+/**
+ * 「通知标题」的实时预览。
+ *
+ * 预览**直接调** [NotificationHelper.composeTitle]，而不是在 UI 里再拼一遍 ——
+ * 两套拼法迟早会漂移（上一轮就有过「测试通知与真实提醒不一致」的坑）。
+ */
+@Composable
+private fun NotificationTitlePreview(title: String, doneWord: String, doneEmoji: String) {
+    val context = LocalContext.current
+    val cs = MaterialTheme.colorScheme
+    val normal = NotificationHelper.composeTitle(context, title, doneWord)
+    val done = NotificationHelper.composeTitle(context, title, doneWord, done = true)
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 12.dp)
+    ) {
+        Text("预览", style = MaterialTheme.typography.bodyLarge, color = cs.onSurface)
+        Text(
+            "下面就是通知栏里那一行的样子",
+            style = MaterialTheme.typography.bodySmall,
+            color = cs.onSurfaceVariant,
+            modifier = Modifier.padding(top = 2.dp)
+        )
+        // ★ Surface 的 content 没有作用域（内部是 Box），多行内容必须自己套 Column。
+        Surface(
+            shape = RoundedCornerShape(14.dp),
+            color = cs.surfaceContainerHighest,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 10.dp)
+        ) {
+            Column(modifier = Modifier.padding(12.dp)) {
+                Text(
+                    normal,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = cs.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    // 固定取第一条文案，别用 Quotes.random()：每重组一次就换一句，
+                    // 输入框里每敲一个字预览正文都在跳。
+                    Quotes.short.firstOrNull() ?: "该办了。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = cs.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 3.dp)
+                )
+                Text(
+                    "完成后：$done",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = cs.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
+            }
+        }
+        if (doneEmoji.isEmpty()) {
+            Text(
+                "「完成后装饰」已留空，完成时标题只剩事件名。",
+                style = MaterialTheme.typography.bodySmall,
+                color = cs.onSurfaceVariant,
+                modifier = Modifier.padding(top = 6.dp)
+            )
+        }
+    }
 }
 
 private val BOARD_ROW_HEIGHT = 56.dp

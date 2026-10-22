@@ -189,4 +189,61 @@ object SettingsRepo {
         context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
             .edit().putString(KEY_HOME_BUCKETS, buckets.joinToString(",") { it.id }).apply()
     }
+
+    // ---------- notification title (通知标题装饰) ----------
+    //
+    // 版式：`事件 + 空格 + lead + dueWord + tail`；勾选完成后整段换成 `事件 + 空格 + done`。
+    //
+    // 四条都用 String 存，「空串」是合法值，含义是"不要这一段"。
+    // 所以一律用 getString(key, default) —— 键存在但值是空串时它返回空串，
+    // 与"从没设置过"（返回 default）区分得开。别换成 takeIf { isNotBlank() } 之类。
+
+    private const val KEY_NOTIF_DUE_WORD = "notif_due_word"
+    private const val KEY_NOTIF_LEAD = "notif_lead_emoji"
+    private const val KEY_NOTIF_TAIL = "notif_tail_emoji"
+    private const val KEY_NOTIF_DONE = "notif_done_emoji"
+
+    const val DEFAULT_NOTIF_DUE_WORD = "该办了"
+    const val DEFAULT_NOTIF_LEAD = "🚀🚀"
+    const val DEFAULT_NOTIF_TAIL = "⏳⏳"
+    const val DEFAULT_NOTIF_DONE = "🎉🎉"
+
+    /** 一次读全四段，避免每发一条通知就查四遍 SharedPreferences。 */
+    fun notificationStyle(context: Context): NotificationStyle {
+        val p = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+        return NotificationStyle(
+            dueWord = p.getString(KEY_NOTIF_DUE_WORD, DEFAULT_NOTIF_DUE_WORD).orEmpty(),
+            lead = p.getString(KEY_NOTIF_LEAD, DEFAULT_NOTIF_LEAD).orEmpty(),
+            tail = p.getString(KEY_NOTIF_TAIL, DEFAULT_NOTIF_TAIL).orEmpty(),
+            done = p.getString(KEY_NOTIF_DONE, DEFAULT_NOTIF_DONE).orEmpty()
+        )
+    }
+
+    fun setNotifDueWord(context: Context, value: String) =
+        context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            .edit().putString(KEY_NOTIF_DUE_WORD, value).apply()
+
+    fun setNotifLead(context: Context, value: String) =
+        context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            .edit().putString(KEY_NOTIF_LEAD, value).apply()
+
+    fun setNotifTail(context: Context, value: String) =
+        context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            .edit().putString(KEY_NOTIF_TAIL, value).apply()
+
+    fun setNotifDone(context: Context, value: String) =
+        context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            .edit().putString(KEY_NOTIF_DONE, value).apply()
 }
+
+/**
+ * 通知标题的装饰样式，全部由用户在设置页「通知标题」里改。
+ *
+ * 任何一个字段为空串都表示「这一段不要」，不是「回退默认」。
+ */
+data class NotificationStyle(
+    val dueWord: String,
+    val lead: String,
+    val tail: String,
+    val done: String
+)
