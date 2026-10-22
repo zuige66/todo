@@ -8,6 +8,18 @@ package com.lirui.oneline.ui.screen
 
 import android.widget.Toast
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
@@ -246,7 +258,19 @@ private fun TodoAppContent(
         topBar = {
             TopAppBar(
                 title = {
-                    Text(title, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    // 标题交叉淡入：三个 tab 之间切换不再瞬间换字
+                    Crossfade(
+                        targetState = title,
+                        animationSpec = tween(180),
+                        label = "topBarTitle"
+                    ) { t ->
+                        Text(
+                            t,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     // 与底部导航栏同一个容器色，上下呼应。
@@ -255,7 +279,12 @@ private fun TodoAppContent(
             )
         },
         floatingActionButton = {
-            if (tab == TAB_TODO) {
+            // 缩放 + 淡出：切到「已归档 / 设置」时 FAB 不再"啪"地消失
+            AnimatedVisibility(
+                visible = tab == TAB_TODO,
+                enter = scaleIn(initialScale = 0.6f) + fadeIn(),
+                exit = scaleOut(targetScale = 0.6f) + fadeOut()
+            ) {
                 FloatingActionButton(onClick = { showAdd = true }) {
                     Icon(Icons.Default.Add, contentDescription = "添加")
                 }
@@ -357,18 +386,31 @@ private fun TodoAppContent(
             }
             // Completion bar overlaps top; only shown while on the todo tab.
             if (tab == TAB_TODO) {
-                justCompleted?.let { t ->
-                    CompletedBar(
-                        title = t.title,
-                        onUndo = {
-                            vm.unarchive(t.id)
-                            justCompleted = null
-                        },
-                        onDismiss = { justCompleted = null },
-                        modifier = Modifier
-                            .align(Alignment.TopCenter)
-                            .padding(horizontal = 16.dp, vertical = 8.dp)
-                    )
+                // 用 AnimatedContent 而不是 `justCompleted?.let {}`：后者在置 null 的瞬间
+                // 就把内容从组合里摘掉，退场动画根本来不及播（会看到提示条"啪"地消失）。
+                AnimatedContent(
+                    targetState = justCompleted,
+                    transitionSpec = {
+                        if (targetState != null) {
+                            (slideInVertically { -it } + fadeIn()) togetherWith fadeOut()
+                        } else {
+                            fadeIn() togetherWith (slideOutVertically { -it } + fadeOut())
+                        }
+                    },
+                    modifier = Modifier.align(Alignment.TopCenter),
+                    label = "completedBar"
+                ) { t ->
+                    if (t != null) {
+                        CompletedBar(
+                            title = t.title,
+                            onUndo = {
+                                vm.unarchive(t.id)
+                                justCompleted = null
+                            },
+                            onDismiss = { justCompleted = null },
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                        )
+                    }
                 }
             }
         }
@@ -516,11 +558,20 @@ private fun TodoList(
     onCircleTap: (Todo) -> Unit,
     onTodoEdit: (Todo) -> Unit
 ) {
-    if (todos.isEmpty()) {
+    val empty = todos.isEmpty()
+    // 空状态自己淡入淡出；下面仍是 `if (!empty)` 的原始分支，只是不再用 if/else 二选一，
+    // 这样空列表和有列表之间切换时不会"闪"一下。
+    AnimatedVisibility(
+        visible = empty,
+        enter = fadeIn(tween(240)),
+        exit = fadeOut(tween(120)),
+        modifier = Modifier.fillMaxSize()
+    ) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text("暂无待办，点右下角 + 添加", color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-    } else {
+    }
+    if (!empty) {
         // 时间必须自己往前走。原来 `now` 只在重组时取一次，而列表只在数据变化时重组，
         // 所以 23:55 的待办到了 23:59 依旧是"今天"、依旧不标红——看起来就像"过期没提示"。
         var now by remember { mutableStateOf(AppTime.nowMillis()) }
@@ -552,13 +603,16 @@ private fun TodoList(
                 // 「有日期」不显示板块标题：里面本来就是今日/明天/… 这些档位标题，
                 // 再叠一层"有日期"纯属噪音；平铺时靠上下的板块标题形成分隔就够了。
                 if (board != HomeBoard.DATED) {
-                    item(key = "board_${board.id}") { BoardHeader(board) }
+                    item(key = "board_${board.id}") { BoardHeader(board, Modifier.animateItem()) }
                 }
                 // Only 有日期 gets sub-grouped, and only when at least one bucket is enabled.
                 // An empty selection means "flat list" by design (see HomeGrouping).
                 if (board != HomeBoard.DATED || enabledBuckets.isEmpty()) {
                     items(boardItems, key = { it.id }) { todo ->
-                        TodoListRow(todo, today, now, onCircleTap, onTodoEdit)
+                        TodoListRow(
+                            todo, today, now, onCircleTap, onTodoEdit,
+                            Modifier.animateItem()
+                        )
                     }
                     continue
                 }
@@ -573,9 +627,12 @@ private fun TodoList(
                 }
                 for (bucket in HomeBucket.all) {
                     val list = grouped[bucket] ?: continue
-                    item(key = "bucket_${bucket.id}") { BucketHeader(bucket) }
+                    item(key = "bucket_${bucket.id}") { BucketHeader(bucket, Modifier.animateItem()) }
                     items(list, key = { it.id }) { todo ->
-                        TodoListRow(todo, today, now, onCircleTap, onTodoEdit)
+                        TodoListRow(
+                            todo, today, now, onCircleTap, onTodoEdit,
+                            Modifier.animateItem()
+                        )
                     }
                 }
             }
@@ -590,7 +647,8 @@ private fun TodoListRow(
     today: java.time.LocalDate,
     now: Long,
     onCircleTap: (Todo) -> Unit,
-    onTodoEdit: (Todo) -> Unit
+    onTodoEdit: (Todo) -> Unit,
+    modifier: Modifier = Modifier
 ) {
     // 到点即逾期并标红——与板块归属同一个判定函数。
     val overdue = Format.isOverdue(todo.dueAtMillis, today, now, todo.hasExactTime)
@@ -598,42 +656,50 @@ private fun TodoListRow(
         todo,
         overdue = overdue,
         onCircleTap = { onCircleTap(todo) },
-        onTodoEdit = { onTodoEdit(todo) }
+        onTodoEdit = { onTodoEdit(todo) },
+        modifier = modifier
     )
 }
 
 /** Board title (逾期 / 有日期 / 无日期) — one step stronger than a bucket title. */
 @Composable
-private fun BoardHeader(board: HomeBoard) {
+private fun BoardHeader(board: HomeBoard, modifier: Modifier = Modifier) {
     Text(
         board.label,
         style = MaterialTheme.typography.titleSmall,
         color = MaterialTheme.colorScheme.primary,
         fontWeight = FontWeight.Bold,
-        modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 14.dp, bottom = 6.dp)
+        modifier = modifier.padding(start = 20.dp, end = 20.dp, top = 14.dp, bottom = 6.dp)
     )
 }
 
 /** Bucket title (今日 / 明天 / …) inside the 有日期 board. */
 @Composable
-private fun BucketHeader(bucket: HomeBucket) {
+private fun BucketHeader(bucket: HomeBucket, modifier: Modifier = Modifier) {
     Text(
         bucket.label,
         style = MaterialTheme.typography.labelMedium,
         color = MaterialTheme.colorScheme.primary,
         fontWeight = FontWeight.Bold,
         // 20dp 与板块标题对齐：「有日期」不显示标题后，档位就是这一层的最高标题。
-        modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 10.dp, bottom = 4.dp)
+        modifier = modifier.padding(start = 20.dp, end = 20.dp, top = 10.dp, bottom = 4.dp)
     )
 }
 
 @Composable
 private fun ArchivedList(archived: List<Todo>, onRestore: (Long) -> Unit, onDelete: (Long) -> Unit) {
-    if (archived.isEmpty()) {
+    val empty = archived.isEmpty()
+    AnimatedVisibility(
+        visible = empty,
+        enter = fadeIn(tween(240)),
+        exit = fadeOut(tween(120)),
+        modifier = Modifier.fillMaxSize()
+    ) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text("还没有已归档的待办", color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-    } else {
+    }
+    if (!empty) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(vertical = 8.dp)
@@ -642,6 +708,7 @@ private fun ArchivedList(archived: List<Todo>, onRestore: (Long) -> Unit, onDele
                 // Same tinted card as an active todo, so the two lists look consistent.
                 Row(
                     modifier = Modifier
+                        .animateItem()
                         .fillMaxWidth()
                         .padding(horizontal = 12.dp, vertical = 3.dp)
                         .clip(RoundedCornerShape(20.dp))
@@ -883,14 +950,21 @@ private fun SettingsScreen(
         item {
             SettingsCard {
                 ToggleItem("逾期反复叮嘱", "过期后每隔一段时间再提醒", overdueNag, onSetOverdueNag)
-                if (overdueNag) {
-                    ItemDivider()
-                    ChoiceItem(
-                        "提醒间隔",
-                        listOf(6 to "6小时", 12 to "12小时", 24 to "1天", 48 to "2天"),
-                        overdueInterval,
-                        onSetOverdueInterval
-                    )
+                // 打开开关后"提醒间隔"不该让整张卡片突然长高一截
+                AnimatedVisibility(
+                    visible = overdueNag,
+                    enter = expandVertically() + fadeIn(),
+                    exit = shrinkVertically() + fadeOut()
+                ) {
+                    Column {
+                        ItemDivider()
+                        ChoiceItem(
+                            "提醒间隔",
+                            listOf(6 to "6小时", 12 to "12小时", 24 to "1天", 48 to "2天"),
+                            overdueInterval,
+                            onSetOverdueInterval
+                        )
+                    }
                 }
             }
         }
@@ -1304,7 +1378,8 @@ private fun TodoRow(
     todo: Todo,
     overdue: Boolean,
     onCircleTap: () -> Unit,
-    onTodoEdit: () -> Unit
+    onTodoEdit: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     var checked by remember(todo.id, todo.dueAtMillis) { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
@@ -1320,7 +1395,7 @@ private fun TodoRow(
     // One tinted card per todo, derived from the active palette.
     val cardColor = MaterialTheme.colorScheme.cardBackground
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 3.dp)
             .clip(RoundedCornerShape(20.dp))

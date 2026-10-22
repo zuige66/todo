@@ -1585,3 +1585,67 @@ detail`，用 `try/catch` 捕获异常。跑完即删。**未改任何产品代�
 - `ParserTest` 107 → **113 条**（新增 6 条 P2 回归：单位/会议室/反向动词/寒暄/一点点/N刻）
 - 合计 **163 条全绿**（Parser 113 / ReminderEngine 18 / Format 11 / HomeGrouping 21）
 - `assembleRelease` 通过；APK 更新到 `dist/oneline-0.3-release.apk`
+
+## 30. 动效补齐（2026-10-22）
+
+主题早就设了 `MaterialExpressiveTheme(motionScheme = MotionScheme.expressive())`，但页面里
+实际只有两处动效（完成圆圈的 600ms 弧线、板块拖动的 spring）。本轮把**所有硬切**都补上。
+
+### 30.1 补了哪七处
+
+| 位置 | 之前 | 现在 |
+|---|---|---|
+| 待办行 / 归档行 / 板块标题 / 档位标题 | 完成或归档时整行「啪」地消失，下面直接跳上来 | `Modifier.animateItem()`：旧行淡出，其余行平滑补位 |
+| 重复待办完成 | dueAt 变了、id 不变 → 位置瞬移 | 同上，靠 placement 动画滑过去 |
+| FAB | 切到「已归档 / 设置」时瞬间消失 | `scaleOut(0.6) + fadeOut`，回来时反向 |
+| 顶栏标题 | 「一句话待办 / 已归档 / 设置」硬换字 | `Crossfade(180ms)` |
+| 完成提示条 | 无进出场，3 秒后直接消失 | `AnimatedContent` 上滑进入 / 上滑退出 |
+| 空状态 | 有↔无之间「闪」一下 | `AnimatedVisibility` 淡入 240ms / 淡出 120ms |
+| 设置「逾期反复叮嘱」 | 打开后「提醒间隔」整块跳出来，卡片长高一截 | `expandVertically + fadeIn` / `shrinkVertically + fadeOut` |
+| 关于页 | 直接盖上来 | 淡入 + 从下往上 28dp 的推入（`Animatable` + spring） |
+
+### 30.2 两个关键写法（不看会踩）
+
+**① 完成提示条必须用 `AnimatedContent`，不能用 `justCompleted?.let {}`**
+
+```kotlin
+// 错：置 null 的瞬间内容就从组合里摘掉了，退场动画根本没机会播
+justCompleted?.let { t -> CompletedBar(title = t.title, ...) }
+
+// 对：AnimatedContent 会把退场那一份内容连同它自己的 `t` 值一起留在组合里
+AnimatedContent(targetState = justCompleted, transitionSpec = {
+    if (targetState != null) (slideInVertically { -it } + fadeIn()) togetherWith fadeOut()
+    else fadeIn() togetherWith (slideOutVertically { -it } + fadeOut())
+}) { t -> if (t != null) CompletedBar(title = t.title, ...) }
+```
+
+**② 空状态用 `AnimatedVisibility` 而不是 `Crossfade`**
+
+原来的结构是 `if (isEmpty) {...} else { 五十多行列表 }`。改成 `Crossfade` 要把整个 else 分支
+重新缩进，diff 全是空白。
+
+做法是保留原分支，只在前面插一个自己管显隐的空状态：
+
+```kotlin
+AnimatedVisibility(visible = empty, enter = fadeIn(...), exit = fadeOut(...)) { EmptyState() }
+if (!empty) { /* 原来的 else 分支原封不动 */ }
+```
+
+代价：有列表时这个 `AnimatedVisibility` 仍然占满整屏（只是不画）。但它排在列表**之前**，
+Z 序在下面，所以列表出现时会盖住淡出中的文字——`空 -> 有` 这个方向的淡出实际看不到，
+`有 -> 空`（归档掉最后一条）这个方向是完整的。这个取舍是有意的：那一半动效不值五十行 diff。
+
+### 30.3 为什么没做 Tab 横向滑动
+
+「待办 / 已归档 / 设置」是按 `when (tab)` 直接切分支的，**现在切 tab 本身就会把列表滚回顶部**
+（分支离开组合，`rememberLazyListState` 跟着销毁）。加横向滑动会让这个"回顶"在动画里看得
+清清楚楚，比硬切更难受。
+
+要真正做好需要 `SaveableStateHolder` 或把三个页常驻组合 + 位移动画，属于重写导航层，不在本轮。
+
+### 30.4 验证
+
+- `assembleRelease` 通过；单测 **163 条仍全绿**（本轮只动 UI，不涉及解析/分组/提醒逻辑）
+- APK：`dist/oneline-0.3-release.apk`
+- 真机手感待验：完成一条待办时「弧线 → 行淡出 → 下面补位」这条链是否连贯；
+  重复待办完成后是否滑到下一个档位而不是瞬移

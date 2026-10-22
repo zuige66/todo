@@ -8,6 +8,7 @@ import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -132,6 +133,13 @@ fun AboutScreen(onBack: () -> Unit) {
     val animationTime = rememberAboutAnimationTime()
     val gradientColors = animatedGradientColors(animationTime, cs)
 
+    // 页面推入：淡入 + 从下往上 28dp。不用整屏缩放 —— 缩放会把根节点的 surface 边缘
+    // 露出来，看起来像一张缩小的卡片而不是"翻到下一页"。
+    val enter = remember { Animatable(0f) }
+    LaunchedEffect(Unit) {
+        enter.animateTo(1f, spring(dampingRatio = 0.85f, stiffness = 520f))
+    }
+
     val pkgInfo = remember {
         runCatching { context.packageManager.getPackageInfo(context.packageName, 0) }.getOrNull()
     }
@@ -145,6 +153,10 @@ fun AboutScreen(onBack: () -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .graphicsLayer {
+                alpha = enter.value
+                translationY = (1f - enter.value) * 28.dp.toPx()
+            }
             // 不透明底色 + 消费点击：关于页是叠在 Scaffold 之上的覆盖层，
             // 不吞掉触摸的话，hero 那块空白区域的点击会穿透到下面的 FAB。
             .background(cs.surface)
