@@ -62,8 +62,10 @@ android {
         // 0.7.0 = 新功能：预览卡片可直接选日期/时间（M3 DatePicker/TimePicker），覆盖句子解析值；
         //         多日期待办各自独立覆盖；时间可改不可清，日期可改「无日期」；
         //         提交链路改为 UI 侧合并成 List<ParsedTodo>（vm.addParsed / editParsed）。
-        versionCode = 15
-        versionName = "0.7.0"
+        // 0.7.1 = 标题（事件）与详情也可编辑：点预览行弹对话框，同属手动覆盖；
+        //         标题清空时禁用提交（VM 也会判 Blank）。
+        versionCode = 16
+        versionName = "0.7.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
