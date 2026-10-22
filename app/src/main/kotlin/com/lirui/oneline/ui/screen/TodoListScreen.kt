@@ -160,6 +160,7 @@ import com.lirui.oneline.util.KeepAliveNotifStyle
 import com.lirui.oneline.util.NotificationStyle
 import com.lirui.oneline.util.Quotes
 import com.lirui.oneline.util.SettingsRepo
+import com.lirui.oneline.widget.WidgetPinHelper
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -1272,6 +1273,20 @@ private fun SettingsScreen(
                 )
                 ItemDivider()
                 // v0.6：浮层顶栏的"沉浸式顶栏"开关已随浮层方案一起退役，不再提供。
+                ItemDivider()
+                // v0.8.1：一键添加桌面小组件。
+                // MIUI/HyperOS/vivo 的组件列表经常不显示新装的 App 组件（zuige 在澎湃 3
+                // 和 vivo 上都找不到），requestPinAppWidget 走系统标准流程，不依赖列表刷新。
+                ListItem(
+                    headlineContent = { Text("添加小组件到桌面") },
+                    supportingContent = { Text("点一下，系统弹确认直接放桌面") },
+                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                    modifier = Modifier.clickable {
+                        WidgetPinHelper.requestPin(context) {
+                            WidgetPinHelper.toastManualAdd(context)
+                        }
+                    }
+                )
             }
         }
 

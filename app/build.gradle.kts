@@ -70,8 +70,11 @@ android {
         // 0.8.0 = 桌面小组件：一个 provider、纵横可拉；2×2 紧凑行 4 条 / 拉高标准行 6 条；
         //         行首圆圈点击直接完成（广播 → Repository.archive → 刷新）；
         //         系统 30 分钟兜底 + App 内 6 处写操作即时刷新。
-        versionCode = 18
-        versionName = "0.8.0"
+        // 0.8.1 = 澎湃3/vivo 组件列表搜不到组件（Launcher 缓存 + previewImage 支持差）→
+        //         补 previewLayout（API 31+ 静态布局，Launcher 直接 inflate）+
+        //         设置→外观→「添加小组件到桌面」（requestPinAppWidget 一键钉桌面，不走列表）。
+        versionCode = 19
+        versionName = "0.8.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

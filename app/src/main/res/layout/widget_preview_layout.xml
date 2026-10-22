@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Widget 选择器里的**静态**预览布局（API 31+ 的 previewLayout）。
+
+  为什么还要一张：v0.8.0 只给了 previewImage（layer-list 画的位图替代），
+  MIUI/HyperOS 的组件列表对 previewImage 支持很差 —— 用户装完在澎湃 OS 3 上
+  根本搜不到这个组件。previewLayout 是 Android 12 起的标准做法，Launcher 直接
+   inflate 这张 XML，显示效果和真实组件一致。
+
+  ★ 不能用 widget_todo_list 本身：里面有 ListView，preview 阶段没有 adapter，
+   会渲染成空白。所以这里写死四行静态示意（结构与紧凑行保持一致）。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="160dp"
+    android:layout_height="160dp"
+    android:background="@color/widget_bg"
+    android:orientation="vertical"
+    android:padding="10dp">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/widget_label"
+        android:textColor="@color/widget_text"
+        android:textSize="13sp"
+        android:textStyle="bold" />
+
+    <include layout="@layout/widget_preview_row" />
+    <include layout="@layout/widget_preview_row" />
+    <include layout="@layout/widget_preview_row" />
+    <include layout="@layout/widget_preview_row" />
+</LinearLayout>
