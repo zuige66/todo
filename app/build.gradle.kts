@@ -59,8 +59,11 @@ android {
         // 0.6.2 = 添加弹层预览卡片收紧（14/12/8，与输入框同宽同重）；「通知样式」改名「通知」，
         //         提醒文案真正并入同卡，新增「常驻通知文案」编辑（保存即原地重建常驻通知）。
         // 每次发版：versionCode 必须单调递增（Android 用它判断升级），versionName 给人看。
-        versionCode = 14
-        versionName = "0.6.2"
+        // 0.7.0 = 新功能：预览卡片可直接选日期/时间（M3 DatePicker/TimePicker），覆盖句子解析值；
+        //         多日期待办各自独立覆盖；时间可改不可清，日期可改「无日期」；
+        //         提交链路改为 UI 侧合并成 List<ParsedTodo>（vm.addParsed / editParsed）。
+        versionCode = 15
+        versionName = "0.7.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

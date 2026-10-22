@@ -656,16 +656,16 @@ private fun TodoAppContent(
                 showAdd = false
                 editTarget = null
             },
-            onAdd = { text, keepRepeat ->
+            onAdd = { parsedList, keepRepeat ->
                 if (editTarget != null) {
-                    when (vm.edit(editTarget!!.id, text, keepRepeat)) {
+                    when (vm.editParsed(editTarget!!.id, parsedList.first(), keepRepeat)) {
                         com.lirui.oneline.ui.AddResult.Success -> {
                             showAdd = false; editTarget = null
                         }
                         else -> {}
                     }
                 } else {
-                    when (vm.add(text)) {
+                    when (vm.addParsed(parsedList)) {
                         com.lirui.oneline.ui.AddResult.Success -> showAdd = false
                         com.lirui.oneline.ui.AddResult.Blank -> {}
                         com.lirui.oneline.ui.AddResult.DateError -> showAdd = false

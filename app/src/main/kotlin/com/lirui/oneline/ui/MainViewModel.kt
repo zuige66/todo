@@ -73,30 +73,36 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** @return a sealed outcome describing whether to submit or show an error. */
-    fun add(text: String): AddResult {
-        val parsedList = parser.parseAll(text)
-        lastParses = parsedList
-        lastParse = parsedList.firstOrNull()
+    /**
+     * 提交**已在 UI 侧合并好手动覆盖**的解析结果（v0.7 起预览卡片可直接选日期/时间）。
+     *
+     * ★ 为什么 VM 不再自己 parse：手动选的日期/时间只存在于 AddSheet 的 state 里
+     *   （index → LocalDate/LocalTime 的覆盖表），VM 拿不到。所以由 AddSheet 合并成
+     *   最终 [ParsedTodo] 列表再传进来 —— 覆盖与解析只有一处汇合点，不会两处漂移。
+     *   `add(text)` 旧签名已删除：没有别的调用方，留着就是两条提交路径。
+     */
+    fun addParsed(parsedList: List<ParsedTodo>): AddResult {
         if (parsedList.isEmpty() || parsedList.all { it.cleanTitle.isBlank() }) return AddResult.Blank
         if (parsedList.any { it.dateError }) return AddResult.DateError
         if (parsedList.any { it.timeError }) return AddResult.TimeError
+        lastParses = parsedList
+        lastParse = parsedList.firstOrNull()
         // One todo per parsed date ("明天后天晚上开会" -> two reminders).
         viewModelScope.launch { parsedList.forEach { repo.addFromParsed(it) } }
         return AddResult.Success
     }
 
-    /** Edit an existing todo's content from a re-parse. */
-    fun edit(id: Long, text: String, keepRepeat: Boolean = true): AddResult {
-        val raw = parser.parse(text)
-        // Turning the repeat switch off drops the "每天/每周/每月" plan even if the sentence
-        // still contains the repeat word.
-        val parsed = if (keepRepeat) raw else raw.copy(repeatDays = 0)
-        lastParse = parsed
-        lastParses = listOf(parsed)
+    /** Edit an existing todo from a UI-merged [ParsedTodo] (replaces `edit(id, text)`). */
+    fun editParsed(id: Long, parsed: ParsedTodo, keepRepeat: Boolean = true): AddResult {
         if (parsed.cleanTitle.isBlank()) return AddResult.Blank
         if (parsed.dateError) return AddResult.DateError
         if (parsed.timeError) return AddResult.TimeError
-        viewModelScope.launch { repo.editFromParsed(id, parsed) }
+        // Turning the repeat switch off drops the "每天/每周/每月" plan even if the sentence
+        // still contains the repeat word.
+        val final = if (keepRepeat) parsed else parsed.copy(repeatDays = 0)
+        lastParse = final
+        lastParses = listOf(final)
+        viewModelScope.launch { repo.editFromParsed(id, final) }
         return AddResult.Success
     }
 
