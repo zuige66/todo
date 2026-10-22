@@ -1114,3 +1114,61 @@ OVERDUE 响  → 发通知 + reScheduleOverdue() → 重排，得到下一个 OV
   - FormatTest 由 15 条减到 9 条：`groupLabel` 相关断言随函数一起删除，
     逾期判定（`isOverdue`）的 6 条全部保留并补了"恰好在到期时刻也算逾期"
 - `:app:assembleRelease` 成功。
+
+---
+
+## 24. v0.3 修订（同版本号，不升版）
+
+> 按 zuige 要求：这轮改动仍打包为 **0.3 / versionCode 3**，不递增版本号。
+
+### 24.1 「有日期」不再显示板块标题
+
+只有 `逾期` 和 `无期` 两个板块有标题；「有日期」板块内的 今日/明天/本周… 就是这一层的标题，
+再叠一层「有日期」纯属噪音。同时把 `BucketHeader` 的左缩进从 28dp 收到 20dp ——
+它现在是这一层的最高标题，不该再往右缩。
+
+`DATED` 板块平铺时（档位全不勾）也不显示标题，靠上下板块标题形成分隔。
+
+### 24.2 「无日期」改为「无期」
+
+只改 `HomeBoard.UNDATED.label`，持久化 id 仍是 `undated`，已存的配置不受影响。
+
+### 24.3 板块排序：↑↓ 按钮 → 长按拖动
+
+原实现是两个 `IconButton` 上下移；现在改成左侧三条杠把手 + 长按整行拖动，带位移动画。
+
+**为什么手写而不是引库**：Compose 没有内置的"非 lazy 列表拖拽排序"，为 3 行引入
+`sh.calvin.reorderable` 不划算，也难保证和现有 M3E 卡片风格一致。
+
+实现要点（`ReorderableBoardList`）：
+
+| 点 | 做法 |
+|---|---|
+| 行高 | 固定 `56.dp`。只有 3 行、单行文字，换来的是能精确算出落点 |
+| 定位 | 不用 `Column` 布局，用 `Box` + `Modifier.offset` 手动摆放每一行 |
+| 拖动行 | `tween(0)` 跟手（不插值） |
+| 其它行 | `spring(dampingRatio = 0.72f, stiffness = 900f)`，index 一变就顺滑滑到新槽位 |
+| 换序 | 拖动位移换算成"跨了几行"，把行挪到目标 index，同时 `dragDelta -= (target-current) * rowHeight` |
+| 浮起 | `graphicsLayer.shadowElevation = 10dp` + `surfaceContainerHigh` 圆角底 |
+| 分隔线 | `drawBehind` 画，不占布局高度（否则固定行高算不准）；拖动中的行不画 |
+
+**两个容易踩的坑**：
+
+1. `pointerInput` 的 block 只在 key 变化时重建，闭包里捕获的 `order` 是**旧值**。
+   必须用一个 `State` 对象（`orderState`）在拖动过程中读写，否则第一次交换之后
+   每次都按旧顺序算 index，行会乱跳。
+2. 交换完必须扣掉 `(target - current) * rowHeight`，因为行的基准 y 已经变了。
+   不扣的话下一次拖动会按旧基准算，手指和行脱节。
+
+没有用 `Modifier.animateItem()`：那是 `LazyColumn` 的能力，这里板块列表是整个设置页
+其中一个 item 内部的固定三行，用不上。
+
+### 24.4 顶栏与底部导航同色
+
+`TopAppBar` 的 `containerColor`：`background` → `surfaceContainer`，与 `NavigationBar`
+一致，上下呼应。
+
+### 24.5 验证
+
+- `:app:testDebugUnitTest` 128 条全绿（分组逻辑未变，只有 UI 与文案调整）
+- `:app:assembleRelease` 成功，versionCode 3 / versionName "0.3"

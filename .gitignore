@@ -67,3 +67,13 @@ _smoke/
 
 # ---------- 8. Agent 工作区（会话日志、抓取的截图等，仅本机）----------
 .workbuddy/
+
+# ---------- 9. 本地工具缓存（★ 绝不能提交，曾误入 1.6 万个文件）----------
+.npm-cache/
+node_modules/
+.npm/
+.yarn/
+# @electron/asar 解包产物（2026-10-22 误入过一次）
+_dshextracted/
+package.json
+package-lock.json

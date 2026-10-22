@@ -13,7 +13,7 @@ import java.time.LocalDate
 enum class HomeBoard(val id: String, val label: String) {
     OVERDUE("overdue", "逾期"),
     DATED("dated", "有日期"),
-    UNDATED("undated", "无日期");
+    UNDATED("undated", "无期");
 
     companion object {
         val all: List<HomeBoard> = entries

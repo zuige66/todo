@@ -10,11 +10,14 @@ import android.widget.Toast
 
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -27,6 +30,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -35,23 +39,20 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowUp
-import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.ColorScheme
-import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -63,23 +64,30 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import com.lirui.oneline.data.model.Todo
 import com.lirui.oneline.reminder.NotificationHelper
 import com.lirui.oneline.ui.MainViewModel
@@ -94,6 +102,7 @@ import com.lirui.oneline.util.HomeGrouping
 import com.lirui.oneline.util.SettingsRepo
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 private const val TAB_TODO = 0
 private const val TAB_ARCHIVED = 1
@@ -230,7 +239,8 @@ private fun TodoAppContent(
                     Text(title, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
+                    // 与底部导航栏同一个容器色，上下呼应。
+                    containerColor = MaterialTheme.colorScheme.surfaceContainer
                 )
             )
         },
@@ -528,8 +538,11 @@ private fun TodoList(
                 )
                 if (boardItems.isEmpty()) continue
 
-                item(key = "board_${board.id}") { BoardHeader(board) }
-
+                // 「有日期」不显示板块标题：里面本来就是今日/明天/… 这些档位标题，
+                // 再叠一层"有日期"纯属噪音；平铺时靠上下的板块标题形成分隔就够了。
+                if (board != HomeBoard.DATED) {
+                    item(key = "board_${board.id}") { BoardHeader(board) }
+                }
                 // Only 有日期 gets sub-grouped, and only when at least one bucket is enabled.
                 // An empty selection means "flat list" by design (see HomeGrouping).
                 if (board != HomeBoard.DATED || enabledBuckets.isEmpty()) {
@@ -598,7 +611,8 @@ private fun BucketHeader(bucket: HomeBucket) {
         style = MaterialTheme.typography.labelMedium,
         color = MaterialTheme.colorScheme.primary,
         fontWeight = FontWeight.Bold,
-        modifier = Modifier.padding(start = 28.dp, end = 20.dp, top = 10.dp, bottom = 4.dp)
+        // 20dp 与板块标题对齐：「有日期」不显示标题后，档位就是这一层的最高标题。
+        modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 10.dp, bottom = 4.dp)
     )
 }
 
@@ -814,30 +828,27 @@ private fun SettingsScreen(
                     headlineContent = { Text("板块顺序", style = MaterialTheme.typography.bodyLarge) },
                     supportingContent = {
                         Text(
-                            "用 ↑↓ 调整先后，右侧开关控制是否显示",
+                            "长按左侧三条杠上下拖动，右侧开关控制是否显示",
                             style = MaterialTheme.typography.bodySmall
                         )
                     },
                     colors = ListItemDefaults.colors(containerColor = Color.Transparent)
                 )
-                boardOrder.forEachIndexed { index, board ->
-                    ItemDivider()
-                    BoardOrderRow(
-                        board = board,
-                        canMoveUp = index > 0,
-                        canMoveDown = index < boardOrder.lastIndex,
-                        visible = board !in hiddenBoards,
+                ItemDivider()
+                ReorderableBoardList(
+                    order = boardOrder,
+                    hiddenBoards = hiddenBoards,
+                    canToggle = { board ->
                         // 不允许把最后一个可见板块也关掉：首页会变空白，且没有入口回来。
-                        canToggle = if (board in hiddenBoards) true else visibleBoardCount > 1,
-                        onMoveUp = { onSetBoardOrder(boardOrder.swapped(index, index - 1)) },
-                        onMoveDown = { onSetBoardOrder(boardOrder.swapped(index, index + 1)) },
-                        onVisibleChange = { on ->
-                            onSetHiddenBoards(
-                                if (on) hiddenBoards - board else hiddenBoards + board
-                            )
-                        }
-                    )
-                }
+                        board in hiddenBoards || visibleBoardCount > 1
+                    },
+                    onReorder = onSetBoardOrder,
+                    onVisibleChange = { board, on ->
+                        onSetHiddenBoards(
+                            if (on) hiddenBoards - board else hiddenBoards + board
+                        )
+                    }
+                )
                 ItemDivider()
                 Text(
                     "「有日期」板块内的分组",
@@ -924,33 +935,152 @@ private fun ItemDivider() {
     )
 }
 
-/** A board row in 设置 → 首页分组: order arrows + visibility switch. */
+private val BOARD_ROW_HEIGHT = 56.dp
+
+/**
+ * 板块排序列表：长按左侧三条杠（整行也可长按）拖动，松手才提交。
+ *
+ * Compose 没有内置"非 lazy 列表的拖拽排序"，这里用固定行高 + `offset` 自己算位置：
+ * - 拖动中的行跟手（`tween(0)`，不插值）；
+ * - 其它行靠 `spring` 平滑滑到新槽位（位置来源是 index 变化）；
+ * - 交换后同步扣减 [dragDelta]，让手指和行保持贴合（见下方注释）。
+ *
+ * 行高固定 56dp 是有意的：只有三行、单行文字，换来的是可以精确计算落点。
+ */
 @Composable
-private fun BoardOrderRow(
+private fun ReorderableBoardList(
+    order: List<HomeBoard>,
+    hiddenBoards: Set<HomeBoard>,
+    canToggle: (HomeBoard) -> Boolean,
+    onReorder: (List<HomeBoard>) -> Unit,
+    onVisibleChange: (HomeBoard, Boolean) -> Unit
+) {
+    val density = LocalDensity.current
+    val rowHeightPx = with(density) { BOARD_ROW_HEIGHT.toPx() }
+    val dividerColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+    val rowShape = remember { RoundedCornerShape(14.dp) }
+
+    // Held in a State object rather than a plain value: the pointerInput block is only rebuilt
+    // when its key changes, so a captured `order` would go stale after the first swap.
+    val orderState = remember(order) { mutableStateOf(order) }
+    var draggingId by remember { mutableStateOf<String?>(null) }
+    var dragDelta by remember { mutableFloatStateOf(0f) }
+    val items = orderState.value
+
+    Box(Modifier.fillMaxWidth().height(BOARD_ROW_HEIGHT * items.size)) {
+        items.forEachIndexed { index, board ->
+            key(board) {
+                val dragging = draggingId == board.id
+                val baseY = index * rowHeightPx
+                val y by animateFloatAsState(
+                    targetValue = if (dragging) baseY + dragDelta else baseY,
+                    animationSpec = if (dragging) {
+                        tween(0)
+                    } else {
+                        // 松手回落、以及被挤开的行归位，都走这条曲线。
+                        spring(dampingRatio = 0.72f, stiffness = 900f)
+                    },
+                    label = "board-row-y"
+                )
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(BOARD_ROW_HEIGHT)
+                        .offset { IntOffset(0, y.roundToInt()) }
+                        .zIndex(if (dragging) 1f else 0f)
+                        // 拖动时浮起来：阴影 + 圆角底色，松手回落。
+                        .graphicsLayer {
+                            shadowElevation = if (dragging) 10.dp.toPx() else 0f
+                            shape = rowShape
+                            clip = false
+                        }
+                        .background(
+                            if (dragging) MaterialTheme.colorScheme.surfaceContainerHigh
+                            else Color.Transparent,
+                            rowShape
+                        )
+                        .drawBehind {
+                            if (!dragging && index < items.lastIndex) {
+                                val stroke = 0.5.dp.toPx()
+                                drawLine(
+                                    color = dividerColor,
+                                    start = Offset(16.dp.toPx(), size.height - stroke),
+                                    end = Offset(size.width - 16.dp.toPx(), size.height - stroke),
+                                    strokeWidth = stroke
+                                )
+                            }
+                        }
+                        .pointerInput(board.id) {
+                            detectDragGesturesAfterLongPress(
+                                onDragStart = {
+                                    draggingId = board.id
+                                    dragDelta = 0f
+                                },
+                                onDrag = { change, amount ->
+                                    change.consume()
+                                    dragDelta += amount.y
+                                    val current = orderState.value.indexOf(board)
+                                    val steps = (dragDelta / rowHeightPx).roundToInt()
+                                    val target = current + steps
+                                    if (steps != 0 && target in orderState.value.indices) {
+                                        orderState.value = orderState.value.toMutableList().also {
+                                            it.removeAt(current)
+                                            it.add(target, board)
+                                        }
+                                        // 行已挪到新槽位，基准 y 变了 (target-current) 行，
+                                        // 这段要从 dragDelta 里扣掉，否则下一次拖动会跳。
+                                        dragDelta -= (target - current) * rowHeightPx
+                                    }
+                                },
+                                onDragEnd = {
+                                    draggingId = null
+                                    dragDelta = 0f
+                                    onReorder(orderState.value)
+                                },
+                                onDragCancel = {
+                                    draggingId = null
+                                    dragDelta = 0f
+                                }
+                            )
+                        }
+                ) {
+                    BoardRowContent(
+                        board = board,
+                        visible = board !in hiddenBoards,
+                        canToggle = canToggle(board),
+                        onVisibleChange = { on -> onVisibleChange(board, on) }
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** One board row: drag handle · label · visibility switch. */
+@Composable
+private fun BoardRowContent(
     board: HomeBoard,
-    canMoveUp: Boolean,
-    canMoveDown: Boolean,
     visible: Boolean,
     canToggle: Boolean,
-    onMoveUp: () -> Unit,
-    onMoveDown: () -> Unit,
     onVisibleChange: (Boolean) -> Unit
 ) {
-    ListItem(
-        headlineContent = { Text(board.label, style = MaterialTheme.typography.bodyLarge) },
-        trailingContent = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onMoveUp, enabled = canMoveUp, modifier = Modifier.size(36.dp)) {
-                    Icon(Icons.Default.KeyboardArrowUp, contentDescription = "上移")
-                }
-                IconButton(onClick = onMoveDown, enabled = canMoveDown, modifier = Modifier.size(36.dp)) {
-                    Icon(Icons.Default.KeyboardArrowDown, contentDescription = "下移")
-                }
-                Switch(checked = visible, onCheckedChange = onVisibleChange, enabled = canToggle)
-            }
-        },
-        colors = ListItemDefaults.colors(containerColor = Color.Transparent)
-    )
+    Row(
+        modifier = Modifier.fillMaxSize().padding(start = 12.dp, end = 16.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            Icons.Default.Menu,
+            contentDescription = "长按拖动排序",
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(end = 10.dp).size(20.dp)
+        )
+        Text(
+            board.label,
+            style = MaterialTheme.typography.bodyLarge,
+            modifier = Modifier.weight(1f)
+        )
+        Switch(checked = visible, onCheckedChange = onVisibleChange, enabled = canToggle)
+    }
 }
 
 /** Multi-select chips for the buckets inside 有日期. */
@@ -978,16 +1108,6 @@ private fun BucketChips(enabled: Set<HomeBucket>, onToggle: (HomeBucket, Boolean
                 } else null
             )
         }
-    }
-}
-
-/** Swap two entries; an out-of-range index leaves the list untouched (edge arrows). */
-private fun <T> List<T>.swapped(i: Int, j: Int): List<T> {
-    if (i !in indices || j !in indices) return this
-    return toMutableList().also {
-        val tmp = it[i]
-        it[i] = it[j]
-        it[j] = tmp
     }
 }
 
