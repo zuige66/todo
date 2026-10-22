@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/zuige66/todo/releases"><img src="https://img.shields.io/badge/release-v0.6.2-3F3F46?style=flat-square" alt="release" /></a>
+  <a href="https://github.com/zuige66/todo/releases"><img src="https://img.shields.io/badge/release-v0.7.2-3F3F46?style=flat-square" alt="release" /></a>
   <img src="https://img.shields.io/badge/platform-Android-3DDC84?style=flat-square" alt="platform" />
   <img src="https://img.shields.io/badge/build-Kotlin%20%2B%20Compose-7F52FF?style=flat-square" alt="build" />
   <img src="https://img.shields.io/badge/storage-Room-4479A1?style=flat-square" alt="storage" />
@@ -20,7 +20,7 @@
 <p align="center">
   <a href="https://github.com/zuige66/todo/releases/latest"><b>下载 APK（GitHub）</b></a>
   &nbsp;·&nbsp;
-  <a href="https://blog.zuiges.com/downloads/oneline/todo-0.6.2.apk"><b>下载 APK（博客源）</b></a>
+  <a href="https://blog.zuiges.com/downloads/oneline/todo-0.7.2.apk"><b>下载 APK（博客源）</b></a>
   &nbsp;·&nbsp;
   <a href="DESIGN.md">设计文档</a>
   &nbsp;·&nbsp;

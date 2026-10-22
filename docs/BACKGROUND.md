@@ -765,3 +765,13 @@ PKG=com.lirui.oneline
 提交前合并成最终 `List<ParsedTodo>` 走 `repo.addFromParsed` 老路 —— 不开新数据通路。
 `vm.add(text)/edit(id,text)` 因此删除，改为 `addParsed/editParsed`（校验逻辑原样保留）。
 `ParsedTodo.hasExactTime` 是计算属性（`dueTime != null`），copy 时不能传。
+
+## 18. v0.7.x 发布记录（2026-10-22）
+
+| 版本 | 内容 |
+|---|---|
+| v0.7.0 | 预览卡片可直接选日期/时间（M3 DatePicker/TimePicker）：手动优先句子、多日期各自独立、时间可改不可清、日期可改「无日期」；提交链路改为 UI 侧合并 `List<ParsedTodo>`（`vm.addParsed/editParsed`，删旧 `add/edit`） |
+| v0.7.1 | 标题（事件）与详情也可编辑：点预览行弹对话框，同属手动覆盖；标题清空禁用提交 |
+| v0.7.2 | 预览 chip 样式统一（删空心描边变体，一律实底）；去掉标题/详情行的编辑铅笔图标 |
+
+发布链路：GitHub Release + 博客镜像（Hexo git 部署，`D:/Workplace/hexo/source/downloads/oneline/`）。
