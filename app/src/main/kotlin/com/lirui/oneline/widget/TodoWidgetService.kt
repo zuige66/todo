@@ -85,8 +85,8 @@ private class TodoRemoteViewsFactory(
             )
         )
 
-        // 行首圆圈 → 直接完成（广播给 Provider，走 Repository.archive）。
-        val complete = Intent(context, TodoWidgetProvider::class.java).apply {
+        // 行首圆圈 → 直接完成（独立 receiver，exported=false；见 TodoWidgetActionReceiver）。
+        val complete = Intent(context, TodoWidgetActionReceiver::class.java).apply {
             action = TodoWidgetProvider.ACTION_COMPLETE
             putExtra(TodoWidgetProvider.EXTRA_TODO_ID, todo.id)
             data = android.net.Uri.parse("todo://complete/${todo.id}")

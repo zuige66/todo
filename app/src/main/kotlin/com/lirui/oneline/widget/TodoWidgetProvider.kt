@@ -51,29 +51,8 @@ class TodoWidgetProvider : AppWidgetProvider() {
         WidgetUpdater.updateOne(context, manager, appWidgetId)
     }
 
-    override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action != ACTION_COMPLETE) {
-            super.onReceive(context, intent)
-            return
-        }
-        val id = intent.getLongExtra(EXTRA_TODO_ID, -1L)
-        if (id <= 0L) return
-        // 写库 + 刷新都在 IO 上；goAsync 把广播的生命周期拉到协程结束，
-        // 否则进程可能在 archive 写完前就被回收（那一刻组件还是旧的）。
-        val pendingResult = goAsync()
-        WidgetUpdater.ioScope.launch {
-            try {
-                // 直接走 Repository（widget 点击时 App 可能根本没开，ViewModel 不存在）。
-                // archive 内部会处理"重复待办顺延"和取消闹钟，与 App 内完成完全同路。
-                TodoWidgetRepo.get(context).archive(id)
-                WidgetUpdater.refresh(context)
-            } finally {
-                pendingResult.finish()
-            }
-        }
-    }
-
     companion object {
+        /** 完成动作由 [TodoWidgetActionReceiver]（exported=false）接，见其 KDoc。 */
         const val ACTION_COMPLETE = "com.lirui.oneline.widget.action.COMPLETE"
         const val EXTRA_TODO_ID = "todo_id"
     }

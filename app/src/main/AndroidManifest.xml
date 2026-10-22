@@ -97,20 +97,27 @@
         </service>
 
         <!-- 桌面小组件：一个 provider，纵横可拉。2×2 = 紧凑行 4 条；拉高 = 标准行 6 条。
-             exported=false：系统（Launcher）通过 APPWIDGET_UPDATE 触达，
-             不需要别的应用来更新；COMPLETE 动作只来自我们自己的 PendingIntent。 -->
+             ★ exported=true 是故意的：部分国产 Launcher（澎湃/vivo 实测）bind 组件时
+             不是特权身份，exported=false 会导致组件进不了系统列表（v0.8.1 的 404 根因）。
+             intent-filter 只挂系统的 APPWIDGET_UPDATE，完成动作在独立的
+             TodoWidgetActionReceiver（exported=false），不对外暴露。 -->
         <receiver
             android:name=".widget.TodoWidgetProvider"
-            android:exported="false"
+            android:exported="true"
             android:label="@string/widget_label">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
-                <action android:name="com.lirui.oneline.widget.action.COMPLETE" />
             </intent-filter>
             <meta-data
                 android:name="android.appwidget.action.APPWIDGET_UPDATE"
                 android:resource="@xml/todo_widget_info" />
         </receiver>
+
+        <!-- 小组件「圆圈完成」。exported=false：只有我们自己的 PendingIntent（显式
+             ComponentName）能投递；第三方应用伪造 COMPLETE 完成任意待办的路被堵死。 -->
+        <receiver
+            android:name=".widget.TodoWidgetActionReceiver"
+            android:exported="false" />
 
         <!-- Widget 列表的数据源。BIND_REMOTE_VIEWS 是系统权限：只有 Launcher 能绑定它。 -->
         <service
