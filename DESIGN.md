@@ -1172,3 +1172,35 @@ OVERDUE 响  → 发通知 + reScheduleOverdue() → 重排，得到下一个 OV
 
 - `:app:testDebugUnitTest` 128 条全绿（分组逻辑未变，只有 UI 与文案调整）
 - `:app:assembleRelease` 成功，versionCode 3 / versionName "0.3"
+
+---
+
+## 25. 仓库清理（2026-10-22）
+
+项目代码本身一直很干净（49 个受控文件），但根目录被工具产物堆到 **890MB**。清理后 9.7MB。
+
+| 内容 | 体积 | 判断依据 |
+|---|---|---|
+| `_dshextracted/` | 449MB / 16375 文件 | `@electron/asar` 解包产物，与 Java/Kotlin 工程无任何引用关系 |
+| `_smoke/` | 292MB | 10-21 的构建链路验证沙盒（独立工程副本 + 构建产物）；`REPORT.md` 已提到根目录并改名为 `SMOKE-REPORT.md` |
+| `app/build/` `build/` `.gradle/` | 138MB | 标准构建产物，可再生 |
+| `node_modules/` `.npm-cache/` `package/` `package.json` `package-lock.json` | 11MB | 上面那套 asar 工具的依赖与缓存 |
+| `dsh-workbuddy-fix-1.3.2.tgz` | 279KB | WorkBuddy 客户端自己的修复包，不属于项目 |
+
+**为什么值得记一笔**：这些东西是外部工具在项目根目录解包时留下的，`git status` 一眼看不出来
+（未被跟踪时只是一行 `??`），而 `du -sh` 能立刻暴露。
+
+**识别方法（下次再出现时）**：
+
+```bash
+du -sh .git app gradle dist                    # 看谁异常大
+ls -la                                          # 看有没有陌生的顶层目录/文件
+git ls-tree -r HEAD --name-only | cut -d/ -f1 | sort | uniq -c | sort -rn   # 仓库里混进了什么
+```
+
+**已做的预防**：`.gitignore` 第 9 段补齐 `.npm-cache/`、`node_modules/`、`_dshextracted/`、
+`package.json`、`package-lock.json`；第 10 段加 `dist/`（APK 备份目录）。
+
+另外 `git gc` 之前 `.git` 有 123MB —— 是那次误提交的 blob 还挂在 reflog 上（不是可达对象，
+但 `--prune=now` 单独清不掉）。正确顺序是
+`git reflog expire --expire=now --all && git gc --prune=now`，做完 `.git` 从 123MB 降到 302KB。

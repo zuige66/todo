@@ -77,3 +77,6 @@ node_modules/
 _dshextracted/
 package.json
 package-lock.json
+
+# ---------- 10. 本地打包输出（APK 备份，仅本机）----------
+dist/
