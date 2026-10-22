@@ -746,6 +746,9 @@ private fun tone(seed: Color, brightness: Float, chroma: Float): Color {
 
 ### 20.1 体检发现的问题（按严重度）
 
+> **状态（2026-10-22 更新）**：P0②③、P1④⑤⑥、P2⑦⑧⑨ 已在 **v1.9.1** 修复（见 §21）；
+> **P0① 逾期反复叮嘱链条仍未修** —— 等 zuige 拍板修法后再动手。
+
 **P0 — 功能实际不生效**
 
 1. **「逾期反复叮嘱」对新创建的待办永远不会触发。**
@@ -824,7 +827,8 @@ private fun tone(seed: Color, brightness: Float, chroma: Float): Color {
   它不在 git 里，丢了就无法覆盖安装已装机版本（签名不符 → 更新失败、必须卸载）
 - ⚠ 本机全局 git 配置有 `url.git@github.com:.insteadof https://github.com/`，
   所以虽然 remote 写的是 HTTPS，**实际推送走的是 SSH**。换机器/CI 时要注意这点
-- ⚠ **仓库仍缺 Gradle Wrapper**（见 §20.1 第 6 条），别人 clone 后大概率跑不起来，建议补上
+- ~~⚠ **仓库仍缺 Gradle Wrapper**~~ → 已在 v1.9.1 补上（`gradlew` / `gradlew.bat` /
+  `gradle/wrapper/`，9.5.0），现在 clone 下来可直接 `./gradlew assembleRelease`
 
 ---
 
