@@ -1,6 +1,5 @@
 package com.lirui.oneline.ui.screen
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -11,15 +10,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -28,7 +24,6 @@ import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
@@ -52,7 +47,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import com.lirui.oneline.parser.ParsedTodo
@@ -523,12 +517,12 @@ private fun PreviewItem(
             if (date != null) {
                 InfoChip(Format.dateShort(date), onClick = onPickDate)
             } else {
-                InfoChip("+ 日期", onClick = onPickDate, subtle = true)
+                InfoChip("+ 日期", onClick = onPickDate)
             }
             if (time != null) {
                 InfoChip(Format.timeLabel(time), onClick = onPickTime)
             } else {
-                InfoChip("+ 时间", onClick = onPickTime, subtle = true)
+                InfoChip("+ 时间", onClick = onPickTime)
             }
             when (p.repeatDays) {
                 1 -> InfoChip("每天")
@@ -536,7 +530,8 @@ private fun PreviewItem(
                 in 1..Int.MAX_VALUE -> InfoChip("每${p.repeatDays}天")
             }
         }
-        // 标题行：可点（编辑事件）。铅笔图标提示"可手动改"。
+        // 标题行：可点（编辑事件）。不加图标 —— zuige：右边的编辑图标不需要，
+        // 可点性用点击反馈表达，不靠视觉装饰。
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
@@ -550,14 +545,8 @@ private fun PreviewItem(
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.weight(1f)
             )
-            Icon(
-                Icons.Default.Edit,
-                contentDescription = "编辑事件",
-                tint = cs.onSurfaceVariant,
-                modifier = Modifier.size(14.dp)
-            )
         }
-        // 详情行：可点（编辑详情）。没有详情时给一个更弱的「+ 详情」提示。
+        // 详情行：可点（编辑详情）。没有详情时显示「+ 详情」。
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
@@ -569,35 +558,28 @@ private fun PreviewItem(
             Text(
                 detail?.takeIf { it.isNotBlank() } ?: "+ 详情",
                 style = MaterialTheme.typography.bodyMedium,
-                color = if (detail.isNullOrBlank()) cs.onSurfaceVariant else cs.onSurfaceVariant,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.weight(1f)
-            )
-            Icon(
-                Icons.Default.Edit,
-                contentDescription = "编辑详情",
-                tint = cs.onSurfaceVariant,
-                modifier = Modifier.size(14.dp)
             )
         }
     }
 }
 
 /**
- * 预览里的小 chip。可点（日期/时间选择入口）时加点击涟漪；
- * `subtle` 用于「+ 日期」这类补充入口 —— 弱化处理，不抢标题的注意力。
+ * 预览里的小 chip。**所有 chip 同一种样式**（实底 secondaryContainer）——
+ * v0.7.1 曾给「+ 日期 / + 时间」用空心描边区分"补充入口"，结果同一张卡片里
+ * 两种 chip 样式，用户反馈"图标不统一"。现在一律实底，可点的加点击涟漪。
  */
 @Composable
 private fun InfoChip(
     text: String,
-    onClick: (() -> Unit)? = null,
-    subtle: Boolean = false
+    onClick: (() -> Unit)? = null
 ) {
     val cs = MaterialTheme.colorScheme
     Surface(
         shape = RoundedCornerShape(50),
-        color = if (subtle) Color.Transparent else cs.secondaryContainer,
-        contentColor = if (subtle) cs.onSurfaceVariant else cs.onSecondaryContainer,
-        border = if (subtle) BorderStroke(1.dp, cs.outlineVariant) else null,
+        color = cs.secondaryContainer,
+        contentColor = cs.onSecondaryContainer,
         modifier = if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier
     ) {
         Text(

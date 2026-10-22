@@ -64,8 +64,9 @@ android {
         //         提交链路改为 UI 侧合并成 List<ParsedTodo>（vm.addParsed / editParsed）。
         // 0.7.1 = 标题（事件）与详情也可编辑：点预览行弹对话框，同属手动覆盖；
         //         标题清空时禁用提交（VM 也会判 Blank）。
-        versionCode = 16
-        versionName = "0.7.1"
+        // 0.7.2 = 预览 chip 样式统一（去掉空心描边变体，一律实底）；去掉标题/详情行的编辑铅笔图标。
+        versionCode = 17
+        versionName = "0.7.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
