@@ -37,13 +37,14 @@
             android:name=".reminder.ReminderReceiver"
             android:exported="false" />
 
-        <!-- Re-schedule after reboot / timezone change -->
+        <!-- Re-schedule after reboot. Alarms do not survive a reboot, so they are rebuilt
+             from the DB. (TIMEZONE_CHANGED was dropped: all dates are resolved in the pinned
+             北京时间 zone, so a device time-zone change no longer invalidates stored epochs.) -->
         <receiver
             android:name=".reminder.BootReceiver"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
-                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
             </intent-filter>
         </receiver>
     </application>

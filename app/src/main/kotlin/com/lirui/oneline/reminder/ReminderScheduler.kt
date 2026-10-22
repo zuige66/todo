@@ -133,7 +133,8 @@ object ReminderScheduler {
     }
 
     private fun canScheduleExact(context: Context): Boolean {
-        val am = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        val am = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager
+            ?: return false
         return when {
             Build.VERSION.SDK_INT >= 31 -> am.canScheduleExactAlarms()
             else -> true

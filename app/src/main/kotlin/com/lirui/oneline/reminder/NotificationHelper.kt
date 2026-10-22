@@ -14,8 +14,19 @@ import com.lirui.oneline.R
 object NotificationHelper {
 
     const val CHANNEL_REMINDER = "reminders"
-    const val CHANNEL_ID_COMPLETE = "completions"
-    const val NOTIFICATION_ID_REMINDER = 1001
+
+    /**
+     * Fixed id for the "发送测试通知" button — it isn't tied to any todo.
+     * Real reminders use [reminderId] so several can coexist.
+     */
+    private const val NOTIFICATION_ID_TEST = 1001
+
+    /**
+     * Per-todo notification id. The previous code reused ONE constant for every reminder,
+     * so two todos going off at the same instant silently overwrote each other and the user
+     * only ever saw the last one. Ids stay well clear of [NOTIFICATION_ID_TEST].
+     */
+    private fun reminderId(todoId: Long): Int = (200_000 + todoId % 1_000_000).toInt()
 
     fun init(context: Context) {
         val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -39,7 +50,7 @@ object NotificationHelper {
      * Post a reminder notification. Requires [canPostNotifications]; silently no-ops if denied
      * (excluding: exact-alarm scheduling still runs; only display is suppressed).
      */
-    fun postReminder(context: Context, title: String, message: String) {
+    fun postReminder(context: Context, todoId: Long, title: String, message: String) {
         if (!canPostNotifications(context)) return
         val builder = NotificationCompat.Builder(context, CHANNEL_REMINDER)
             .setSmallIcon(R.drawable.ic_notification)
@@ -48,7 +59,23 @@ object NotificationHelper {
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
         try {
-            NotificationManagerCompat.from(context).notify(NOTIFICATION_ID_REMINDER, builder.build())
+            NotificationManagerCompat.from(context).notify(reminderId(todoId), builder.build())
+        } catch (_: SecurityException) {
+            // permission revoked mid-flight; ignore
+        }
+    }
+
+    /** One-off notification from the settings test button (fixed id, replaces itself). */
+    fun postTest(context: Context, title: String, message: String) {
+        if (!canPostNotifications(context)) return
+        val builder = NotificationCompat.Builder(context, CHANNEL_REMINDER)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(title)
+            .setContentText(message)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setAutoCancel(true)
+        try {
+            NotificationManagerCompat.from(context).notify(NOTIFICATION_ID_TEST, builder.build())
         } catch (_: SecurityException) {
             // permission revoked mid-flight; ignore
         }

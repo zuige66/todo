@@ -1,6 +1,8 @@
 package com.lirui.oneline.util
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.LocalDate
 import java.time.ZoneId
@@ -72,6 +74,43 @@ class FormatTest {
 
     @Test fun groupLabel_tomorrowStaysTomorrow_evenLateTonight() {
         assertEquals("明天", Format.groupLabel(epoch(2026, 10, 22, 9), today, epoch(2026, 10, 21, 23, 59)))
+    }
+
+    // ---- 只写日期（无精确时刻）的待办：过了那一天才算逾期，不该 09:00 一过就变红 ----
+    @Test fun dateOnly_todayIsNotOverdue_whenDefaultTimeHasPassed() {
+        // 只写"今天"：默认提醒时刻 09:00 虽然过了，但整天都还算数
+        val due = epoch(2026, 10, 21, 9)
+        val late = epoch(2026, 10, 21, 23, 59)
+        assertFalse(Format.isOverdue(due, today, late, hasExactTime = false))
+        assertEquals("今天", Format.groupLabel(due, today, late, hasExactTime = false))
+    }
+
+    @Test fun dateOnly_yesterdayIsOverdue() {
+        val due = epoch(2026, 10, 20, 9)
+        val now = epoch(2026, 10, 21, 10, 0)
+        assertTrue(Format.isOverdue(due, today, now, hasExactTime = false))
+        assertEquals("已逾期", Format.groupLabel(due, today, now, hasExactTime = false))
+    }
+
+    // ---- 有精确时刻：过点即逾期（此前的 bug 就是这里被"只看日期"卡住）----
+    @Test fun exactTime_todayIsOverdue_onceInstantPassed() {
+        val due = epoch(2026, 10, 21, 23, 39)
+        val now = epoch(2026, 10, 21, 23, 59)
+        assertTrue(Format.isOverdue(due, today, now, hasExactTime = true))
+        assertEquals("已逾期", Format.groupLabel(due, today, now, hasExactTime = true))
+    }
+
+    @Test fun exactTime_todayIsNotOverdue_beforeInstant() {
+        val due = epoch(2026, 10, 21, 23, 39)
+        val now = epoch(2026, 10, 21, 12, 0)
+        assertFalse(Format.isOverdue(due, today, now, hasExactTime = true))
+        assertEquals("今天", Format.groupLabel(due, today, now, hasExactTime = true))
+    }
+
+    @Test fun noDate_isNeverOverdue() {
+        val now = epoch(2026, 10, 21, 23, 59)
+        assertFalse(Format.isOverdue(null, today, now))
+        assertEquals("无日期", Format.groupLabel(null, today, now))
     }
 
     companion object {

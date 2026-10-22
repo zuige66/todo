@@ -38,7 +38,7 @@ class ReminderReceiver : BroadcastReceiver() {
                         ReminderEngine.Reminder.Kind.OVERDUE -> "还没完成，别忘了哦"
                         else -> "提醒"
                     }
-                    NotificationHelper.postReminder(appContext, todo.title, message)
+                    NotificationHelper.postReminder(appContext, todo.id, todo.title, message)
                     // OVERDUE: reschedule the next nag so a still-unfinished todo keeps nagging.
                     if (ReminderEngine.Reminder.Kind.entries.getOrNull(kind) == ReminderEngine.Reminder.Kind.OVERDUE) {
                         if (ReminderScheduler.overdueNagActive(appContext)) {

@@ -812,3 +812,103 @@ private fun tone(seed: Color, brightness: Float, chroma: Float): Color {
 | J | **通知快捷操作** | 通知上直接「完成」「推迟 10 分钟」 | `NotificationCompat.Action` |
 | K | **重复规则增强** | 「每月第一个周一」「每两周」 | Parser + 计算 |
 | L | **地点提醒** | 到达某地提醒 | 位置权限（重） |
+
+### 20.4 v0.1 发布记录（2026-10-22）
+
+- `versionCode = 1` / `versionName = "0.1"`
+- 仓库：`https://github.com/zuige66/todo.git`（远端名 `origin`，默认分支 `main`）
+- 首个提交 `76c0047`，共追踪 **41 个文件**；已核验远端**不含** `keystore.properties`、
+  `app/oneline-release.keystore`、`local.properties`、`_smoke/`
+- 打 `v0.1` 附注标签并推送
+- ⚠ **签名密钥已备份到 `D:/Workplace/Oneline-keystore-backup/`**（仓库外）。
+  它不在 git 里，丢了就无法覆盖安装已装机版本（签名不符 → 更新失败、必须卸载）
+- ⚠ 本机全局 git 配置有 `url.git@github.com:.insteadof https://github.com/`，
+  所以虽然 remote 写的是 HTTPS，**实际推送走的是 SSH**。换机器/CI 时要注意这点
+- ⚠ **仓库仍缺 Gradle Wrapper**（见 §20.1 第 6 条），别人 clone 后大概率跑不起来，建议补上
+
+---
+
+## 21. v1.9.1 变更记录（2026-10-22）
+
+### 21.1 ★ 全应用时区钉死为北京时间
+
+**问题**：时区散落在各处，且**两边口径不一致**：
+
+| 位置 | 原来用什么 |
+|---|---|
+| `Format.kt`（4 处显示） | `ZoneId.systemDefault()` |
+| `TodoRepository`（算 epoch） | `ZoneId.systemDefault()` |
+| **`Parser.refreshClock()`（算"今天"）** | **`LocalDate.now()` —— 设备默认时区** |
+
+`LocalDate.now()` 用的是 `TimeZone.getDefault()`，也就是**设备时区**；而 `ZonedDateTime.of(date, time, systemDefault())` 也是设备时区。表面上一致，**但设备时区一变就不一致了**：
+跨时区后，同一个 `dueAtMillis`（绝对 epoch）对应的墙钟变了 —— 原本"09:00"的闹钟会变成 10:00 响。而列表显示也会跟着跳。用户的诉求是**始终按北京时间**，所以不能依赖设备时区。
+
+**修法**：新增 `util/AppTime.kt`，全应用只认一个时区：
+
+```kotlin
+object AppTime {
+    val ZONE: ZoneId = ZoneId.of("Asia/Shanghai")
+    fun today(): LocalDate = LocalDate.now(ZONE)
+    fun now(): LocalTime = LocalTime.now(ZONE)
+    fun nowMillis(): Long = System.currentTimeMillis()
+}
+```
+
+替换点：`Format.kt` 4 处、`TodoRepository` 3 处、`ReminderEngine` 2 处默认值、
+`TodoListScreen`（`TodoList` 与编辑弹层回填）、`MainViewModel.previewExisting`。
+
+单元测试里原本就写死 `Asia/Shanghai`，所以不受影响、仍然确定性。
+
+### 21.2 时区广播：删掉而不是补上
+
+`BootReceiver` 声明了 `TIMEZONE_CHANGED` 却从没处理过它。既然时区已被钉死，
+`dueAtMillis` 的含义不再随设备时区漂移 —— **这个 action 已经没有存在的理由**，
+所以从 Manifest 移除，并在 `BootReceiver` 的 KDoc 里写清楚原因，
+避免后人又把它加回来。
+（如果哪天 `AppTime.ZONE` 变成用户可配，这条要重新考虑。）
+
+### 21.3 每条待办独立通知 id
+
+原来所有提醒共用一个 `NOTIFICATION_ID_REMINDER = 1001`，
+两条待办同时到期时后一条**静默覆盖**前一条。改为按 todoId 派生：
+
+```kotlin
+private fun reminderId(todoId: Long): Int = (200_000 + todoId % 1_000_000).toInt()
+```
+
+"发送测试通知"按钮不属于任何待办，单独走固定 id（1001）。
+
+### 21.4 P1-④：只写日期的待办不会立刻逾期
+
+`parsedToDue()` 对 `dueTime == null` 用 `defaultMinuteOfDay`（默认 09:00）兜底，
+于是晚上 23:59 输入「今天开会」→ 到期 = 今天 09:00 → **一创建就红 + 唠叨**。
+
+现在按「日期粒度」判定：
+
+```kotlin
+fun isOverdue(due, today, nowMillis, hasExactTime = true): Boolean {
+    if (due == null) return false
+    if (!hasExactTime) return dueAtMillis(due).isBefore(today) // 只写日期：过了那天才算
+    return due <= nowMillis                                    // 有精确时刻：过点即逾期
+}
+```
+
+**分组与标红现在共用这一个函数**（`Format.groupLabel` 内部也调 `isOverdue`），
+从根上杜绝"分在已逾期组里却不红"这类自相矛盾。
+
+### 21.5 P1-⑤ / P1-⑥ / P2
+
+- **P1-⑤**：`gradle.properties` 里的 `org.gradle.java.home` 已移到 `~/.gradle/gradle.properties`，
+  项目里不再有机器相关路径（移除后重新编译验证通过）。
+- **P1-⑥**：补上 Gradle Wrapper（9.5.0），`gradlew` / `gradlew.bat` /
+  `gradle/wrapper/*` 一并提交，换机器可直接构建。
+- **P2-⑦**：删掉死代码 `NotificationHelper.CHANNEL_ID_COMPLETE`（无渠道创建、无调用点）。
+- **P2-⑧**：版本号 `versionCode=1 / versionName="0.1"`。
+- **P2-⑨**：`canScheduleExact()` 改用 `as?` + `?: return false`，与同文件其他取服务的写法一致。
+
+### 21.6 验证
+
+- `:app:testDebugUnitTest` **107 条全绿**（ParserTest 80 / ReminderEngineTest 12 / FormatTest 15）
+  - FormatTest 新增 5 条：无时刻待办当天不逾期 / 昨天才算逾期 / 有时刻过点即逾期 /
+    有时刻未到点不逾期 / 无日期永不逾期
+- `:app:assembleRelease` → `adb install -r` `Success` → 启动 FATAL 数 0

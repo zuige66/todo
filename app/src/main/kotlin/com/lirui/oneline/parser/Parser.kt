@@ -1,5 +1,6 @@
 package com.lirui.oneline.parser
 
+import com.lirui.oneline.util.AppTime
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.LocalTime
@@ -32,8 +33,8 @@ class Parser(
     // Read on demand so a long-lived Parser (reused by the ViewModel all session) always
     // compares against the *current* wall clock, not the moment it was constructed.
     // Otherwise "今晚8点" typed after 8pm wouldn't flag timeError because `now` is stale.
-    private var today: LocalDate = fixedToday ?: LocalDate.now()
-    private var now: LocalTime = fixedNow ?: LocalTime.now()
+    private var today: LocalDate = fixedToday ?: AppTime.today()
+    private var now: LocalTime = fixedNow ?: AppTime.now()
 
     // ---------- date ----------
 
@@ -232,8 +233,8 @@ class Parser(
     }
 
     private fun refreshClock() {
-        if (fixedToday == null) today = LocalDate.now()
-        if (fixedNow == null) now = LocalTime.now()
+        if (fixedToday == null) today = AppTime.today()
+        if (fixedNow == null) now = AppTime.now()
     }
 
     private fun splitTokens(input: String): List<String> =

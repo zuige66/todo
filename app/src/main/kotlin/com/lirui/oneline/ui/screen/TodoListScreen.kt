@@ -83,6 +83,7 @@ import com.lirui.oneline.ui.MainViewModel
 import com.lirui.oneline.ui.theme.DarkCardStyle
 import com.lirui.oneline.ui.theme.Palette
 import com.lirui.oneline.ui.theme.Palettes
+import com.lirui.oneline.util.AppTime
 import com.lirui.oneline.util.Format
 import com.lirui.oneline.util.SettingsRepo
 import kotlinx.coroutines.delay
@@ -297,7 +298,7 @@ private fun TodoAppContent(
                     onExactAlarmSettings = onExactAlarmSettings,
                     onTestNotification = {
                         if (NotificationHelper.canPostNotifications(context)) {
-                            NotificationHelper.postReminder(
+                            NotificationHelper.postTest(
                                 context,
                                 "测试通知",
                                 "通知权限与提醒渠道正常 ✅"
@@ -473,15 +474,14 @@ private fun TodoList(
     } else {
         // 时间必须自己往前走。原来 `now` 只在重组时取一次，而列表只在数据变化时重组，
         // 所以 23:55 的待办到了 23:59 依旧是"今天"、依旧不标红——看起来就像"过期没提示"。
-        var now by remember { mutableStateOf(System.currentTimeMillis()) }
+        var now by remember { mutableStateOf(AppTime.nowMillis()) }
         LaunchedEffect(Unit) {
             while (true) {
                 delay(20_000)
-                now = System.currentTimeMillis()
+                now = AppTime.nowMillis()
             }
         }
-        val today = java.time.Instant.ofEpochMilli(now)
-            .atZone(java.time.ZoneId.systemDefault()).toLocalDate()
+        val today = AppTime.today()
         // 过期置顶：只有"是否置顶"该受设置控制，"是否标红"与设置无关。
         val sorted = if (overduePin) {
             todos.sortedWith(compareBy<Todo> { t ->
@@ -492,7 +492,10 @@ private fun TodoList(
                 }
             }.thenBy({ it.dueAtMillis ?: Long.MAX_VALUE }).thenBy { it.createdAt })
         } else todos
-        val groups = sorted.groupBy { Format.groupLabel(it.dueAtMillis, today, now) }
+        // 分组与标红共用 [Format.isOverdue]，避免"分在已逾期但不红"。
+        val groups = sorted.groupBy {
+            Format.groupLabel(it.dueAtMillis, today, now, it.hasExactTime)
+        }
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(vertical = 8.dp)
@@ -508,8 +511,10 @@ private fun TodoList(
                     )
                 }
                 items(items, key = { it.id }) { todo ->
-                    // 到点即逾期并标红——不再依赖"逾期置顶标红"这个开关。
-                    val overdue = todo.dueAtMillis != null && todo.dueAtMillis <= now
+                    // 到点即逾期并标红——不再依赖"逾期置顶"这个开关（它只管排序）。
+                    val overdue = Format.isOverdue(
+                        todo.dueAtMillis, today, now, todo.hasExactTime
+                    )
                     TodoRow(
                         todo,
                         overdue = overdue,

@@ -4,11 +4,11 @@ import android.content.Context
 import com.lirui.oneline.data.model.Todo
 import com.lirui.oneline.parser.ParsedTodo
 import com.lirui.oneline.reminder.ReminderScheduler
+import com.lirui.oneline.util.AppTime
 import com.lirui.oneline.util.SettingsRepo
 import kotlinx.coroutines.flow.Flow
 import java.time.LocalDate
 import java.time.LocalTime
-import java.time.ZoneId
 import java.time.ZonedDateTime
 
 /**
@@ -40,7 +40,7 @@ class TodoRepository(private val context: Context) {
      * (SettingsRepo.defaultMinuteOfDay, default 09:00).
      */
     private fun parsedToDue(parsed: ParsedTodo): Pair<Long, Boolean>? {
-        val zone = ZoneId.systemDefault()
+        val zone = AppTime.ZONE
         val date = parsed.dueDate
         if (date == null) return null
         val time = parsed.dueTime ?: defaultTime(parsed.dueDate)
@@ -56,7 +56,7 @@ class TodoRepository(private val context: Context) {
 
     /** Settings test button: a "测试通知" todo due at the next whole minute. */
     suspend fun addTestInOneMinute(): Long {
-        val zone = ZoneId.systemDefault()
+        val zone = AppTime.ZONE
         val due = ZonedDateTime.now(zone).withSecond(0).withNano(0).plusMinutes(1)
         val epoch = due.toInstant().toEpochMilli()
         val id = dao.insert(Todo(
@@ -82,7 +82,7 @@ class TodoRepository(private val context: Context) {
 
     /** Advance a repeating todo to its next occurrence and re-schedule its reminders. */
     private suspend fun rollForward(todo: Todo) {
-        val zone = ZoneId.systemDefault()
+        val zone = AppTime.ZONE
         val due = todo.dueAtMillis
         if (due == null) { // no-date repeat: just bounce completedAt, keep it active
             dao.update(todo.copy(completedAt = System.currentTimeMillis()))

@@ -1,5 +1,6 @@
 package com.lirui.oneline.reminder
 
+import com.lirui.oneline.util.AppTime
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -41,7 +42,7 @@ object ReminderEngine {
         dueAtMillis: Long,
         hasExactTime: Boolean,
         nowMillis: Long = System.currentTimeMillis(),
-        zone: ZoneId = ZoneId.systemDefault()
+        zone: ZoneId = AppTime.ZONE
     ): List<Reminder> {
         if (dueAtMillis <= 0L) return emptyList()
 
@@ -91,7 +92,7 @@ object ReminderEngine {
     fun nextOverdueReminder(
         dueAtMillis: Long,
         nowMillis: Long = System.currentTimeMillis(),
-        zone: ZoneId = ZoneId.systemDefault(),
+        zone: ZoneId = AppTime.ZONE,
         nagIntervalHours: Int = 24
     ): Reminder? {
         if (dueAtMillis <= 0L) return null
