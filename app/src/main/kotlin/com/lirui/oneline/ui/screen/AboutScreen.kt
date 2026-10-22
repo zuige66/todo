@@ -38,7 +38,6 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
@@ -111,13 +110,12 @@ private const val BACKGROUND_SPEED = 0.12f
 private const val COLOR_INTERPOLATION_SECONDS = 12f
 
 /**
- * 图标底色。必须与 `values/colors.xml` 里的 `ic_launcher_background` 完全一致 ——
- * 关于页这块圆角方块就是拿它当"桌面图标"的替身，差一点就能看出与桌面那个不是同一个。
+ * 关于页的图标就是**原图本身**（`drawable-nodpi/ic_logo.png`，512px）。
  *
- * 已换成 icon1_1024_transparent.png 的徽章紫 #6650A3（旧品牌色是 #00696A 深青）。
+ * 不要再给它套底色 Surface、也不要改回 `@mipmap/ic_launcher`：
+ *  - 母图是透明底的紫色波浪花瓣，自带完整轮廓，加底色会把花瓣压掉；
+ *  - `@mipmap/ic_launcher` 是 48dp 基准的小图，拉到 88dp 会糊。
  */
-private val LogoBackground = Color(0xFF6650A3)
-
 @Composable
 fun AboutScreen(onBack: () -> Unit) {
     BackHandler(enabled = true) { onBack() }
@@ -266,23 +264,12 @@ fun AboutScreen(onBack: () -> Unit) {
                 },
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Surface(
-                    shape = RoundedCornerShape(24.dp),
-                    color = LogoBackground,
-                    shadowElevation = 6.dp,
-                    modifier = Modifier.size(88.dp)
-                ) {
-                    // 只画「白勾」这一层，紫色底由上面的 Surface 提供 —— 与桌面自适应图标
-                    // 完全同一个构图（background = 纯色，foreground = 白勾）。
-                    // 千万别改回 R.mipmap.ic_launcher：那是 <adaptive-icon> 容器，
-                    // painterResource 只认 <vector> 或位图，会在组合这一帧抛
-                    // IllegalArgumentException 把关于页打崩（DESIGN §31）。
-                    Image(
-                        painter = painterResource(R.drawable.ic_launcher_foreground),
-                        contentDescription = null,
-                        modifier = Modifier.fillMaxSize()
-                    )
-                }
+                // 原图直出：不套底色、不裁切。母图 1024px 透明底，波浪花瓣完整保留。
+                Image(
+                    painter = painterResource(R.drawable.ic_logo),
+                    contentDescription = null,
+                    modifier = Modifier.size(96.dp)
+                )
                 Text(
                     // 跟着 app_name 走，别再写死 —— 应用名改一次要动的地方越少越好。
                     stringResource(R.string.app_name),

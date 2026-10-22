@@ -2190,79 +2190,98 @@ private fun decoratedTitle(title: String, message: String, done: Boolean): Strin
 
 ## 38. 换图标 / 改项目名 / 通知标题做成设置项（2026-10-22）
 
-### 38.1 新图标：只取白勾，紫底交给 adaptive-icon
+### 38.1 图标：母图是「满幅构图」，必须走 legacy mipmap
 
-素材是仓库根目录的 `icon1_1024_transparent.png`：1024×1024 透明底，
-紫色十二角花瓣徽章 + 白色对勾。
+素材是仓库根目录的 `icon1_1024_transparent.png`：1024×1024 透明底，紫色十二角波浪花瓣 + 白色对勾。
 
-**结论：这张图不能整张塞进 `<foreground>`。** 原因不是技术做不到，是几何问题：
+先量一下它的构图：alpha 包围盒 `39,33 – 984,967`，即 **946×935，占画布的 92%**。
+也就是说这张图的**设计前提就是「图形撑满整块画布」**——花瓣边缘离画布边只剩 4% 的透明留白。
 
-- 自适应图标 = `background`（纯色/图形）+ `foreground`（符号），两层叠在一起；
-- 花瓣本身就是**紫色**，如果 `background` 也用紫色，花瓣会与底色完全融合 →
-  768 万像素的图形只剩中间那个白勾可见，花瓣等于白画；
-- 如果 `background` 用白色去衬托花瓣，圆形遮罩下就是一个**白底大亮块**，
-  深色壁纸下极其扎眼，而且 48dp 桌面上花瓣的十二个角根本分辨不出来。
+这跟自适应图标（adaptive icon）的规则**直接冲突**：
 
-所以按 Android 官方图标的通行做法拆两层：
+```
+adaptive icon 画布 108dp  ┌──────────────────┐
+                          │  18dp 会被裁掉    │
+                          │  ┌────────────┐  │
+                          │  │ 安全区 72dp │  │  ← 只有这里保证可见
+                          │  │  = 66.7%    │  │
+                          │  └────────────┘  │
+                          │  18dp 会被裁掉    │
+                          └──────────────────┘
+```
 
-| 层 | 内容 | 资源 |
-|---|---|---|
-| background | 纯色 `#6650A3` | `values/colors.xml` → `ic_launcher_background` |
-| foreground | 白色对勾，透明底 | `drawable-{m,h,xh,xxh,xxxh}dpi/ic_launcher_foreground.png` |
+母图要 92%，系统只给 66.7%。二选一：
 
-底色不是估的，是从原图**统计出来的**：对全部不透明像素做 5-bit 量化直方图取众数，
-得到 `#6650A3`（579,195 px，占绝对多数）。旧品牌色 `#00696A` 深青就此退役。
+1. **按 100% 塞进 foreground** → 外圈 25% 被遮罩切掉，**波浪边整圈消失**；
+2. **缩到 66.7% 装进安全区** → 图形完整，但比设计稿小了 27%，四周还多出一圈底色。
 
-**白勾是抠出来的，不是画出来的。** 抠图不能用一个"接近白"的硬阈值 ——
-花瓣到白勾之间有一圈抗锯齿过渡，硬阈值会切出锯齿边。做法是把最低通道线性映射：
+两条都会改变用户交过来的图形。**所以这张图根本不该用 adaptive icon。**
+
+#### 曾经走错的路（保留，作为反面记录）
+
+第一版把图拆成了「纯色底 + 白勾」两层，理由是想符合 adaptive icon 的规范：
+花瓣和底色都是紫色，同色会融合，于是干脆只留白勾。
+
+结果是：**波浪花瓣整圈消失，图标变成一个紫底白勾。** 技术上"规范"，实际上把用户的图形改掉了。
+规范是给"从零设计图标"用的，不是拿来改造一张已经定稿的成品图。
+
+#### 正确做法：legacy mipmap PNG
+
+删掉 `mipmap-anydpi-v26/ic_launcher.xml`（那是把它声明成 adaptive icon 的地方），
+改为在 5 个密度目录下各放一张 PNG：
+
+```xml
+<!-- 不再有 mipmap-anydpi-v26/ic_launcher.xml -->
+res/mipmap-mdpi/ic_launcher.png       48px
+res/mipmap-hdpi/ic_launcher.png       72px
+res/mipmap-xhdpi/ic_launcher.png      96px
+res/mipmap-xxhdpi/ic_launcher.png    144px
+res/mipmap-xxxhdpi/ic_launcher.png   192px
+```
+
+生成方式就是**整图 1:1 缩放，不裁、不抠、不留白**：
 
 ```java
-int lo = Math.min(r, Math.min(g, b));          // 紫底 92，白勾 255
-float t = clamp((lo - badgeMin) / (255 - badgeMin), 0, 1);
-int a = Math.round(t * srcAlpha);              // 过渡区自然得到半透明
+g.setRenderingHint(KEY_INTERPOLATION, VALUE_INTERPOLATION_BICUBIC);
+g.drawImage(src, 0, 0, PX[i], PX[i], null);   // 整个 1024 画布映射到 48dp 画布
 ```
 
-实测白勾包围盒 `270,314 – 760,702`（491×389），按**画布宽度的 50%** 缩放居中。
+这样图形 **100% 保留**，波浪的十二个角一个不少。
 
-### 38.2 生成脚本与安全区
+代价要认：**launcher 对 legacy icon 会做一次 inset**（AOSP 的 `LegacyIconDrawable`
+为了让这类图标和自适应图标视觉重量一致，会缩到约 0.7 并可能垫一层底）。
+但这个代价是"整体等比缩小"，不是"改形状"——用户看到的仍然是完整的波浪花瓣。
+这是唯一一种能让成品图**原样上桌**的办法。
 
-`Icon2.java`（临时文件，未入库）按 5 个密度各出一张，画布 = `108dp × density`：
+### 38.2 判据：什么时候不该用 adaptive icon
 
-| 密度 | 画布 | 白勾 |
-|---|---|---|
-| mdpi | 108px | 54×43 |
-| hdpi | 162px | 81×64 |
-| xhdpi | 216px | 108×86 |
-| xxhdpi | 324px | 162×128 |
-| xxxhdpi | 432px | 216×171 |
+| 母图是什么 | 该用什么 |
+|---|---|
+| 单色符号 + 纯色底（典型 Material 图标） | adaptive icon，两层拆开最标准 |
+| **成品图：图形撑满画布 / 有渐变 / 有复杂轮廓 / 是照片** | **legacy mipmap，整图直出** |
 
-108dp 画布里只有中间 **72dp** 是安全区，外围 18dp 会被各家 launcher 的遮罩切掉。
-白勾宽 54dp = 安全区的 75%，离边缘还有余量，圆形 / 圆角方形 / 方形三种遮罩下都不会被切。
+判据就一句：**画面内容是否已经在 92% 的范围内表达完整**。
+如果是，任何"拆层 + 安全区"的处理都是在删改内容，不是适配。
 
-> **必须删掉旧的 `drawable/ic_launcher_foreground.xml`。** 它和新 PNG 同名同类型，
-> Android 资源合并时**同限定符下 XML 优先于 PNG**（`drawable/` 与 `drawable-xxxhdpi/`
-> 是不同限定符，密度更高的会赢，但 mdpi 那档没有对应目录就会落到 `drawable/` 的 XML）。
-> 留着它 = 换了等于没换，而且只在部分密度上错，极难察觉。已删除。
+### 38.3 关于页：原图直出，不套底色
 
-### 38.3 关于页跟着换：`ic_about_logo.xml` 退役
-
-关于页原先用 `R.drawable.ic_about_logo`（白心 + 深青竖条，"竖条压在心上形成缺口"）。
-品牌色一换那个竖条就露馅，所以整块换掉：
+关于页原来给图标垫了一块紫色 `Surface`（那是拆层方案的产物）。现在母图自带完整轮廓，
+垫底色反而会把花瓣压掉，所以直接画：
 
 ```kotlin
-private val LogoBackground = Color(0xFF6650A3)   // 必须 == ic_launcher_background
-
-Surface(shape = RoundedCornerShape(24.dp), color = LogoBackground, modifier = Modifier.size(88.dp)) {
-    Image(painter = painterResource(R.drawable.ic_launcher_foreground), modifier = Modifier.fillMaxSize())
-}
+// 原图直出：不套底色、不裁切。母图 1024px 透明底，波浪花瓣完整保留。
+Image(
+    painter = painterResource(R.drawable.ic_logo),
+    contentDescription = null,
+    modifier = Modifier.size(96.dp)
+)
 ```
 
-- 现在关于页那个方块和桌面图标是**同一个构图**（纯色底 + 白勾），一眼能对上；
-- 原先的 `.padding(20.dp)` 去掉了：`ic_launcher_foreground` 自带 108dp 坐标系，
-  白勾只占中间 50%，再加 padding 会让勾缩到 24dp，明显偏小；
-- `painterResource` 这次喂的是 **PNG 位图**，不是 `<vector>`，两条合法路径之一（见 §31）。
-
-`res/drawable/ic_about_logo.xml` 已删除。
+- 用 `res/drawable-nodpi/ic_logo.png`（512px）而不是 `@mipmap/ic_launcher`：
+  后者是 48dp 基准图，拉到 96dp 会糊成一片；`nodpi` 保证它按像素直接采样、不被密度缩放。
+- `painterResource` 这一次喂的是 **PNG 位图**，属于两条合法路径之一（见 §31）。
+- 配套删除：`res/drawable/ic_about_logo.xml`、`values/colors.xml`（里面只剩一个已无人引用的
+  `ic_launcher_background`）、`drawable-*/ic_launcher_foreground.png`。
 
 ### 38.4 项目名 → Todo
 
@@ -2341,10 +2360,15 @@ if (next.codePointCount(0, next.length) <= maxCodePoints) onValueChange(next)
 
 ### 38.7 验证
 
-- `:app:compileReleaseKotlin` 通过
-- `:app:testReleaseUnitTest` 全绿（163 条）
-- `:app:assembleRelease` 通过，release 签名覆盖安装成功
-- 图标已用三种遮罩（圆形 / 圆角方形 / 方形）合成预览图目视核对，白勾未被裁切
+- `:app:assembleRelease` 通过，release 签名覆盖安装成功（`lastUpdateTime=2026-10-22 13:45:48`）
+- `aapt2 dump resources` 确认 `mipmap/ic_launcher` 是 **5 个密度的 PNG**（mdpi…xxxhdpi），
+  **不再有 `mipmap-anydpi-v26` 那一层**；`drawable/ic_logo`（nodpi）已入包
+- 母图在 `mipmap-xxxhdpi` 里是 192px，图形完整、波浪边未被裁
+- 单测 163 条（解析 113 / 分组 21 / 提醒 18 / 格式 11）全绿
+
+> 桌面图标有缓存。装完之后如果还显示旧图标（紫底白勾那一版），
+> 是 launcher 的图标缓存没刷，重启手机或在「主题」里换一次图标样式即可。
+> 这不是没生效——`aapt2 dump badging` 里 `application-icon-640` 已经指向新的 192px PNG。
 
 
 
