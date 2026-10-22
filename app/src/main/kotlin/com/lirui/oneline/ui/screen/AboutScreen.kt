@@ -13,6 +13,7 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -42,10 +43,12 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -101,6 +104,12 @@ private const val HERO_HEIGHT_FRACTION = 0.46f
 private const val BACKGROUND_SPEED = 0.12f
 private const val COLOR_INTERPOLATION_SECONDS = 12f
 
+/**
+ * 图标底色。必须与 `values/colors.xml` 里的 `ic_launcher_background` 完全一致 ——
+ * `ic_about_logo.xml` 里那道竖条就是拿这个色当"镂空"用的，差一点就会露出色块。
+ */
+private val LogoBackground = Color(0xFF00696A)
+
 @Composable
 fun AboutScreen(onBack: () -> Unit) {
     BackHandler(enabled = true) { onBack() }
@@ -118,20 +127,19 @@ fun AboutScreen(onBack: () -> Unit) {
 
     // 只读 firstVisibleItem* 会漏掉「hero 还在屏幕上、列表已开始滑」的那一段，
     // 所以第 0 项时要取 scrollOffset，之后直接当作已经滚过整个 hero。
-    val scrollOffset by remember(listState, heroHeightPx) {
+    //
+    // 刻意不用 `by`：下面所有读取都发生在 graphicsLayer 的 draw 阶段，传 State 进去
+    // 才走「延迟读取」——每滚一个像素只重画、不重组。一旦在组合阶段解包，
+    // LazyColumn 和整页都会跟着每一像素重组一次。
+    val scrollOffset = remember(listState, heroHeightPx) {
         derivedStateOf {
             if (listState.firstVisibleItemIndex > 0) heroHeightPx
             else listState.firstVisibleItemScrollOffset.toFloat()
         }
     }
-    // 背景先淡掉（跟着滚动距离线性走），hero 稍后才开始消失，两者错开才有「盖上来」的层次。
-    val backgroundAlpha = (1f - scrollOffset / backgroundFadeDistance).coerceIn(0f, 1f)
-    val logoProgress = ((scrollOffset - logoFadeStart) / logoFadeDistance).coerceIn(0f, 1f)
-    val logoAlpha = 1f - logoProgress
-    val logoScale = 1f - logoProgress * 0.1f
 
+    // 同理：动画时间也只在 draw 阶段读（Canvas 里），否则每帧整页重组。
     val animationTime = rememberAboutAnimationTime()
-    val gradientColors = animatedGradientColors(animationTime, cs)
 
     // 页面推入：淡入 + 从下往上 28dp。不用整屏缩放 —— 缩放会把根节点的 surface 边缘
     // 露出来，看起来像一张缩小的卡片而不是"翻到下一页"。
@@ -167,12 +175,14 @@ fun AboutScreen(onBack: () -> Unit) {
     ) {
         AnimatedAboutBackground(
             animationTime = animationTime,
-            colors = gradientColors,
+            colorScheme = cs,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(heroHeight + 180.dp)
                 .graphicsLayer {
-                    alpha = backgroundAlpha
+                    // 背景先淡掉（跟着滚动距离线性走），hero 稍后才开始消失，
+                    // 两者错开才有「从下面盖上来」的层次。
+                    alpha = (1f - scrollOffset.value / backgroundFadeDistance).coerceIn(0f, 1f)
                     // 必须开离屏合成：背景内部用 BlendMode.DstIn 做竖直淡出蒙版，
                     // 没有独立图层时它会拿整块 surface 当目标去混合，底边会留硬边。
                     compositingStrategy = CompositingStrategy.Offscreen
@@ -239,21 +249,31 @@ fun AboutScreen(onBack: () -> Unit) {
         ) {
             Column(
                 modifier = Modifier.graphicsLayer {
-                    alpha = logoAlpha
-                    scaleX = logoScale
-                    scaleY = logoScale
+                    // 这段读的是 State，属延迟读取：滚动只在 draw 阶段失效图层，不重组。
+                    val progress =
+                        ((scrollOffset.value - logoFadeStart) / logoFadeDistance).coerceIn(0f, 1f)
+                    alpha = 1f - progress
+                    scaleX = 1f - progress * 0.1f
+                    scaleY = 1f - progress * 0.1f
                 },
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Surface(
                     shape = RoundedCornerShape(24.dp),
+                    color = LogoBackground,
                     shadowElevation = 6.dp,
                     modifier = Modifier.size(88.dp)
                 ) {
-                    androidx.compose.foundation.Image(
-                        painter = painterResource(R.mipmap.ic_launcher),
+                    // 只画矢量「标记」，圆角底色由上面的 Surface 提供。
+                    // 千万别改回 R.mipmap.ic_launcher：那是 <adaptive-icon>，
+                    // painterResource 只认 <vector>，会在组合这一帧抛
+                    // IllegalArgumentException 把关于页打崩（DESIGN §31）。
+                    Image(
+                        painter = painterResource(R.drawable.ic_about_logo),
                         contentDescription = null,
-                        modifier = Modifier.fillMaxSize()
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(20.dp)
                     )
                 }
                 Text(
@@ -451,11 +471,14 @@ private fun openUrl(context: android.content.Context, url: String) {
 
 @Composable
 private fun AnimatedAboutBackground(
-    animationTime: Float,
-    colors: List<Color>,
+    animationTime: State<Float>,
+    colorScheme: ColorScheme,
     modifier: Modifier = Modifier
 ) {
     Canvas(modifier = modifier) {
+        // 颜色插值放在 draw 阶段算：它每帧都变，放进组合阶段就等于每帧重组一次整页。
+        // animatedGradientColors 是纯函数，draw scope 里调用没有任何副作用。
+        val colors = animatedGradientColors(animationTime.value, colorScheme)
         // 底层斜向线性渐变
         drawRect(
             brush = Brush.linearGradient(
@@ -466,7 +489,7 @@ private fun AnimatedAboutBackground(
         )
         // 四个缓慢游走的径向光斑，叠出「mesh gradient」的层次
         val radius = size.maxDimension * 0.62f
-        val t = animationTime * BACKGROUND_SPEED
+        val t = animationTime.value * BACKGROUND_SPEED
         val centers = listOf(
             Offset(size.width * (0.18f + 0.10f * sin(t)), size.height * (0.20f + 0.08f * cos(t * 0.8f))),
             Offset(size.width * (0.82f + 0.10f * cos(t * 0.9f)), size.height * (0.78f + 0.10f * sin(t * 0.7f))),
@@ -499,16 +522,19 @@ private fun AnimatedAboutBackground(
     }
 }
 
-/** 帧驱动的累计时间；只有关于页在前台时才会跑。 */
+/**
+ * 帧驱动的累计时间；只有关于页在前台时才会跑。
+ * 返回 `State` 而不是 `Float`：调用方只能在 draw 阶段读，避免每帧重组整页。
+ */
 @Composable
-private fun rememberAboutAnimationTime(): Float {
-    var animationTime by remember { mutableFloatStateOf(0f) }
+private fun rememberAboutAnimationTime(): State<Float> {
+    val animationTime = remember { mutableFloatStateOf(0f) }
     LaunchedEffect(Unit) {
         var previousFrame = 0L
         while (true) {
             withFrameNanos { frameTime ->
                 if (previousFrame != 0L) {
-                    animationTime += (frameTime - previousFrame) / 1_000_000_000f
+                    animationTime.floatValue += (frameTime - previousFrame) / 1_000_000_000f
                 }
                 previousFrame = frameTime
             }
@@ -521,7 +547,7 @@ private fun rememberAboutAnimationTime(): Float {
  * 三套渐变调色板全部由当前 `colorScheme` 轮换生成 —— 用户换配色，关于页跟着换。
  * 段与段之间用 smoothstep 做缓动，避免色彩切换时出现「顿一下」的线性折点。
  */
-private fun animatedGradientColors(animationTime: Float, cs: androidx.compose.material3.ColorScheme): List<Color> {
+private fun animatedGradientColors(animationTime: Float, cs: ColorScheme): List<Color> {
     val p0 = listOf(cs.primaryContainer, cs.secondaryContainer, cs.tertiaryContainer, cs.primary)
     val p1 = listOf(cs.secondaryContainer, cs.tertiaryContainer, cs.primaryContainer, cs.secondary)
     val p2 = listOf(cs.tertiaryContainer, cs.primaryContainer, cs.secondaryContainer, cs.tertiary)

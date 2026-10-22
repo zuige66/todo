@@ -1649,3 +1649,137 @@ Z 序在下面，所以列表出现时会盖住淡出中的文字——`空 -> �
 - APK：`dist/oneline-0.3-release.apk`
 - 真机手感待验：完成一条待办时「弧线 → 行淡出 → 下面补位」这条链是否连贯；
   重复待办完成后是否滑到下一个档位而不是瞬移
+
+---
+
+## 31. 修关于页闪退：adaptive-icon 不能喂给 painterResource（2026-10-22）
+
+### 31.1 现象
+
+点设置页最下面的「关于一句话待办」，页面刚推入就整页崩溃（不是黑屏、不是白屏，是直接退出）。
+没有崩溃日志可看（设备当时未连接），只能靠静态定位。
+
+### 31.2 根因（有源码证据，不是猜）
+
+`AboutScreen.kt` 的 hero 图标原先写的是：
+
+```kotlin
+Image(painter = painterResource(R.mipmap.ic_launcher), ...)
+```
+
+`R.mipmap.ic_launcher` 指向 `res/mipmap-anydpi-v26/ic_launcher.xml`，内容是：
+
+```xml
+<adaptive-icon>
+    <background android:drawable="@color/ic_launcher_background" />
+    <foreground android:drawable="@drawable/ic_launcher_foreground" />
+</adaptive-icon>
+```
+
+Compose 的 `painterResource` 只看**路径后缀**，`.xml` 一律当 VectorDrawable 解析，
+然后校验根节点名（源码 `PainterResources.android.kt:93-96`）：
+
+```kotlin
+val parser = res.getXml(id)
+if (parser.seekToStartTag().name != "vector") {
+    throw IllegalArgumentException(errorMessage)
+}
+// errorMessage = "Only VectorDrawables and rasterized asset types are supported ex. PNG, JPG, WEBP"
+```
+
+`<adaptive-icon>` != `<vector>`，**必然抛 `IllegalArgumentException`**，
+而它抛在组合阶段，所以是进页面那一帧就崩。
+
+> 注意：这段校验是"抛异常"而不是"返回占位"，所以**编译期完全发现不了**，
+> 只有真机点到这个页面才会爆。这也是它躲过 `assembleRelease` 的原因。
+
+### 31.3 为什么不改成 `R.drawable.ic_launcher_foreground`
+
+它是为 **108dp 自适应图标**画的，坐标系不是普通图标的坐标系：
+
+```xml
+<group android:translateX="28" android:translateY="28"
+       android:scaleX="0.6" android:scaleY="0.6">
+```
+
+路径本身画在 `(0..20, 4..24)`，乘 0.6 再平移 28 后落在 `(28..40, 30.4..42.4)` ——
+中心是 `(34, 36.4)`，而 108 画布的中心是 `(54, 54)`。直接当普通图标渲染，
+会得到一枚**又小又偏左上**的图形。
+
+### 31.4 修法
+
+新建 `res/drawable/ic_about_logo.xml`：同样两条 path 原样搬过来，
+用 `group` 的 translate 把并集包围盒 `(0..20, 4..24)`（20×20）挪进 24×24 viewport 正中：
+
+```
+offsetX = (24 - 20) / 2 - 0  = 2
+offsetY = (24 - 20) / 2 - 4  = -2
+```
+
+圆角底色与投影不画进矢量里，仍由外层 `Surface` 提供：
+
+```kotlin
+Surface(
+    shape = RoundedCornerShape(24.dp),
+    color = LogoBackground,          // 0xFF00696A，必须与 ic_launcher_background 一致
+    shadowElevation = 6.dp,
+    modifier = Modifier.size(88.dp)
+) {
+    Image(
+        painter = painterResource(R.drawable.ic_about_logo),
+        contentDescription = null,
+        modifier = Modifier.fillMaxSize().padding(20.dp)   // 88 - 2*20 = 48dp 图形
+    )
+}
+```
+
+`LogoBackground` 必须是 `#00696A`：图标里那道竖条的 fillColor 就是这个色，
+它靠"和底色一样"形成镂空效果，色值差一点就会露出一块脏色。
+
+### 31.5 顺带修的第二个问题：整页每帧重组
+
+原来 `rememberAboutAnimationTime()` 返回 `Float`，且 `scrollOffset` 用 `by` 解包，
+两者都在**组合阶段**被读取 —— 结果是：背景渐变的每一帧、列表滚动的每一像素，
+都会让 `AboutScreen` 整个重组一次（连带 `LazyColumn` 的内容 lambda 重新创建）。
+
+改成**延迟读取**：
+
+| 值 | 之前 | 现在 |
+|---|---|---|
+| 动画时间 | `rememberAboutAnimationTime(): Float`，在组合阶段读 | 返回 `State<Float>`，只在 `Canvas` 的 draw lambda 里 `.value` |
+| 渐变配色 | `animatedGradientColors(...)` 在组合阶段算 | 挪进 `Canvas` draw lambda（纯函数，draw scope 里调无副作用） |
+| 滚动量 | `val scrollOffset by derivedStateOf { ... }` | 去掉 `by`，在 `graphicsLayer {}` 里 `.value` |
+
+判据很简单：**一个值如果每帧都变、且只被用来算 alpha / translation / 画笔颜色，
+它就不该在组合阶段被读**。`graphicsLayer` 与 `Canvas` 的 lambda 都是 draw 阶段，
+在里面读 State 只失效图层、不失效组合。
+
+### 31.6 红线（三条，别再踩）
+
+1. **`painterResource` / `Icon(painter=...)` 只能喂 `<vector>` 或位图。**
+   `<adaptive-icon>`、`<layer-list>`、`<shape>`、`<selector>` 这些 API-based xml 全部会抛
+   `IllegalArgumentException`，且编译期不报错。
+2. 需要自适应图标的外观时，**单独画一个普通 `<vector>`**，不要复用 `mipmap-anydpi-v26/` 下的东西
+   —— 那份文件的坐标系是给系统图标框架用的，不是给 Compose 用的。
+3. 绘制型页面（背景动效 / 滚动联动）一律用延迟读取；组合阶段每帧读 State 是 `jank` 的根。
+
+### 31.7 验证
+
+- `assembleRelease` 通过；单测 **163 条全绿**（0 失败）
+- `aapt2 dump resources` 确认包里已有 `drawable/ic_about_logo`（`0x7f050000`）
+- 全仓已无 `R.mipmap` 的代码引用（只剩 `AboutScreen.kt` 里那条防止回改的注释）
+- 真机待验：这一项**只能靠点击确认**，静态分析已把"根节点校验"这条路径完全钉死
+
+### 31.8 附带发现（未改，待定）
+
+`ic_launcher_foreground.xml` 的内容中心是 `(34, 36.4)`，108 画布中心是 `(54, 54)`
+—— 也就是说**启动器图标里的图形本身是偏左上、偏小的**。若确认要修，
+只需把 group 的 translate 改成让 12×12 内容居中：
+
+```
+translateX = (108 - 12) / 2 - 0   = 48
+translateY = (108 - 12) / 2 - 2.4 = 45.6
+```
+
+本轮没动：它改的是用户桌面上的图标外观，属于视觉决策，不跟崩溃修复混在一次提交里。
+
