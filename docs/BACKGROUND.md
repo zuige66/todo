@@ -750,3 +750,18 @@ PKG=com.lirui.oneline
 
 **发布链路**：GitHub Release `v0.6.2`（asset `todo-0.6.2.apk`）+ 博客镜像
 `https://blog.zuiges.com/downloads/oneline/todo-0.6.2.apk`。README 徽章与下载入口同步。
+
+## 17. v0.7.0（2026-10-22）
+
+预览卡片可直接选日期/时间。规则（zuige 拍板）：
+
+1. 手动选的**优先于**句子解析值；
+2. 没有"清除时间"——时间设了就在（可改不可清）；日期可以改成「无日期」；
+3. 多日期待办（"明天，后天 开会"）**每条独立**覆盖；
+4. 编辑模式初始显示的就是该待办当前的日期时间（`previewExisting` 反推，本就如此）；
+5. 不加额外按钮行，入口就在 chip 上（保持干净）。
+
+实现要点：覆盖表（`index → LocalDate?/LocalTime`）只存在于 AddSheet，
+提交前合并成最终 `List<ParsedTodo>` 走 `repo.addFromParsed` 老路 —— 不开新数据通路。
+`vm.add(text)/edit(id,text)` 因此删除，改为 `addParsed/editParsed`（校验逻辑原样保留）。
+`ParsedTodo.hasExactTime` 是计算属性（`dueTime != null`），copy 时不能传。
