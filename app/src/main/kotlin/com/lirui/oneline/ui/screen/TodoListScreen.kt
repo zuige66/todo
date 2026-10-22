@@ -75,6 +75,7 @@ import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -1191,92 +1192,58 @@ private fun SettingsScreen(
         }
 
         // ═══ 3. 通知样式 ═══
-        // ═══ 3. 通知（v0.6.2 由「通知样式」改名）═══
-        // 整节做成一个折叠入口「通知模板」：标题模板、提醒文案、常驻通知文案都收在里面，
-        // 默认只露一行摘要 —— 这三样都是"偶尔才改"的，不该每次都占半屏。
+        // ═══ 3. 通知 ═══
+        // 三个**并列**的折叠项（zuige 纠正：通知模板只含标题模板+完成后缀+预览，
+        // 与提醒文案、常驻通知文案是并列关系，不是包含关系）。
         item { SectionHeader("通知") }
         item {
-            var notifExpanded by remember { mutableStateOf(false) }
-            val arrow by animateFloatAsState(
-                targetValue = if (notifExpanded) 90f else 0f,
-                animationSpec = spring(dampingRatio = 0.8f, stiffness = 900f),
-                label = "notifArrow"
-            )
             SettingsCard {
-                ListItem(
-                    headlineContent = { Text("通知模板", style = MaterialTheme.typography.bodyLarge) },
-                    supportingContent = {
-                        Text(
-                            if (notifExpanded) "标题 · 文案 · 常驻通知"
-                            else "标题模板 · 提醒文案 · 常驻通知 · 点开可编辑",
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                    },
-                    trailingContent = {
-                        Icon(
-                            Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.graphicsLayer { rotationZ = arrow }
-                        )
-                    },
-                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                    modifier = Modifier.clickable { notifExpanded = !notifExpanded }
-                )
-                AnimatedVisibility(
-                    visible = notifExpanded,
-                    enter = expandVertically() + fadeIn(),
-                    exit = shrinkVertically() + fadeOut()
-                ) {
-                    Column {
-                        NotificationTitleEditor(
-                            template = notifTemplate,
-                            done = notifDone,
-                            dueWord = notifDueWord,
-                            dirty = notifTemplate != savedTemplate || notifDone != savedDone,
-                            onTemplateChange = { notifTemplate = it },
-                            onDoneChange = { notifDone = it },
-                            onSave = {
-                                // 一个按钮写两个字段：要么一起成功，要么一起不动。
-                                SettingsRepo.saveNotificationTitle(context, notifTemplate, notifDone)
-                                savedTemplate = notifTemplate
-                                savedDone = notifDone
-                                Toast.makeText(context, "通知标题已保存", Toast.LENGTH_SHORT).show()
-                            }
-                        )
-                        ItemDivider()
-                        QuotesEditor(
-                            text = quotesText,
-                            expanded = quotesExpanded,
-                            dirty = quotesText != savedQuotesText,
-                            count = quotesText.lineSequence().count { it.isNotBlank() },
-                            onToggle = { quotesExpanded = !quotesExpanded },
-                            onTextChange = { quotesText = it },
-                            onRestoreDefault = { quotesText = builtinQuotesText },
-                            onSave = {
-                                val normalized = quotesText.lineSequence()
-                                    .map { it.trim() }
-                                    .filter { it.isNotEmpty() }
-                                    .distinct()
-                                    .toList()
-                                SettingsRepo.setCustomQuotes(context, normalized)
-                                // 清空 = 恢复默认（SettingsRepo 会删掉键）。界面上也切回默认池，
-                                // 否则"我清空了但通知里还有文案"看起来像没保存。
-                                val applied = if (normalized.isEmpty()) builtinQuotesText
-                                else normalized.joinToString("\n")
-                                quotesText = applied
-                                savedQuotesText = applied
-                                Toast.makeText(
-                                    context,
-                                    if (normalized.isEmpty()) "已恢复默认文案" else "文案已保存（${normalized.size} 条）",
-                                    Toast.LENGTH_SHORT
-                                ).show()
-                            }
-                        )
-                        ItemDivider()
-                        KeepAliveNotifEditor()
+                NotificationTitleEditor(
+                    template = notifTemplate,
+                    done = notifDone,
+                    dueWord = notifDueWord,
+                    dirty = notifTemplate != savedTemplate || notifDone != savedDone,
+                    onTemplateChange = { notifTemplate = it },
+                    onDoneChange = { notifDone = it },
+                    onSave = {
+                        // 一个按钮写两个字段：要么一起成功，要么一起不动。
+                        SettingsRepo.saveNotificationTitle(context, notifTemplate, notifDone)
+                        savedTemplate = notifTemplate
+                        savedDone = notifDone
+                        Toast.makeText(context, "通知标题已保存", Toast.LENGTH_SHORT).show()
                     }
-                }
+                )
+                ItemDivider()
+                QuotesEditor(
+                    text = quotesText,
+                    expanded = quotesExpanded,
+                    dirty = quotesText != savedQuotesText,
+                    count = quotesText.lineSequence().count { it.isNotBlank() },
+                    onToggle = { quotesExpanded = !quotesExpanded },
+                    onTextChange = { quotesText = it },
+                    onRestoreDefault = { quotesText = builtinQuotesText },
+                    onSave = {
+                        val normalized = quotesText.lineSequence()
+                            .map { it.trim() }
+                            .filter { it.isNotEmpty() }
+                            .distinct()
+                            .toList()
+                        SettingsRepo.setCustomQuotes(context, normalized)
+                        // 清空 = 恢复默认（SettingsRepo 会删掉键）。界面上也切回默认池，
+                        // 否则"我清空了但通知里还有文案"看起来像没保存。
+                        val applied = if (normalized.isEmpty()) builtinQuotesText
+                        else normalized.joinToString("\n")
+                        quotesText = applied
+                        savedQuotesText = applied
+                        Toast.makeText(
+                            context,
+                            if (normalized.isEmpty()) "已恢复默认文案" else "文案已保存（${normalized.size} 条）",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                )
+                ItemDivider()
+                KeepAliveNotifEditor()
             }
         }
 
@@ -1471,27 +1438,55 @@ private fun NotificationTitleEditor(
         unfocusedContainerColor = cs.fieldSurface
     )
 
-    Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
-        Text("标题模板", style = MaterialTheme.typography.bodyLarge, color = cs.onSurface)
-        Text(
-            "接在事件名后面。{提醒} 会换成当前提醒的状态语",
-            style = MaterialTheme.typography.bodySmall,
-            color = cs.onSurfaceVariant,
-            modifier = Modifier.padding(top = 2.dp)
-        )
-        OutlinedTextField(
-            value = template,
-            onValueChange = { next ->
-                // 按 code point 限长：emoji 是代理对，用 String.length 会把一个 emoji 劈成半个。
-                // 超限整段拒绝（而不是 take(n)）—— 后者必然劈开代理对。
-                if (next.codePointCount(0, next.length) <= TITLE_MAX_CODE_POINTS) {
-                    onTemplateChange(next)
-                }
+    // v0.6.2：改为折叠式（与「提醒文案」「常驻通知文案」一致）——
+    // 「通知」节是三个并列的折叠项：通知模板（本项）/ 提醒文案 / 常驻通知文案。
+    var expanded by remember { mutableStateOf(false) }
+    val arrow by animateFloatAsState(
+        targetValue = if (expanded) 90f else 0f,
+        animationSpec = spring(dampingRatio = 0.8f, stiffness = 900f),
+        label = "notifTitleArrow"
+    )
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        ListItem(
+            headlineContent = { Text("通知模板", style = MaterialTheme.typography.bodyLarge) },
+            supportingContent = {
+                Text(
+                    if (expanded) "标题模板 + 完成后缀"
+                    else "标题模板 + 完成后缀 · 点开可编辑",
+                    style = MaterialTheme.typography.bodySmall
+                )
             },
-            singleLine = false,
-            maxLines = 2,
-            shape = fieldShape,
-            colors = fieldColors,
+            trailingContent = {
+                Icon(
+                    Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                    contentDescription = null,
+                    tint = cs.onSurfaceVariant,
+                    modifier = Modifier.graphicsLayer { rotationZ = arrow }
+                )
+            },
+            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+            modifier = Modifier.clickable { expanded = !expanded }
+        )
+        AnimatedVisibility(
+            visible = expanded,
+            enter = expandVertically() + fadeIn(),
+            exit = shrinkVertically() + fadeOut()
+        ) {
+            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+                OutlinedTextField(
+                    value = template,
+                    onValueChange = { next ->
+                        // 按 code point 限长：emoji 是代理对，用 String.length 会把一个 emoji 劈成半个。
+                        // 超限整段拒绝（而不是 take(n)）—— 后者必然劈开代理对。
+                        if (next.codePointCount(0, next.length) <= TITLE_MAX_CODE_POINTS) {
+                            onTemplateChange(next)
+                        }
+                    },
+                    singleLine = false,
+                    maxLines = 2,
+                    shape = fieldShape,
+                    colors = fieldColors,
             placeholder = {
                 Text(
                     SettingsRepo.DEFAULT_NOTIF_TEMPLATE,
@@ -1614,6 +1609,8 @@ private fun NotificationTitleEditor(
                 color = cs.placeholderText,
                 modifier = Modifier.padding(top = 6.dp)
             )
+        }
+            }
         }
     }
 }
@@ -2110,19 +2107,11 @@ private fun BucketChips(enabled: Set<HomeBucket>, onToggle: (HomeBucket, Boolean
     ) {
         for (bucket in HomeBucket.all) {
             val on = bucket in enabled
-            FilterChip(
+            SettingsFilterChip(
                 selected = on,
                 onClick = { onToggle(bucket, !on) },
-                label = { Text(bucket.label) },
-                leadingIcon = if (on) {
-                    {
-                        Icon(
-                            Icons.Default.Check,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-                } else null
+                label = bucket.label,
+                leadingCheck = true
             )
         }
     }
@@ -2258,6 +2247,54 @@ private fun PaletteItem(
     )
 }
 /** A labelled set of M3E filter chips (single choice). */
+/**
+ * 设置页里所有 chip（深色卡片底色、提醒间隔、默认时刻、首页档位）共用的选中样式。
+ *
+ * ★ 为什么要显式指定：`FilterChip` 不传 colors 时用主题默认的 secondaryContainer，
+ *   在几套深色配色下它和卡片底色几乎一样 —— 用户反馈"选了哪个根本看不出来"。
+ *   现在选中态是**主色实底 + 反色文字 + 主色粗边**，未选是透明底 + 弱文字 + 浅边，
+ *   对比度足够，且不依赖具体配色。
+ */
+@Composable
+private fun SettingsFilterChip(
+    selected: Boolean,
+    onClick: () -> Unit,
+    label: String,
+    leadingCheck: Boolean = false
+) {
+    val cs = MaterialTheme.colorScheme
+    FilterChip(
+        selected = selected,
+        onClick = onClick,
+        label = { Text(label, style = MaterialTheme.typography.labelMedium) },
+        leadingIcon = if (selected && leadingCheck) {
+            {
+                Icon(
+                    Icons.Default.Check,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+        } else null,
+        shape = RoundedCornerShape(50),
+        colors = FilterChipDefaults.filterChipColors(
+            containerColor = Color.Transparent,
+            labelColor = cs.onSurfaceVariant,
+            iconColor = cs.onPrimary,
+            selectedContainerColor = cs.primary,
+            selectedLabelColor = cs.onPrimary,
+            selectedLeadingIconColor = cs.onPrimary
+        ),
+        border = FilterChipDefaults.filterChipBorder(
+            enabled = true,
+            selected = selected,
+            borderColor = cs.outlineVariant,
+            selectedBorderColor = cs.primary,
+            selectedBorderWidth = 1.5.dp
+        )
+    )
+}
+
 @Composable
 private fun ChoiceItem(
     label: String,
@@ -2273,10 +2310,10 @@ private fun ChoiceItem(
             modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
         ) {
             options.forEach { (value, text) ->
-                FilterChip(
+                SettingsFilterChip(
                     selected = selected == value,
                     onClick = { onSelect(value) },
-                    label = { Text(text, style = MaterialTheme.typography.labelMedium) }
+                    label = text
                 )
             }
         }
