@@ -466,6 +466,51 @@ class ParserTest {
         assertEquals(LocalDate.of(2026, 10, 24), parse("２０２６年１０月２４日 开会").dueDate)
     }
 
+    // ---------- 健壮性审计 §28.3（P2 误伤）回归 ----------
+
+    // 「N号」+ 单位/量词是序号，不是日期
+    @Test fun numberPlusUnit_isNotADate() {
+        val r = parse("1号线 坐地铁")
+        assertNull(r.dueDate)
+        assertEquals("1号线", r.title)
+        assertEquals("坐地铁", r.detail)
+        assertNull(parse("3号楼 开会").dueDate)
+        assertNull(parse("5号窗口 取件").dueDate)
+    }
+
+    @Test fun numberPlusMeetingRoom_isNotADate() {
+        val r = parse("三号会议室 开会")
+        assertNull(r.dueDate)
+        assertEquals("三号会议室", r.title)
+    }
+
+    // 反向：动词「开会」的「会」不能被当成"会议室"，否则「三号开会」建不出日期
+    @Test fun numberPlusVerb_isStillADate() {
+        assertEquals(LocalDate.of(2026, 11, 3), parse("三号开会").dueDate)
+    }
+
+    // 寒暄/名词不是时间
+    @Test fun greetingsAreNotTimes() {
+        assertEquals("早上好", parse("早上好").title)
+        assertNull(parse("早上好").dueTime)
+        assertNull(parse("晚上好").dueTime)
+        assertNull(parse("下午茶").dueTime)
+        assertNull(parse("中午饭").dueTime)
+    }
+
+    // 「一点点」不是 01:00
+    @Test fun aLittleBit_isNotOneOClock() {
+        val r = parse("一点点")
+        assertNull(r.dueTime)
+        assertEquals("一点点", r.title)
+    }
+
+    // ASCII 的「N刻」= N*15 分（此前被切成 08:03 + 标题「刻」）
+    @Test fun asciiKe() {
+        assertEquals(LocalTime.of(8, 45), parse("8点3刻 开会").dueTime)
+        assertEquals(LocalTime.of(8, 15), parse("8点1刻 开会").dueTime)
+    }
+
     // ---- times ----
     @Test fun exactClock_hhmm() {
         val r = parse("下午3点 交周报")

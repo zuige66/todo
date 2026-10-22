@@ -1519,3 +1519,69 @@ detail`，用 `try/catch` 捕获异常。跑完即删。**未改任何产品代�
 **验证**：`ParserTest` 从 98 → **107 条**（新增 9 条回归：崩溃 2 / 零 1 / 本周 1 / 下月 1 / 周七 1 /
 下下周 1 / 时段词 1 / 全角 1）。合计 **157 条全绿**
 （Parser 107 / ReminderEngine 18 / Format 11 / HomeGrouping 21）。
+
+## 29. v0.3 修订四：P2 误伤修复 + 关于页（2026-10-22）
+
+用户本轮选择：**P2 修，P3 口径待定**，并要求照 `Hyper Music Scape Lock` 的关于页做一版。
+
+### 29.1 P2：把普通词从日期/时间手里抢回来
+
+| 输入 | 修前 | 修后 | 规则 |
+|---|---|---|---|
+| `1号线 坐地铁` | 11-01，标题「线」 | 无日期，标题「1号线」 | `N号` 后跟单位/量词 → 序号，不消费 |
+| `3号楼` `5号窗口` `2号床` | 同上 | 同上 | 同一张单位表 |
+| `三号会议室 开会` | 11-03，标题「会议室」 | 无日期，标题「三号会议室」 | 「会议室」**整词**进表 |
+| `三号开会` | 11-03 ✓ | 11-03 ✓ | 反向保护：`会` 单字不能进表，否则这里会被误杀 |
+| `早上好` `晚上好` | 08:00/18:00 + 标题「好」 | 不是时间 | 时段词后紧跟 `好安饭茶` → 寒暄/名词 |
+| `下午茶` `中午饭` | 14:00/12:00 + 标题「茶」「饭」 | 不是时间 | 同上 |
+| `一点点` | 01:00 + 标题「点」 | 不是时间 | `hourRe` 匹配后紧跟的仍是「点」→ 不成立 |
+| `8点3刻` `8点1刻` | 08:03 / 08:01 + 标题「刻」 | 08:45 / 08:15 | `N刻` = N×15（中文、ASCII 都收） |
+
+单位表（`followedByUnit`）刻意保守：`线 楼 房 屋 厅 院 室 车 机 窗 口 桌 门 床 柜 位 座 箱 袋
+道 仓 库 馆 店 铺 栋 幢 架 层 排` + 整词 `会议室`。**宁可漏判也不误杀** —— 漏判只是回到
+「日期被错认」，误杀会让「三号开会」这种正常输入永远建不出日期。
+
+**仍然不修的**：`一点小事` / `三点水` —— 裸中文小时没有任何上下文可依，任何规则都会连带
+误伤「一点开会」。这类只能靠**预览卡片可见**兜底（用户能看到 01:00 这个芯片不对）。
+
+### 29.2 新增「关于」页
+
+入口：设置 → 最底部「关于」→「关于一句话待办」。
+
+版式抄自 `Hyper Music Scape Lock` 的 `LockAboutPage`（`page/LockScreenPages.kt`）：
+整屏滚动列表，hero（图标 + 应用名 + 版本）**叠在列表之上**；上滑时 hero 淡出并缩小到 0.9、
+动画渐变背景先淡掉，列表看起来是「从下面盖上来」的。
+
+两处**刻意不同**（不是照抄）：
+
+1. **配色跟主题走**。原页硬编码粉/蓝三套调色板；本应用有 11 套可选配色，
+   所以三套渐变由当前 `colorScheme` 的 container 轮换生成：
+
+   ```kotlin
+   val p0 = listOf(primaryContainer, secondaryContainer, tertiaryContainer, primary)
+   val p1 = listOf(secondaryContainer, tertiaryContainer, primaryContainer, secondary)
+   val p2 = listOf(tertiaryContainer, primaryContainer, secondaryContainer, tertiary)
+   ```
+   段间用 smoothstep 缓动（`t*t*(3-2t)`）过渡，12 秒换一档。用户换配色，关于页自动跟着变。
+
+2. **没有「检查更新」**。本应用不申请 `INTERNET` 权限、完全离线，做不了 GitHub API 轮询；
+   改成「更新与下载」直接打开 Releases 页面。页脚也如实写明「完全离线运行，不申请网络权限」。
+
+实现要点：
+- `AnimatedAboutBackground`：线性渐变底 + 4 个缓慢游走的径向光斑，最后用
+  `BlendMode.DstIn` 叠一层竖直渐变做底边淡出。**必须 `compositingStrategy = Offscreen`**，
+  否则 `DstIn` 会拿整块 surface 当目标混合，底边留硬边（这条是从原页抄过来的注释，别删）。
+- `rememberAboutAnimationTime`：`withFrameNanos` 累计秒数，只在关于页存在时跑。
+- 关于页是 `TodoApp` 里的**覆盖层**（`Box { TodoAppContent(); if (showAbout) AboutScreen() }`），
+  不是 `if/else` 二选一 —— 二选一会让 `TodoAppContent` 离开组合，`tab` 和列表滚动位置全丢，
+  从关于页返回会跳回「待办」。
+- 根节点 `.background(surface)` + `clickable(indication = null)`：不吞触摸的话，
+  hero 那块空白区域的点击会穿透到下面的 FAB。
+- `BackHandler` 接管系统返回；左上角另有一个返回按钮（关于页没有 TopAppBar）。
+- 版本号从 `PackageManager` 读，不用 `BuildConfig`（本模块没开 `buildConfig = true`）。
+
+### 29.3 验证
+
+- `ParserTest` 107 → **113 条**（新增 6 条 P2 回归：单位/会议室/反向动词/寒暄/一点点/N刻）
+- 合计 **163 条全绿**（Parser 113 / ReminderEngine 18 / Format 11 / HomeGrouping 21）
+- `assembleRelease` 通过；APK 更新到 `dist/oneline-0.3-release.apk`

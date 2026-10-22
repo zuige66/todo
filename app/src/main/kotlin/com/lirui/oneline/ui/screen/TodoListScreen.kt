@@ -37,6 +37,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Menu
@@ -141,39 +142,48 @@ fun TodoApp(
     onRescheduleReminders: () -> Unit
 ) {
     val uiState by vm.state.collectAsState()
-    TodoAppContent(
-        active = uiState.active,
-        archived = uiState.archived,
-        vm = vm,
-        onExactAlarmSettings = onExactAlarmSettings,
-        themeMode = themeMode,
-        onSetThemeMode = onSetThemeMode,
-        paletteId = paletteId,
-        onSetPalette = onSetPalette,
-        darkCardStyleId = darkCardStyleId,
-        onSetDarkCardStyle = onSetDarkCardStyle,
-        remindersEnabled = remindersEnabled,
-        onSetRemindersEnabled = onSetRemindersEnabled,
-        remindAtDue = remindAtDue,
-        onSetRemindAtDue = onSetRemindAtDue,
-        remindInAdvance = remindInAdvance,
-        onSetRemindInAdvance = onSetRemindInAdvance,
-        overdueNag = overdueNag,
-        onSetOverdueNag = onSetOverdueNag,
-        overdueInterval = overdueInterval,
-        onSetOverdueInterval = onSetOverdueInterval,
-        boardOrder = boardOrder,
-        onSetBoardOrder = onSetBoardOrder,
-        hiddenBoards = hiddenBoards,
-        onSetHiddenBoards = onSetHiddenBoards,
-        homeBuckets = homeBuckets,
-        onSetHomeBuckets = onSetHomeBuckets,
-        defaultMinuteOfDay = defaultMinuteOfDay,
-        onSetDefaultMinuteOfDay = onSetDefaultMinuteOfDay,
-        autoRepeat = autoRepeat,
-        onSetAutoRepeat = onSetAutoRepeat,
-        onRescheduleReminders = onRescheduleReminders
-    )
+    // 关于页做成**覆盖层**而不是 if/else 二选一：二选一会让 TodoAppContent 离开组合，
+    // `tab` 和列表滚动位置全部丢失 —— 从关于页返回会莫名其妙跳回「待办」那一页。
+    var showAbout by remember { mutableStateOf(false) }
+    Box(Modifier.fillMaxSize()) {
+        TodoAppContent(
+            active = uiState.active,
+            archived = uiState.archived,
+            vm = vm,
+            onExactAlarmSettings = onExactAlarmSettings,
+            themeMode = themeMode,
+            onSetThemeMode = onSetThemeMode,
+            paletteId = paletteId,
+            onSetPalette = onSetPalette,
+            darkCardStyleId = darkCardStyleId,
+            onSetDarkCardStyle = onSetDarkCardStyle,
+            remindersEnabled = remindersEnabled,
+            onSetRemindersEnabled = onSetRemindersEnabled,
+            remindAtDue = remindAtDue,
+            onSetRemindAtDue = onSetRemindAtDue,
+            remindInAdvance = remindInAdvance,
+            onSetRemindInAdvance = onSetRemindInAdvance,
+            overdueNag = overdueNag,
+            onSetOverdueNag = onSetOverdueNag,
+            overdueInterval = overdueInterval,
+            onSetOverdueInterval = onSetOverdueInterval,
+            boardOrder = boardOrder,
+            onSetBoardOrder = onSetBoardOrder,
+            hiddenBoards = hiddenBoards,
+            onSetHiddenBoards = onSetHiddenBoards,
+            homeBuckets = homeBuckets,
+            onSetHomeBuckets = onSetHomeBuckets,
+            defaultMinuteOfDay = defaultMinuteOfDay,
+            onSetDefaultMinuteOfDay = onSetDefaultMinuteOfDay,
+            autoRepeat = autoRepeat,
+            onSetAutoRepeat = onSetAutoRepeat,
+            onRescheduleReminders = onRescheduleReminders,
+            onOpenAbout = { showAbout = true }
+        )
+        if (showAbout) {
+            AboutScreen(onBack = { showAbout = false })
+        }
+    }
 }
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
@@ -209,7 +219,8 @@ private fun TodoAppContent(
     onSetDefaultMinuteOfDay: (Int) -> Unit,
     autoRepeat: Boolean,
     onSetAutoRepeat: (Boolean) -> Unit,
-    onRescheduleReminders: () -> Unit
+    onRescheduleReminders: () -> Unit,
+    onOpenAbout: () -> Unit
 ) {
     var showAdd by remember { mutableStateOf(false) }
     var editTarget by remember { mutableStateOf<Todo?>(null) }
@@ -340,7 +351,8 @@ private fun TodoAppContent(
                             Toast.makeText(context, "请先允许通知权限", Toast.LENGTH_SHORT).show()
                         }
                     },
-                    onTestTodo = { vm.addTestInOneMinute() }
+                    onTestTodo = { vm.addTestInOneMinute() },
+                    onOpenAbout = onOpenAbout
                 )
             }
             // Completion bar overlaps top; only shown while on the todo tab.
@@ -715,7 +727,8 @@ private fun SettingsScreen(
     onRescheduleReminders: () -> Unit,
     onExactAlarmSettings: () -> Unit,
     onTestNotification: () -> Unit,
-    onTestTodo: () -> Unit
+    onTestTodo: () -> Unit,
+    onOpenAbout: () -> Unit
 ) {
     val context = LocalContext.current
     // Used to keep at least one board visible.
@@ -893,6 +906,24 @@ private fun SettingsScreen(
                 )
                 ItemDivider()
                 ToggleItem("自动顺延", "每天/每周/每月完成后顺延", autoRepeat, onSetAutoRepeat)
+            }
+        }
+        item { SectionHeader("关于") }
+        item {
+            SettingsCard {
+                ListItem(
+                    headlineContent = { Text("关于一句话待办") },
+                    supportingContent = { Text("版本、开发者与项目地址") },
+                    trailingContent = {
+                        Icon(
+                            Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    },
+                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                    modifier = Modifier.clickable(onClick = onOpenAbout)
+                )
             }
         }
         item { Spacer(Modifier.height(24.dp)) }

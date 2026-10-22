@@ -146,7 +146,7 @@ class Parser(
     private val hourBody =
         "(凌晨|清晨|早上|早晨|上午|中午|下午|傍晚|晚上|夜里|半夜)?" +
             "(\\d{1,4}|[零一两二三四五六七八九十]{1,3})\\s*点(?:\\s*" +
-            "(半|一刻|三刻|\\d{1,2}\\s*分?|[一两二三四五六七八九十]{1,3}分))?"
+            "(半|([123一二三])刻|\\d{1,2}\\s*分?|[一两二三四五六七八九十]{1,3}分))?"
     private val hourRe = Pattern.compile("^$hourBody")
     // Unanchored variant: "开会晚上9点" must still yield 21:00.
     private val hourFindRe = Pattern.compile(hourBody)
@@ -431,7 +431,8 @@ class Parser(
             }
         }
         dayOnlyRe.matcher(rest).let { m ->
-            if (m.lookingAt()) {
+            // 「1号线」「3号楼」「三号会议室」里的「号」是序号，不是日期 —— 见 followedByUnit
+            if (m.lookingAt() && !followedByUnit(rest, m.end())) {
                 val d = nextDayOfMonth(numOf(m.group(1)!!))
                 if (d != null) {
                     acc.setDate(d, today)
@@ -441,6 +442,24 @@ class Parser(
         }
 
         return rest
+    }
+
+    /**
+     * 「N号」后面紧跟单位/量词时，这个「号」是**序号**而不是日期：1号线、3号楼、5号窗口。
+     * 命中就整个不消费，让原句留在标题里（审计 §28.3）。
+     *
+     * 名单只收高频项，宁可漏判也不误杀：所以"会议室"必须是整词进表，
+     * 不能只放一个「会」字 —— 否则「三号开会」会被误判成序号（那里的"会"是动词）。
+     */
+    private fun followedByUnit(s: String, index: Int): Boolean {
+        val units = listOf(
+            "会议室",
+            "线", "楼", "房", "屋", "厅", "院", "室", "车", "机", "窗", "口", "桌",
+            "门", "床", "柜", "位", "座", "箱", "袋", "道", "仓", "库", "馆", "店",
+            "铺", "栋", "幢", "架", "层", "排"
+        )
+        val rest = s.substring(index)
+        return units.any { rest.startsWith(it) }
     }
 
     /**
@@ -532,7 +551,8 @@ class Parser(
             }
         }
         hourRe.matcher(rest).let { m ->
-            if (m.lookingAt()) {
+            // 「一点点」：后面紧跟的还是一个「点」，说明这不是时间（"一点" 只是"一点点"的前缀）。
+            if (m.lookingAt() && rest.getOrNull(m.end()) != '点') {
                 acc.time = hourMatchTime(m, acc)
                 return rest.substring(m.end())
             }
@@ -541,6 +561,8 @@ class Parser(
         // Bare day-period without a clock: "早上组会" / "下午 开会" -> its default hour.
         for ((word, hour) in periodDefaults) {
             if (rest.startsWith(word)) {
+                // 「早上好」「晚上好」「下午茶」「中午饭」是寒暄/名词，不是时间（审计 §28.3）
+                if (isGreetingOrNoun(rest, word.length)) continue
                 acc.pendingPeriod = word
                 acc.time = LocalTime.of(hour, 0)
                 acc.night = false
@@ -560,6 +582,16 @@ class Parser(
     }
 
     private data class EmbeddedTime(val start: Int, val end: Int, val time: LocalTime)
+
+    /**
+     * 时段词后面紧跟这些字时是寒暄或名词，不该当时间：
+     * 早上好 / 晚上好 / 下午茶 / 中午饭 / 早上安（少见但同类）。
+     * 只挡这一个字的位置，其余（"早上的事""晚上开会"）照常解析。
+     */
+    private fun isGreetingOrNoun(s: String, index: Int): Boolean {
+        val next = s.getOrNull(index) ?: return false
+        return next in "好安饭茶"
+    }
 
     /**
      * Find a clock or day-period that starts after the first character of [token].
@@ -620,8 +652,9 @@ class Parser(
         val minute = (m.group(3)?.let {
             when {
                 it == "半" -> 30
-                it == "一刻" -> 15
-                it == "三刻" -> 45
+                // 一刻 / 三刻 / 1刻 / 3刻 —— 每刻 15 分钟（此前只认中文字的"一刻""三刻"，
+                // 「8点3刻」会被切成 08:03 + 标题「刻」）
+                it.endsWith("刻") -> ((numOf(it.removeSuffix("刻")) ?: 0) * 15).coerceIn(0, 45)
                 it.endsWith("分") -> {
                     // ASCII 数字分钟（15分/05分）或中文数字分钟（十五分/三十分）。
                     val digits = it.removeSuffix("分").trim()
