@@ -162,7 +162,7 @@ object DeviceCompat {
     enum class Vendor { XIAOMI, HUAWEI, OPPO, VIVO, SAMSUNG, MEIZU, OTHER }
 
     /**
-     * 厂商专属引导文案。
+     * 厂商专属引导文案。**一行放下**（v0.7.3：设置页文案精简，zuige 要求"尽量一行"）。
      *
      * 写法约束：**只写"设置里搜什么"，不写死"第几项第几屏"** —— 这些页面的层级
      * 每个 ROM 版本都在改，写死了下个版本就是错的，比不写更糟。
@@ -170,25 +170,13 @@ object DeviceCompat {
     fun vendorHint(): String = vendorHint(vendor())
 
     fun vendorHint(vendor: Vendor): String = when (vendor) {
-        Vendor.XIAOMI ->
-            "小米 / Redmi：在设置里搜「自启动」允许本应用；再把「省电策略」改为「无限制」，" +
-                "并在最近任务里长按本应用卡片上锁。"
-        Vendor.HUAWEI ->
-            "华为 / 荣耀：设置 → 应用 → 应用启动管理，找到本应用后改为「手动管理」，" +
-                "把「自启动」「关联启动」「后台活动」三个开关都打开。"
-        Vendor.OPPO ->
-            "OPPO / realme / 一加：设置里搜「自启动」允许本应用；" +
-                "再在电池设置里关闭对本应用的「智能省电 / 睡眠待机优化」。"
-        Vendor.VIVO ->
-            "vivo / iQOO：设置 → 电池，把本应用的「后台高耗电」打开；" +
-                "并在「自启动」里允许本应用。"
-        Vendor.SAMSUNG ->
-            "三星：设置 → 电池 → 后台使用限制，把本应用加入「永不休眠的应用」。"
-        Vendor.MEIZU ->
-            "魅族：设置 → 应用管理 → 本应用 → 权限管理，允许「后台运行」与「自启动」。"
-        Vendor.OTHER ->
-            "在系统设置里找到本应用的「自启动 / 后台运行 / 电池」相关开关，全部允许；" +
-                "并在最近任务里长按本应用卡片上锁。"
+        Vendor.XIAOMI -> "小米：设置搜「自启动」允许，省电策略改「无限制」"
+        Vendor.HUAWEI -> "华为：应用启动管理改为「手动管理」"
+        Vendor.OPPO -> "OPPO：搜「自启动」允许，电池里关「智能省电」"
+        Vendor.VIVO -> "vivo：电池里打开「后台高耗电」并允许自启动"
+        Vendor.SAMSUNG -> "三星：电池 → 后台使用限制 → 永不休眠"
+        Vendor.MEIZU -> "魅族：权限管理里允许「后台运行」与「自启动」"
+        Vendor.OTHER -> "在系统设置里允许本应用「自启动 / 后台运行」"
     }
 
     /** 候选矩阵：顺序即优先级。ROM 版本变了就往下掉到下一个候选。 */

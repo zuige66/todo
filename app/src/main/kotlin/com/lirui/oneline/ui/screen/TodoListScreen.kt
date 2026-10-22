@@ -1120,7 +1120,7 @@ private fun SettingsScreen(
                 )
                 Spacer(Modifier.width(8.dp))
                 Text(
-                    if (pending > 0) "$pending 项需处理，否则提醒可能不响" else "已就绪",
+                    if (pending > 0) "$pending 项待处理，提醒可能不响" else "已就绪",
                     style = MaterialTheme.typography.labelLarge,
                     color = if (pending > 0) MaterialTheme.colorScheme.error
                             else MaterialTheme.colorScheme.onSurfaceVariant
@@ -1138,7 +1138,7 @@ private fun SettingsScreen(
         if (!exactOk) {
             item {
                 Text(
-                    "未获得精确闹钟权限，提醒可能被系统延后几分钟。请在上方开启，并允许后台运行。",
+                    "精确闹钟未开，提醒可能被延后",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
@@ -1150,15 +1150,15 @@ private fun SettingsScreen(
         item { SectionHeader("提醒") }
         item {
             SettingsCard {
-                ToggleItem("开启提醒", "总开关，关闭后不再提醒", remindersEnabled, onSetRemindersEnabled)
+                ToggleItem("开启提醒", "全部提醒的总开关", remindersEnabled, onSetRemindersEnabled)
                 ItemDivider()
-                ToggleItem("到点提醒", "到设定时间再提醒一次", remindAtDue, onSetRemindAtDue)
+                ToggleItem("到点提醒", "设定时间到了再响一次", remindAtDue, onSetRemindAtDue)
                 ItemDivider()
-                ToggleItem("提前提醒", "提前 7/3/1 天及 1 小时", remindInAdvance, onSetRemindInAdvance)
+                ToggleItem("提前提醒", "提前 7/3/1 天与 1 小时", remindInAdvance, onSetRemindInAdvance)
                 // ↓ 原「逾期处理」「待办行为(默认时刻)」两节并入这里：
                 //   它们和到点/提前一样都是"什么时候响"，不该被外观类设置隔开。
                 ItemDivider()
-                ToggleItem("逾期反复叮嘱", "过期后每隔一段时间再提醒", overdueNag, onSetOverdueNag)
+                ToggleItem("逾期反复叮嘱", "过期后按间隔再提醒", overdueNag, onSetOverdueNag)
                 // 打开开关后"提醒间隔"不该让整张卡片突然长高一截
                 AnimatedVisibility(
                     visible = overdueNag,
@@ -1283,7 +1283,7 @@ private fun SettingsScreen(
                     headlineContent = { Text("板块顺序", style = MaterialTheme.typography.bodyLarge) },
                     supportingContent = {
                         Text(
-                            "长按左侧三条杠上下拖动，右侧开关控制是否显示",
+                            "长按拖动排序，开关控制显隐",
                             style = MaterialTheme.typography.bodySmall
                         )
                     },
@@ -1314,7 +1314,7 @@ private fun SettingsScreen(
                     onSetHomeBuckets(if (on) homeBuckets + bucket else homeBuckets - bucket)
                 }
                 Text(
-                    "没勾选的档位会并入下一个已勾选的档位；全部不勾时该板块直接平铺，不再分小标题。",
+                    "没勾的并入下一档；全不勾则平铺",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp)
@@ -1334,7 +1334,7 @@ private fun SettingsScreen(
                     headlineContent = { Text("发送测试通知") },
                     // 文案统一成「动作 + 验证什么」：之前"弹一条带「完成」按钮的通知，验证权限、
                     // 渠道与动作"偏术语，普通用户读不出"我现在该看什么"。
-                    supportingContent = { Text("立即弹一条提醒，确认通知能收到、「完成」按钮能点") },
+                    supportingContent = { Text("立刻弹一条，验证通知和按钮") },
                     trailingContent = {
                         Text(
                             "发送",
@@ -1348,7 +1348,7 @@ private fun SettingsScreen(
                 ItemDivider()
                 ListItem(
                     headlineContent = { Text("新建测试待办") },
-                    supportingContent = { Text("建一条一分钟后到期的待办，确认提醒准时响") },
+                    supportingContent = { Text("建一条一分钟后到期的待办") },
                     trailingContent = {
                         Text(
                             "创建",
@@ -1455,7 +1455,7 @@ private fun NotificationTitleEditor(
             supportingContent = {
                 Text(
                     if (expanded) "标题模板 + 完成后缀"
-                    else "标题模板 + 完成后缀 · 点开可编辑",
+                    else "标题与完成后缀 · 点开编辑",
                     style = MaterialTheme.typography.bodySmall
                 )
             },
@@ -1532,7 +1532,7 @@ private fun NotificationTitleEditor(
             modifier = Modifier.padding(top = 12.dp)
         )
         Text(
-            "勾选完成后，标题变成「事件 + 这个」",
+            "完成后标题 = 事件 + 此后缀",
             style = MaterialTheme.typography.bodySmall,
             color = cs.onSurfaceVariant,
             modifier = Modifier.padding(top = 2.dp)
@@ -1678,8 +1678,8 @@ private fun KeepAliveNotifEditor() {
             headlineContent = { Text("常驻通知文案", style = MaterialTheme.typography.bodyLarge) },
             supportingContent = {
                 Text(
-                    if (expanded) "开启「后台常驻」后常驻在通知栏的那条通知"
-                    else "${saved.title} · 点开可编辑",
+                    if (expanded) "后台常驻的那条通知"
+                    else "${saved.title} · 点开编辑",
                     style = MaterialTheme.typography.bodySmall
                 )
             },
@@ -1704,7 +1704,7 @@ private fun KeepAliveNotifEditor() {
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Text(
-                    "开启「后台常驻」后常驻在通知栏的那条通知。留空标题会用应用名兜底。",
+                    "后台常驻的那条通知；留空用应用名",
                     style = MaterialTheme.typography.bodySmall,
                     color = cs.onSurfaceVariant
                 )
@@ -1804,7 +1804,7 @@ private fun QuotesEditor(
             headlineContent = { Text("提醒文案", style = MaterialTheme.typography.bodyLarge) },
             supportingContent = {
                 Text(
-                    if (expanded) "每行一条，共 $count 条" else "通知正文那一行，共 $count 条 · 点开可编辑",
+                    if (expanded) "每行一条，共 $count 条" else "通知正文 $count 条 · 点开编辑",
                     style = MaterialTheme.typography.bodySmall
                 )
             },
@@ -1832,7 +1832,7 @@ private fun QuotesEditor(
                     .padding(start = 16.dp, end = 16.dp, bottom = 12.dp)
             ) {
                 Text(
-                    "通知正文就取其中一条；同一条待办始终用同一句，点「完成 / 撤回」不会跳。"
+                    "每行一条；清空保存 = 恢复默认"
                         + "清空后保存会恢复默认文案。",
                     style = MaterialTheme.typography.bodySmall,
                     color = cs.onSurfaceVariant
@@ -2668,7 +2668,7 @@ private fun ReliabilitySection(
     SettingsCard {
         ReliabilityRow(
             title = "允许通知",
-            sub = "提醒是通过通知发出的，关掉就什么都看不到",
+            sub = "关掉通知就收不到提醒",
             ok = notificationsOk,
             okText = "已允许",
             actionText = "去开启",
@@ -2683,7 +2683,7 @@ private fun ReliabilitySection(
         ItemDivider()
         ReliabilityRow(
             title = "精确闹钟",
-            sub = "没有它，系统可以把提醒延后几分钟到几小时",
+            sub = "系统可能把提醒延后",
             ok = exactOk,
             okText = "已允许",
             actionText = "去开启",
@@ -2694,7 +2694,7 @@ private fun ReliabilitySection(
             title = "系统电池优化",
             // ★ 必须说清"这不是厂商的那个开关"：vivo/OPPO/小米 设置里的「后台高耗电」
             //   是厂商私有开关，与 AOSP 的"忽略电池优化"白名单是**两个独立的东西**。
-            sub = "系统的「忽略电池优化」白名单。厂商设置里的「后台高耗电 / 允许后台活动」是另一个开关，见下一条",
+            sub = "系统白名单；厂商开关见下条",
             // 不显示"已加入"这类状态：点了就去对应的系统页面，状态让系统自己展示。
             ok = null,
             actionText = "前往",
@@ -2727,7 +2727,7 @@ private fun ReliabilitySection(
         ItemDivider()
         ToggleItem(
             label = "后台常驻",
-            sub = "会显示一条常驻通知；让通知栏操作响应更快",
+            sub = "多一条常驻通知，响应更快",
             checked = keepAliveOn,
             onChecked = { on ->
                 val ok = KeepAlive.setEnabled(context, on)
@@ -2738,8 +2738,7 @@ private fun ReliabilitySection(
             }
         )
         Text(
-            "提醒本身由系统闹钟触发：应用被划掉、被系统回收都不会漏；" +
-                "只有「强行停止」或一键清理会清掉闹钟，下次打开应用会自动恢复。",
+            "提醒靠系统闹钟，不依赖进程；划掉也不会漏",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 14.dp)
