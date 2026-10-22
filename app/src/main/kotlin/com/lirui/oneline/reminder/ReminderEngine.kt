@@ -86,8 +86,17 @@ object ReminderEngine {
     }
 
     /**
-     * Compute the next overdue-nag point (ONLY when the todo is already overdue).
-     * Returns null when the todo is not yet due.
+     * Compute the next overdue-nag point.
+     *
+     * Deliberately does NOT require the todo to be overdue yet: a todo created with a due
+     * time two hours in the future must have its first nag (due + interval) scheduled at
+     * creation time, otherwise the whole nag chain never starts — the DUE alarm only posts a
+     * notification and the receiver only re-arms on an OVERDUE firing, so nothing would ever
+     * schedule the first OVERDUE point. Scheduling ahead is harmless: nag points are always
+     * >= due + interval, i.e. strictly after the due moment.
+     *
+     * Points are aligned to the next boundary at/after now, so re-scheduling never fires
+     * immediately in a loop.
      */
     fun nextOverdueReminder(
         dueAtMillis: Long,
@@ -96,20 +105,35 @@ object ReminderEngine {
         nagIntervalHours: Int = 24
     ): Reminder? {
         if (dueAtMillis <= 0L) return null
-        val due = ZonedDateTime.ofInstant(Instant.ofEpochMilli(dueAtMillis), zone)
-        val now = ZonedDateTime.ofInstant(Instant.ofEpochMilli(nowMillis), zone)
-        if (due.toInstant().toEpochMilli() > now.toInstant().toEpochMilli()) return null
         val hours = if (nagIntervalHours <= 0) 24 else nagIntervalHours
         val stepMs = hours * 3600_000L
-        val firstNagMs = due.toInstant().toEpochMilli() + stepMs
-        val nowMs = now.toInstant().toEpochMilli()
-        // Align to the next boundary at/after now (so repeated reschedules don't fire immediately).
+        val firstNagMs = dueAtMillis + stepMs
+        val nowMs = nowMillis
         val steps = if (firstNagMs >= nowMs) 0L else ((nowMs - firstNagMs) / stepMs) + 1L
         return Reminder(
             firstNagMs + steps * stepMs,
             Reminder.Kind.OVERDUE,
             "未完成：已逾期，记得处理"
         )
+    }
+
+    /**
+     * The occurrence *before* [dueAtMillis] for a repeating todo — used by the notification
+     * "撤回" action, which has to undo a roll-forward.
+     *
+     * Note this steps back exactly one period, not back to the original completion instant.
+     * A daily todo left unfinished for five days rolls forward to tomorrow; undoing brings it
+     * back to today (the most recent past occurrence), which is the sane interpretation of
+     * "I did not actually do this yet".
+     */
+    fun previousOccurrence(
+        dueAtMillis: Long?,
+        repeatDays: Int,
+        zone: ZoneId = AppTime.ZONE
+    ): Long? {
+        if (dueAtMillis == null || dueAtMillis <= 0L || repeatDays <= 0) return null
+        val due = ZonedDateTime.ofInstant(Instant.ofEpochMilli(dueAtMillis), zone)
+        return due.minusDays(repeatDays.toLong()).toInstant().toEpochMilli()
     }
 
     private fun gradedReminder(

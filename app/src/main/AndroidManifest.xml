@@ -37,6 +37,12 @@
             android:name=".reminder.ReminderReceiver"
             android:exported="false" />
 
+        <!-- Notification action buttons 「完成」/「撤回」. Not exported: only our own
+             PendingIntents (from the notification) may target it. -->
+        <receiver
+            android:name=".reminder.NotificationActionReceiver"
+            android:exported="false" />
+
         <!-- Re-schedule after reboot. Alarms do not survive a reboot, so they are rebuilt
              from the DB. (TIMEZONE_CHANGED was dropped: all dates are resolved in the pinned
              北京时间 zone, so a device time-zone change no longer invalidates stored epochs.) -->

@@ -339,9 +339,11 @@ private fun TodoAppContent(
                         append(it.detail)
                     }
                     it.dueAtMillis?.let { d ->
-                        val z = java.time.Instant.ofEpochMilli(d).atZone(java.time.ZoneId.systemDefault())
+                        // Pinned zone — the prefilled sentence must read the same wall clock
+                        // the todo was created in, regardless of the device timezone.
+                        val z = java.time.Instant.ofEpochMilli(d).atZone(AppTime.ZONE)
                         append(" ")
-                        append(if (z.toLocalDate().equals(java.time.LocalDate.now())) "今天" else Format.date(d))
+                        append(if (z.toLocalDate().equals(AppTime.today())) "今天" else Format.date(d))
                         val t = z.toLocalTime()
                         append(if (t.minute == 0) "${t.hour}点" else "${t.hour}点${t.minute}分")
                     }

@@ -10,6 +10,7 @@ import com.lirui.oneline.data.TodoRepository
 import com.lirui.oneline.data.model.Todo
 import com.lirui.oneline.parser.Parser
 import com.lirui.oneline.parser.ParsedTodo
+import com.lirui.oneline.util.AppTime
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -47,10 +48,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Prefill the parse preview for an existing todo (for the edit sheet). */
     fun previewExisting(todo: Todo) {
+        // Pinned zone: a device-timezone change must not shift what the stored epoch means.
+        val zoned = todo.dueAtMillis?.let { java.time.Instant.ofEpochMilli(it).atZone(AppTime.ZONE) }
         val parsed = ParsedTodo(
             title = todo.title,
-            dueDate = todo.dueAtMillis?.let { java.time.Instant.ofEpochMilli(it).atZone(java.time.ZoneId.systemDefault()).toLocalDate() },
-            dueTime = todo.dueAtMillis?.let { java.time.Instant.ofEpochMilli(it).atZone(java.time.ZoneId.systemDefault()).toLocalTime() },
+            dueDate = zoned?.toLocalDate(),
+            dueTime = zoned?.toLocalTime(),
             repeatDays = todo.repeatDays,
             detail = todo.detail.ifBlank { null }
         )

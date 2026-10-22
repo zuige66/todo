@@ -746,8 +746,8 @@ private fun tone(seed: Color, brightness: Float, chroma: Float): Color {
 
 ### 20.1 体检发现的问题（按严重度）
 
-> **状态（2026-10-22 更新）**：P0②③、P1④⑤⑥、P2⑦⑧⑨ 已在 **v1.9.1** 修复（见 §21）；
-> **P0① 逾期反复叮嘱链条仍未修** —— 等 zuige 拍板修法后再动手。
+> **状态（2026-10-22 v2.0 更新）**：P0②③、P1④⑤⑥、P2⑦⑧⑨ 已在 **v1.9.1** 修复（见 §21）；
+> **P0① 逾期反复叮嘱链条已在 v2.0 修复**（见 §22.1）。本条清单全部闭环。
 
 **P0 — 功能实际不生效**
 
@@ -916,3 +916,104 @@ fun isOverdue(due, today, nowMillis, hasExactTime = true): Boolean {
   - FormatTest 新增 5 条：无时刻待办当天不逾期 / 昨天才算逾期 / 有时刻过点即逾期 /
     有时刻未到点不逾期 / 无日期永不逾期
 - `:app:assembleRelease` → `adb install -r` `Success` → 启动 FATAL 数 0
+
+---
+
+## 22. v2.0 变更记录（2026-10-22）
+
+> §20.1 的体检清单到此全部闭环：P0①（本轮）＋ P0②③、P1④⑤⑥、P2⑦⑧⑨（v1.9.1）。
+> 另加一项新功能：通知栏「完成 / 撤回」。
+
+### 22.1 ★ bug1：逾期反复叮嘱链从创建那一刻就没启动
+
+**现象**：新建一条两小时后到期的待办，到期后只响一次 DUE 通知，之后再也不唠叨；
+只有「创建时就已逾期」或「开机时就已逾期」的待办才会反复提醒。
+
+**根因**：`ReminderScheduler.scheduleBlocking()` 是唯一排 OVERDUE 闹钟的地方，而它依赖
+`ReminderEngine.nextOverdueReminder()`；该函数开头有一句
+
+```kotlin
+if (due.toInstant().toEpochMilli() > now.toInstant().toEpochMilli()) return null
+```
+
+即**到期之前不返回任何唠叨点**。而 `ReminderReceiver` 只在 `kind == OVERDUE` 触发时才续排下一个：
+
+```
+创建(2h 后到期) → 只排 DUE
+DUE 响        → 发通知，不续排（kind 不是 OVERDUE）
+              ✗ 链到此为止，第一个 OVERDUE 从没人排过
+```
+
+**修法**：删掉"未到期返回 null"的判断，无条件返回 `due + interval`，并对齐到 ≥ now 的整周期边界：
+
+```kotlin
+val firstNagMs = dueAtMillis + stepMs
+val steps = if (firstNagMs >= nowMs) 0L else ((nowMs - firstNagMs) / stepMs) + 1L
+```
+
+**为什么"提前排"是安全的**：
+
+- 唠叨点恒为 `due + k·interval`（k ≥ 1），**严格晚于**到期时刻，不会在 DUE 之前打扰用户；
+- 同一个 `requestCode`（`kind.ordinal = 3`）覆盖写，重复 schedule 幂等；
+- 到期前重排（编辑 / 开机 / 改设置）结果完全不变 → 单测
+  `overdueNag_notYetDue_stableAcrossReschedules` 锁死。
+
+**修复后的完整链路**：
+
+```
+创建 → DUE(ordinal 2) + OVERDUE(ordinal 3, due+24h) 同时排上
+DUE 响      → 只发通知（OVERDUE 已在排队，无需续排）
+OVERDUE 响  → 发通知 + reScheduleOverdue() → 重排，得到下一个 OVERDUE
+完成/归档    → cancelForId() 把 0..3 全部取消，链自然终止
+```
+
+### 22.2 新功能：通知栏「完成」→「撤回」
+
+提醒通知上多了一个按钮：点「完成」→ 按钮原地变成「撤回」。
+
+| 环节 | 实现 |
+|---|---|
+| 按钮 | `NotificationCompat.addAction`，PendingIntent 指向 `NotificationActionReceiver`（`exported=false`） |
+| 完成 | `TodoRepository.completeFromNotification()` → 直接 `archive()`，与列表圆圈**同一个入口**（普通待办归档、重复待办 `rollForward` 顺延） |
+| 态切换 | 用**同一个 notification id** 重发 + `setOnlyAlertOnce(true)`，文案变「已完成 · 点「撤回」可恢复」 |
+| 撤回 | 普通待办 `unarchive()` + 重排提醒；重复待办回滚一个周期；随后取消这条通知 |
+| 点击通知本体 | 新增 `contentIntent` → 打开 App |
+
+**重复任务的撤回为什么是"回滚一个周期"而不是"回到原始时刻"**：库里没有存"完成前的 epoch"，
+不想为这个功能加字段/迁移。每天任务拖了 5 天才完成时，`rollForward` 会一路跳到明天，
+回滚一个周期落在**今天**（最近一次过去的到期点）——语义上"我还没做完这次"，成立。
+函数抽成纯逻辑 `ReminderEngine.previousOccurrence(due, repeatDays)`，可单测。
+
+**防串扰**：`requestCode` 由 `(todoId, slot)` 共同决定（3=完成、4=撤回），否则
+`FLAG_UPDATE_CURRENT` 会让两个 action 的 PendingIntent 互相改掉对方的 extras。
+
+### 22.3 v1.9.1 漏改的两处时区
+
+§21.1 声称已把时区统一到 `AppTime.ZONE`，但还有两处漏了：
+
+| 文件 | 原来 | 现在 |
+|---|---|---|
+| `MainViewModel.previewExisting()` | `atZone(ZoneId.systemDefault())` ×2 | `atZone(AppTime.ZONE)` |
+| `TodoListScreen` 编辑弹层回填 | `ZoneId.systemDefault()` + `LocalDate.now()` | `AppTime.ZONE` + `AppTime.today()` |
+
+影响：设备时区不是 UTC+8 时，长按编辑一条待办，弹层里回填的日期/时间会按设备时区显示，
+与列表显示的北京时间不一致 → 直接点保存就把待办改到错误时刻。
+
+### 22.4 版本号
+
+`versionCode 1 → 2`，`versionName "0.1" → "0.2"`。
+
+### 22.5 验证
+
+- `:app:testDebugUnitTest` **113 条全绿**（ParserTest 80 / ReminderEngineTest 18 / FormatTest 15）
+  - 删 1 条（`overdueNag_notDue_returnsNull`，语义已反转）
+  - 新增 7 条：未到期也返回第一个唠叨点 / 唠叨点恒晚于到期 / 到期前重排幂等 /
+    `previousOccurrence` 每天 / 每周 / 非重复返回 null / 无到期返回 null
+- `:app:assembleRelease` → `adb install -r`。
+- 真机自查要点：
+  1. 新建一条 1 分钟后到期的待办，等它响 → 通知上应出现「完成」按钮；
+  2. 点「完成」→ 列表里该条消失，通知按钮变「撤回」且**不会**再响一声；
+  3. 点「撤回」→ 待办回到列表、通知消失；
+  4. 设置里把「逾期反复叮嘱」的间隔调成 1 小时，新建一条 1 分钟后到期的待办，
+     到期后等 1 小时确认收到 OVERDUE 唠叨（这是 bug1 的直接验证路径）。
+

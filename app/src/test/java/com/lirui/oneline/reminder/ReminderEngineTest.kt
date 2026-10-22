@@ -99,10 +99,29 @@ class ReminderEngineTest {
 
     // --- Overdue nag ---
 
-    // A not-yet-due todo has no overdue nag.
-    @Test fun overdueNag_notDue_returnsNull() {
+    // Regression for the "nag chain never starts" bug: a todo whose due time is still in the
+    // FUTURE must still get its first nag (due + interval) scheduled at creation time.
+    // Previously this returned null, so nothing ever scheduled the first OVERDUE alarm.
+    @Test fun overdueNag_notYetDue_returnsFirstPoint() {
         val nag = ReminderEngine.nextOverdueReminder(due(2026, 10, 22), now, zone, 24)
-        assertNull(nag)
+        assertEquals(ReminderEngine.Reminder.Kind.OVERDUE, nag!!.kind)
+        // due 10/22 09:00 + 24h
+        assertEquals(due(2026, 10, 23, 9, 0), nag.fireAtMillis)
+    }
+
+    // A nag point is never earlier than the due instant (no nagging before the DUE reminder).
+    @Test fun overdueNag_notYetDue_isAlwaysAfterDue() {
+        val dueAt = due(2026, 10, 22, 9, 0)
+        val nag = ReminderEngine.nextOverdueReminder(dueAt, now, zone, 6)!!
+        assertTrue(nag.fireAtMillis >= dueAt)
+    }
+
+    // Re-scheduling (edit / reboot / settings change) must be idempotent before the due time.
+    @Test fun overdueNag_notYetDue_stableAcrossReschedules() {
+        val dueAt = due(2026, 10, 22)
+        val first = ReminderEngine.nextOverdueReminder(dueAt, now, zone, 24)!!.fireAtMillis
+        val again = ReminderEngine.nextOverdueReminder(dueAt, now + 3 * 3600_000L, zone, 24)!!.fireAtMillis
+        assertEquals(first, again)
     }
 
     // Just overdue: first nag is due + interval.
@@ -126,5 +145,25 @@ class ReminderEngineTest {
     @Test fun overdueNag_invalidInterval() {
         val nag = ReminderEngine.nextOverdueReminder(due(2026, 10, 20), now, zone, 0)
         assertEquals(due(2026, 10, 22, 9, 0), nag!!.fireAtMillis)
+    }
+
+    // --- previousOccurrence (notification 「撤回」的重复任务回滚) ---
+
+    @Test fun previousOccurrence_daily_stepsBackOneDay() {
+        val next = due(2026, 10, 23, 18, 0)
+        assertEquals(due(2026, 10, 22, 18, 0), ReminderEngine.previousOccurrence(next, 1, zone))
+    }
+
+    @Test fun previousOccurrence_weekly_stepsBackOneWeek() {
+        val next = due(2026, 10, 29, 9, 0)
+        assertEquals(due(2026, 10, 22, 9, 0), ReminderEngine.previousOccurrence(next, 7, zone))
+    }
+
+    @Test fun previousOccurrence_nonRepeat_returnsNull() {
+        assertNull(ReminderEngine.previousOccurrence(due(2026, 10, 22), 0, zone))
+    }
+
+    @Test fun previousOccurrence_noDue_returnsNull() {
+        assertNull(ReminderEngine.previousOccurrence(null, 1, zone))
     }
 }

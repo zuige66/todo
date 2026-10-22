@@ -3,6 +3,7 @@ package com.lirui.oneline.data
 import android.content.Context
 import com.lirui.oneline.data.model.Todo
 import com.lirui.oneline.parser.ParsedTodo
+import com.lirui.oneline.reminder.ReminderEngine
 import com.lirui.oneline.reminder.ReminderScheduler
 import com.lirui.oneline.util.AppTime
 import com.lirui.oneline.util.SettingsRepo
@@ -144,4 +145,47 @@ class TodoRepository(private val context: Context) {
     }
 
     suspend fun getById(id: Long): Todo? = dao.getById(id)
+
+    // ---------- notification action buttons (「完成」/「撤回」) ----------
+
+    /**
+     * Notification 「完成」action. Intentionally delegates to [archive] so the notification
+     * button and the list circle can never drift apart: normal todos are archived, repeating
+     * ones roll forward to their next occurrence.
+     */
+    suspend fun completeFromNotification(id: Long) {
+        archive(id)
+    }
+
+    /**
+     * Notification 「撤回」action — the inverse of [completeFromNotification].
+     *
+     * - Repeating todo (rolled forward by [rollForward]): step back exactly one period and
+     *   re-arm its reminders. The todo may land in the past, which is correct: the user is
+     *   saying "I did not actually finish this one".
+     * - Normal todo: un-archive it and rebuild its reminders.
+     *
+     * @return the updated row, or null when the todo no longer exists.
+     */
+    suspend fun undoFromNotification(id: Long): Todo? {
+        val todo = dao.getById(id) ?: return null
+        if (todo.repeatDays > 0 && SettingsRepo.autoRepeatEnabled(context)) {
+            val prev = ReminderEngine.previousOccurrence(todo.dueAtMillis, todo.repeatDays)
+            if (prev != null) {
+                dao.updateContent(
+                    id = todo.id,
+                    title = todo.title,
+                    detail = todo.detail,
+                    dueAtMillis = prev,
+                    hasExactTime = todo.hasExactTime,
+                    repeatDays = todo.repeatDays
+                )
+                ReminderScheduler.scheduleBlocking(context, todo.id, prev, todo.hasExactTime)
+            }
+            // No-date repeat: there is no period to roll back, nothing to do.
+            return dao.getById(id)
+        }
+        if (todo.archived) unarchive(id)
+        return dao.getById(id)
+    }
 }
