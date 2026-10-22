@@ -68,7 +68,10 @@ class MainActivity : androidx.activity.ComponentActivity() {
             // Overdue/divergence switches.
             var overdueNag by remember { mutableStateOf(SettingsRepo.overdueNagEnabled(this)) }
             var overdueInterval by remember { mutableStateOf(SettingsRepo.overdueIntervalHours(this)) }
-            var overduePin by remember { mutableStateOf(SettingsRepo.overduePinEnabled(this)) }
+            // Home grouping: board order / visibility + the buckets inside 有日期.
+            var boardOrder by remember { mutableStateOf(SettingsRepo.homeBoardOrder(this)) }
+            var hiddenBoards by remember { mutableStateOf(SettingsRepo.hiddenBoards(this)) }
+            var homeBuckets by remember { mutableStateOf(SettingsRepo.homeBuckets(this)) }
             var defaultMinute by remember { mutableStateOf(SettingsRepo.defaultMinuteOfDay(this)) }
             var autoRepeat by remember { mutableStateOf(SettingsRepo.autoRepeatEnabled(this)) }
             val onRescheduleReminders: () -> Unit = {
@@ -127,10 +130,20 @@ class MainActivity : androidx.activity.ComponentActivity() {
                         SettingsRepo.setOverdueIntervalHours(this, hours)
                         onRescheduleReminders()
                     },
-                    overduePin = overduePin,
-                    onSetOverduePin = { on ->
-                        overduePin = on
-                        SettingsRepo.setOverduePinEnabled(this, on)
+                    boardOrder = boardOrder,
+                    onSetBoardOrder = { order ->
+                        boardOrder = order
+                        SettingsRepo.setHomeBoardOrder(this, order)
+                    },
+                    hiddenBoards = hiddenBoards,
+                    onSetHiddenBoards = { hidden ->
+                        hiddenBoards = hidden
+                        SettingsRepo.setHiddenBoards(this, hidden)
+                    },
+                    homeBuckets = homeBuckets,
+                    onSetHomeBuckets = { buckets ->
+                        homeBuckets = buckets
+                        SettingsRepo.setHomeBuckets(this, buckets)
                     },
                     defaultMinuteOfDay = defaultMinute,
                     onSetDefaultMinuteOfDay = { mo ->

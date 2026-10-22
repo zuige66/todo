@@ -62,6 +62,10 @@ object Palettes {
  *
  * @param brightness target HSV value (0..1) of the container — higher = more colour presence
  * @param chroma     saturation multiplier applied to the seed (0 = fully neutral grey)
+ *
+ * v2.1: every tier was pulled down one step (RICH 0.62→0.50, STANDARD 0.50→0.42,
+ * SOFT 0.30→0.26, NEUTRAL 0.21→0.19) and RICH's chroma 1.30→1.15. 深彩 at 0.62 read as
+ * "glowing" rather than "dark" on OLED — the card was brighter than the text deserved.
  */
 enum class DarkCardStyle(
     val id: Int,
@@ -71,16 +75,16 @@ enum class DarkCardStyle(
     val chroma: Float
 ) {
     /** No tint at all: neutral grey; cards are told apart by their rounded corners only. */
-    NEUTRAL(2, "不染色", "纯灰底，只用圆角区分卡片", 0.21f, 0f),
+    NEUTRAL(2, "不染色", "纯灰底，只用圆角区分卡片", 0.19f, 0f),
 
     /** Dimmer wash: sits close to the background, keeps just a hint of colour. */
-    SOFT(1, "淡彩", "淡淡的彩底，接近背景", 0.30f, 1.0f),
+    SOFT(1, "淡彩", "淡淡的彩底，接近背景", 0.26f, 1.0f),
 
     /** Clear dark container in the seed hue — the standard M3 "dark container" feel. */
-    STANDARD(0, "标准暗色", "能看出配色，M3 暗色容器观感", 0.50f, 1.15f),
+    STANDARD(0, "标准暗色", "能看出配色，M3 暗色容器观感", 0.42f, 1.05f),
 
     /** The strongest tint: a rich, unmistakably coloured card. */
-    RICH(3, "深彩", "浓郁彩底，存在感最强", 0.62f, 1.30f);
+    RICH(3, "深彩", "浓郁彩底，存在感最强", 0.50f, 1.15f);
 
     companion object {
         /** Display order, from no colour to the strongest colour. */

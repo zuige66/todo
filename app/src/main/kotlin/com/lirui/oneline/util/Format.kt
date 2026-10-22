@@ -1,6 +1,5 @@
 package com.lirui.oneline.util
 
-import java.time.DayOfWeek
 import java.time.LocalDate
 import java.util.Locale
 
@@ -76,38 +75,5 @@ object Format {
         if (due == null) return false
         if (!hasExactTime) return dueAtMillis(due).isBefore(today)
         return due <= nowMillis
-    }
-
-    /**
-     * Group label for the list headers, based on *natural weeks* (Monday–Sunday).
-     * Previously this used "today + 2..+6 days", which pushed next week's Monday/Tuesday
-     * into 本周 whenever today sat early in the week.
-     *
-     * [nowMillis] matters: a todo the user gave an exact minute to is overdue the moment that
-     * instant passes ("23:39" at 23:59), but comparing dates alone kept it under 今天
-     * forever. Callers should pass the same ticking `now` they use for the red marking so
-     * grouping and colour can never disagree.
-     */
-    fun groupLabel(
-        due: Long?,
-        today: LocalDate = AppTime.today(),
-        nowMillis: Long = AppTime.nowMillis(),
-        hasExactTime: Boolean = true
-    ): String {
-        if (due == null) return "无日期"
-        val d = dueAtMillis(due)
-        val thisMonday = today.with(DayOfWeek.MONDAY)
-        val thisSunday = today.with(DayOfWeek.SUNDAY)
-        val nextMonday = thisMonday.plusWeeks(1)
-        val nextSunday = thisSunday.plusWeeks(1)
-        return when {
-            isOverdue(due, today, nowMillis, hasExactTime) -> "已逾期"
-            d == today -> "今天"
-            d == today.plusDays(1) -> "明天"
-            d == today.plusDays(2) -> "后天"
-            !d.isBefore(thisMonday) && !d.isAfter(thisSunday) -> "本周"
-            !d.isBefore(nextMonday) && !d.isAfter(nextSunday) -> "下周"
-            else -> "更晚"
-        }
     }
 }

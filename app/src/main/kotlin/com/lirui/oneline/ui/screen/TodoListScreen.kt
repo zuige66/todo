@@ -35,6 +35,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -45,6 +47,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
@@ -85,6 +88,9 @@ import com.lirui.oneline.ui.theme.Palette
 import com.lirui.oneline.ui.theme.Palettes
 import com.lirui.oneline.util.AppTime
 import com.lirui.oneline.util.Format
+import com.lirui.oneline.util.HomeBoard
+import com.lirui.oneline.util.HomeBucket
+import com.lirui.oneline.util.HomeGrouping
 import com.lirui.oneline.util.SettingsRepo
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -114,8 +120,12 @@ fun TodoApp(
     onSetOverdueNag: (Boolean) -> Unit,
     overdueInterval: Int,
     onSetOverdueInterval: (Int) -> Unit,
-    overduePin: Boolean,
-    onSetOverduePin: (Boolean) -> Unit,
+    boardOrder: List<HomeBoard>,
+    onSetBoardOrder: (List<HomeBoard>) -> Unit,
+    hiddenBoards: Set<HomeBoard>,
+    onSetHiddenBoards: (Set<HomeBoard>) -> Unit,
+    homeBuckets: Set<HomeBucket>,
+    onSetHomeBuckets: (Set<HomeBucket>) -> Unit,
     defaultMinuteOfDay: Int,
     onSetDefaultMinuteOfDay: (Int) -> Unit,
     autoRepeat: Boolean,
@@ -144,8 +154,12 @@ fun TodoApp(
         onSetOverdueNag = onSetOverdueNag,
         overdueInterval = overdueInterval,
         onSetOverdueInterval = onSetOverdueInterval,
-        overduePin = overduePin,
-        onSetOverduePin = onSetOverduePin,
+        boardOrder = boardOrder,
+        onSetBoardOrder = onSetBoardOrder,
+        hiddenBoards = hiddenBoards,
+        onSetHiddenBoards = onSetHiddenBoards,
+        homeBuckets = homeBuckets,
+        onSetHomeBuckets = onSetHomeBuckets,
         defaultMinuteOfDay = defaultMinuteOfDay,
         onSetDefaultMinuteOfDay = onSetDefaultMinuteOfDay,
         autoRepeat = autoRepeat,
@@ -177,8 +191,12 @@ private fun TodoAppContent(
     onSetOverdueNag: (Boolean) -> Unit,
     overdueInterval: Int,
     onSetOverdueInterval: (Int) -> Unit,
-    overduePin: Boolean,
-    onSetOverduePin: (Boolean) -> Unit,
+    boardOrder: List<HomeBoard>,
+    onSetBoardOrder: (List<HomeBoard>) -> Unit,
+    hiddenBoards: Set<HomeBoard>,
+    onSetHiddenBoards: (Set<HomeBoard>) -> Unit,
+    homeBuckets: Set<HomeBucket>,
+    onSetHomeBuckets: (Set<HomeBucket>) -> Unit,
     defaultMinuteOfDay: Int,
     onSetDefaultMinuteOfDay: (Int) -> Unit,
     autoRepeat: Boolean,
@@ -235,7 +253,9 @@ private fun TodoAppContent(
             when (tab) {
                 TAB_TODO -> TodoList(
                     active,
-                    overduePin,
+                    boardOrder,
+                    hiddenBoards,
+                    homeBuckets,
                     onCircleTap = { todo ->
                         // Circle animation plays first; archive once it has played (~600ms).
                         vm.archive(todo.id)
@@ -288,8 +308,12 @@ private fun TodoAppContent(
                         onSetOverdueInterval(hours)
                         onRescheduleReminders()
                     },
-                    overduePin = overduePin,
-                    onSetOverduePin = onSetOverduePin,
+                    boardOrder = boardOrder,
+                    onSetBoardOrder = onSetBoardOrder,
+                    hiddenBoards = hiddenBoards,
+                    onSetHiddenBoards = onSetHiddenBoards,
+                    homeBuckets = homeBuckets,
+                    onSetHomeBuckets = onSetHomeBuckets,
                     defaultMinuteOfDay = defaultMinuteOfDay,
                     onSetDefaultMinuteOfDay = onSetDefaultMinuteOfDay,
                     autoRepeat = autoRepeat,
@@ -465,7 +489,9 @@ private fun CompletedBar(title: String, onUndo: () -> Unit, onDismiss: () -> Uni
 @Composable
 private fun TodoList(
     todos: List<Todo>,
-    overduePin: Boolean,
+    boardOrder: List<HomeBoard>,
+    hiddenBoards: Set<HomeBoard>,
+    enabledBuckets: Set<HomeBucket>,
     onCircleTap: (Todo) -> Unit,
     onTodoEdit: (Todo) -> Unit
 ) {
@@ -484,49 +510,96 @@ private fun TodoList(
             }
         }
         val today = AppTime.today()
-        // 过期置顶：只有"是否置顶"该受设置控制，"是否标红"与设置无关。
-        val sorted = if (overduePin) {
-            todos.sortedWith(compareBy<Todo> { t ->
-                when {
-                    t.dueAtMillis != null && t.dueAtMillis <= now -> 0
-                    t.dueAtMillis == null -> 2
-                    else -> 1
-                }
-            }.thenBy({ it.dueAtMillis ?: Long.MAX_VALUE }).thenBy { it.createdAt })
-        } else todos
-        // 分组与标红共用 [Format.isOverdue]，避免"分在已逾期但不红"。
-        val groups = sorted.groupBy {
-            Format.groupLabel(it.dueAtMillis, today, now, it.hasExactTime)
+
+        // Board membership and red marking share [HomeGrouping.boardOf] → [Format.isOverdue],
+        // so a row can never sit under 逾期 without being red.
+        val byBoard = todos.groupBy {
+            HomeGrouping.boardOf(it.dueAtMillis, today, now, it.hasExactTime)
         }
+        val boards = HomeGrouping.visibleBoards(boardOrder, hiddenBoards)
+
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(vertical = 8.dp)
         ) {
-            groups.forEach { (label, items) ->
-                item(key = "header_$label") {
-                    Text(
-                        label,
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 10.dp, bottom = 4.dp)
-                    )
+            for (board in boards) {
+                val boardItems = byBoard[board].orEmpty().sortedWith(
+                    compareBy({ it.dueAtMillis ?: Long.MAX_VALUE }, { it.createdAt })
+                )
+                if (boardItems.isEmpty()) continue
+
+                item(key = "board_${board.id}") { BoardHeader(board) }
+
+                // Only 有日期 gets sub-grouped, and only when at least one bucket is enabled.
+                // An empty selection means "flat list" by design (see HomeGrouping).
+                if (board != HomeBoard.DATED || enabledBuckets.isEmpty()) {
+                    items(boardItems, key = { it.id }) { todo ->
+                        TodoListRow(todo, today, now, onCircleTap, onTodoEdit)
+                    }
+                    continue
                 }
-                items(items, key = { it.id }) { todo ->
-                    // 到点即逾期并标红——不再依赖"逾期置顶"这个开关（它只管排序）。
-                    val overdue = Format.isOverdue(
-                        todo.dueAtMillis, today, now, todo.hasExactTime
-                    )
-                    TodoRow(
-                        todo,
-                        overdue = overdue,
-                        onCircleTap = { onCircleTap(todo) },
-                        onTodoEdit = { onTodoEdit(todo) }
-                    )
+
+                // Resolve each todo onto a rendered bucket, keeping bucket declaration order.
+                val grouped = HashMap<HomeBucket, MutableList<Todo>>()
+                for (todo in boardItems) {
+                    val due = todo.dueAtMillis ?: continue
+                    val natural = HomeGrouping.bucketOf(due, today)
+                    val target = HomeGrouping.resolveBucket(natural, enabledBuckets) ?: continue
+                    grouped.getOrPut(target) { mutableListOf() } += todo
+                }
+                for (bucket in HomeBucket.all) {
+                    val list = grouped[bucket] ?: continue
+                    item(key = "bucket_${bucket.id}") { BucketHeader(bucket) }
+                    items(list, key = { it.id }) { todo ->
+                        TodoListRow(todo, today, now, onCircleTap, onTodoEdit)
+                    }
                 }
             }
         }
     }
+}
+
+/** One todo row; extracted so the board/bucket branches don't duplicate the overdue logic. */
+@Composable
+private fun TodoListRow(
+    todo: Todo,
+    today: java.time.LocalDate,
+    now: Long,
+    onCircleTap: (Todo) -> Unit,
+    onTodoEdit: (Todo) -> Unit
+) {
+    // 到点即逾期并标红——与板块归属同一个判定函数。
+    val overdue = Format.isOverdue(todo.dueAtMillis, today, now, todo.hasExactTime)
+    TodoRow(
+        todo,
+        overdue = overdue,
+        onCircleTap = { onCircleTap(todo) },
+        onTodoEdit = { onTodoEdit(todo) }
+    )
+}
+
+/** Board title (逾期 / 有日期 / 无日期) — one step stronger than a bucket title. */
+@Composable
+private fun BoardHeader(board: HomeBoard) {
+    Text(
+        board.label,
+        style = MaterialTheme.typography.titleSmall,
+        color = MaterialTheme.colorScheme.primary,
+        fontWeight = FontWeight.Bold,
+        modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 14.dp, bottom = 6.dp)
+    )
+}
+
+/** Bucket title (今日 / 明天 / …) inside the 有日期 board. */
+@Composable
+private fun BucketHeader(bucket: HomeBucket) {
+    Text(
+        bucket.label,
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.primary,
+        fontWeight = FontWeight.Bold,
+        modifier = Modifier.padding(start = 28.dp, end = 20.dp, top = 10.dp, bottom = 4.dp)
+    )
 }
 
 @Composable
@@ -616,8 +689,12 @@ private fun SettingsScreen(
     onSetOverdueNag: (Boolean) -> Unit,
     overdueInterval: Int,
     onSetOverdueInterval: (Int) -> Unit,
-    overduePin: Boolean,
-    onSetOverduePin: (Boolean) -> Unit,
+    boardOrder: List<HomeBoard>,
+    onSetBoardOrder: (List<HomeBoard>) -> Unit,
+    hiddenBoards: Set<HomeBoard>,
+    onSetHiddenBoards: (Set<HomeBoard>) -> Unit,
+    homeBuckets: Set<HomeBucket>,
+    onSetHomeBuckets: (Set<HomeBucket>) -> Unit,
     defaultMinuteOfDay: Int,
     onSetDefaultMinuteOfDay: (Int) -> Unit,
     autoRepeat: Boolean,
@@ -628,6 +705,8 @@ private fun SettingsScreen(
     onTestTodo: () -> Unit
 ) {
     val context = LocalContext.current
+    // Used to keep at least one board visible.
+    val visibleBoardCount = boardOrder.count { it !in hiddenBoards }
     androidx.compose.foundation.lazy.LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
@@ -728,14 +807,60 @@ private fun SettingsScreen(
             }
         }
 
+        item { SectionHeader("首页分组") }
+        item {
+            SettingsCard {
+                ListItem(
+                    headlineContent = { Text("板块顺序", style = MaterialTheme.typography.bodyLarge) },
+                    supportingContent = {
+                        Text(
+                            "用 ↑↓ 调整先后，右侧开关控制是否显示",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    },
+                    colors = ListItemDefaults.colors(containerColor = Color.Transparent)
+                )
+                boardOrder.forEachIndexed { index, board ->
+                    ItemDivider()
+                    BoardOrderRow(
+                        board = board,
+                        canMoveUp = index > 0,
+                        canMoveDown = index < boardOrder.lastIndex,
+                        visible = board !in hiddenBoards,
+                        // 不允许把最后一个可见板块也关掉：首页会变空白，且没有入口回来。
+                        canToggle = if (board in hiddenBoards) true else visibleBoardCount > 1,
+                        onMoveUp = { onSetBoardOrder(boardOrder.swapped(index, index - 1)) },
+                        onMoveDown = { onSetBoardOrder(boardOrder.swapped(index, index + 1)) },
+                        onVisibleChange = { on ->
+                            onSetHiddenBoards(
+                                if (on) hiddenBoards - board else hiddenBoards + board
+                            )
+                        }
+                    )
+                }
+                ItemDivider()
+                Text(
+                    "「有日期」板块内的分组",
+                    style = MaterialTheme.typography.bodyLarge,
+                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 4.dp)
+                )
+                BucketChips(homeBuckets) { bucket, on ->
+                    onSetHomeBuckets(if (on) homeBuckets + bucket else homeBuckets - bucket)
+                }
+                Text(
+                    "没勾选的档位会并入下一个已勾选的档位；全部不勾时该板块直接平铺，不再分小标题。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp)
+                )
+            }
+        }
+
         item { SectionHeader("逾期处理") }
         item {
             SettingsCard {
                 ToggleItem("逾期反复叮嘱", "过期后每隔一段时间再提醒", overdueNag, onSetOverdueNag)
                 if (overdueNag) {
-                    ItemDivider()
-                    // 标红现在是无条件的，这个开关只管排序，别再写"标红"误导用户。
-                    ToggleItem("逾期置顶", "过期待办排到列表最前面", overduePin, onSetOverduePin)
                     ItemDivider()
                     ChoiceItem(
                         "提醒间隔",
@@ -797,6 +922,73 @@ private fun ItemDivider() {
         modifier = Modifier.padding(start = 16.dp, end = 16.dp),
         color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
     )
+}
+
+/** A board row in 设置 → 首页分组: order arrows + visibility switch. */
+@Composable
+private fun BoardOrderRow(
+    board: HomeBoard,
+    canMoveUp: Boolean,
+    canMoveDown: Boolean,
+    visible: Boolean,
+    canToggle: Boolean,
+    onMoveUp: () -> Unit,
+    onMoveDown: () -> Unit,
+    onVisibleChange: (Boolean) -> Unit
+) {
+    ListItem(
+        headlineContent = { Text(board.label, style = MaterialTheme.typography.bodyLarge) },
+        trailingContent = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onMoveUp, enabled = canMoveUp, modifier = Modifier.size(36.dp)) {
+                    Icon(Icons.Default.KeyboardArrowUp, contentDescription = "上移")
+                }
+                IconButton(onClick = onMoveDown, enabled = canMoveDown, modifier = Modifier.size(36.dp)) {
+                    Icon(Icons.Default.KeyboardArrowDown, contentDescription = "下移")
+                }
+                Switch(checked = visible, onCheckedChange = onVisibleChange, enabled = canToggle)
+            }
+        },
+        colors = ListItemDefaults.colors(containerColor = Color.Transparent)
+    )
+}
+
+/** Multi-select chips for the buckets inside 有日期. */
+@Composable
+private fun BucketChips(enabled: Set<HomeBucket>, onToggle: (HomeBucket, Boolean) -> Unit) {
+    FlowRow(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        for (bucket in HomeBucket.all) {
+            val on = bucket in enabled
+            FilterChip(
+                selected = on,
+                onClick = { onToggle(bucket, !on) },
+                label = { Text(bucket.label) },
+                leadingIcon = if (on) {
+                    {
+                        Icon(
+                            Icons.Default.Check,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                } else null
+            )
+        }
+    }
+}
+
+/** Swap two entries; an out-of-range index leaves the list untouched (edge arrows). */
+private fun <T> List<T>.swapped(i: Int, j: Int): List<T> {
+    if (i !in indices || j !in indices) return this
+    return toMutableList().also {
+        val tmp = it[i]
+        it[i] = it[j]
+        it[j] = tmp
+    }
 }
 
 @Composable

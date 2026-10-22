@@ -20,11 +20,15 @@ object SettingsRepo {
     private const val KEY_REMIND_ADVANCE = "remind_advance"
     private const val KEY_OVERDUE_NAG = "overdue_nag"
     private const val KEY_OVERDUE_INTERVAL_HOURS = "overdue_interval_hours"
-    private const val KEY_OVERDUE_PIN = "overdue_pin"
+    // "overdue_pin" (逾期置顶) is retired as of v2.1 — board order now decides placement.
+    // The stale key may still sit in existing installs; it is simply never read.
     private const val KEY_DEFAULT_TIME = "default_time"
     private const val KEY_AUTO_REPEAT = "auto_repeat"
     private const val KEY_PALETTE = "palette_id"
     private const val KEY_DARK_CARD = "dark_card_style"
+    private const val KEY_HOME_BOARD_ORDER = "home_board_order"
+    private const val KEY_HOME_BOARD_HIDDEN = "home_board_hidden"
+    private const val KEY_HOME_BUCKETS = "home_buckets"
 
     const val FOLLOW_SYSTEM = 0
     const val LIGHT = 1
@@ -116,16 +120,6 @@ object SettingsRepo {
             .edit().putInt(KEY_OVERDUE_INTERVAL_HOURS, hours).apply()
     }
 
-    /** Whether overdue todos are pinned to the top and highlighted red. Default ON. */
-    fun overduePinEnabled(context: Context): Boolean =
-        context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
-            .getBoolean(KEY_OVERDUE_PIN, true)
-
-    fun setOverduePinEnabled(context: Context, enabled: Boolean) {
-        context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
-            .edit().putBoolean(KEY_OVERDUE_PIN, enabled).apply()
-    }
-
     // ---------- default reminder time (无日期/只写日期默认时刻) ----------
 
     /** Default time-of-day (minute-of-day) for a date-only todo. Default 09:00. */
@@ -148,5 +142,51 @@ object SettingsRepo {
     fun setAutoRepeatEnabled(context: Context, enabled: Boolean) {
         context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
             .edit().putBoolean(KEY_AUTO_REPEAT, enabled).apply()
+    }
+
+    // ---------- home list grouping (首页分组) ----------
+    //
+    // Boards are persisted as a comma-separated id list so the ORDER survives; a StringSet
+    // would lose it. Buckets store an explicit empty string when the user unticks everything,
+    // which must stay distinguishable from "never configured" (that one means "all on").
+
+    /** Board order, always complete: unknown/missing ids are appended in the default order. */
+    fun homeBoardOrder(context: Context): List<HomeBoard> {
+        val raw = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            .getString(KEY_HOME_BOARD_ORDER, null) ?: return HomeBoard.defaultOrder
+        val parsed = raw.split(",").mapNotNull { HomeBoard.byId(it.trim()) }.distinct()
+        return parsed + HomeBoard.defaultOrder.filter { it !in parsed }
+    }
+
+    fun setHomeBoardOrder(context: Context, order: List<HomeBoard>) {
+        context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            .edit().putString(KEY_HOME_BOARD_ORDER, order.joinToString(",") { it.id }).apply()
+    }
+
+    /** Boards switched off on the home page. */
+    fun hiddenBoards(context: Context): Set<HomeBoard> {
+        val raw = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            .getString(KEY_HOME_BOARD_HIDDEN, null) ?: return emptySet()
+        if (raw.isBlank()) return emptySet()
+        return raw.split(",").mapNotNull { HomeBoard.byId(it.trim()) }.toSet()
+    }
+
+    fun setHiddenBoards(context: Context, hidden: Set<HomeBoard>) {
+        context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            .edit().putString(KEY_HOME_BOARD_HIDDEN, hidden.joinToString(",") { it.id }).apply()
+    }
+
+    /** Enabled buckets inside 有日期. Empty set = don't sub-group, render the board flat. */
+    fun homeBuckets(context: Context): Set<HomeBucket> {
+        val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+        if (!prefs.contains(KEY_HOME_BUCKETS)) return HomeBucket.defaultEnabled
+        val raw = prefs.getString(KEY_HOME_BUCKETS, "").orEmpty()
+        if (raw.isBlank()) return emptySet()
+        return raw.split(",").mapNotNull { HomeBucket.byId(it.trim()) }.toSet()
+    }
+
+    fun setHomeBuckets(context: Context, buckets: Set<HomeBucket>) {
+        context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            .edit().putString(KEY_HOME_BUCKETS, buckets.joinToString(",") { it.id }).apply()
     }
 }

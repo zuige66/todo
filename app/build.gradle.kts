@@ -35,10 +35,10 @@ android {
         applicationId = "com.lirui.oneline"
         minSdk = 26
         targetSdk = 36
-        // 0.2 = 逾期唠叨链修复 + 通知栏「完成/撤回」（v2.0 变更集）。
+        // 0.3 = 首页分组自定义（板块顺序/显隐 + 有日期内档位）+ 深色彩降亮。
         // 每次发版：versionCode 必须单调递增（Android 用它判断升级），versionName 给人看。
-        versionCode = 2
-        versionName = "0.2"
+        versionCode = 3
+        versionName = "0.3"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
