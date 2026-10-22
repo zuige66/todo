@@ -17,6 +17,14 @@
   <img src="https://img.shields.io/badge/min%20sdk-26-F59E0B?style=flat-square" alt="min sdk" />
 </p>
 
+<p align="center">
+  <a href="https://github.com/zuige66/todo/releases/latest"><b>下载 APK</b></a>
+  &nbsp;·&nbsp;
+  <a href="DESIGN.md">设计文档</a>
+  &nbsp;·&nbsp;
+  <a href="QUOTES.md">文案池</a>
+</p>
+
 ---
 
 独立的 Android 待办应用：**输入框是唯一入口**，没有日期选择器、没有分类和标签、没有账号。一句话里写了日期和时间，就自动解析并排好精确闹钟；只写了一句事，就安静地落在「无日期」里。数据全部留在本机 —— 未声明 `INTERNET` 权限，也不依赖任何在线服务。
