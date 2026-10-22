@@ -2370,6 +2370,576 @@ if (next.codePointCount(0, next.length) <= maxCodePoints) onValueChange(next)
 > 是 launcher 的图标缓存没刷，重启手机或在「主题」里换一次图标样式即可。
 > 这不是没生效——`aapt2 dump badging` 里 `application-icon-640` 已经指向新的 192px PNG。
 
+---
+
+## 39. v0.4 变更记录（2026-10-22）：四导航项 · 右滑归档 · 归档状态机 · 卡片色体系 · 检查更新
+
+安装包 `0.4`（versionCode 4）。这一版的重点不是加功能，而是**把三个"看起来像偶发"的 bug 挖到根因**，
+顺带把散落各页的颜色收进一套 token。
+
+### 39.1 文案与导航
+
+| 位置 | 改前 | 改后 |
+|---|---|---|
+| 首页标题 | 一句话待办 | **Todo** |
+| 导航项 1 | 待办 | **Todo** |
+| 导航项 2 | 已归档 | **归档** |
+| 导航项 3 / 4 | 设置 / （无） | 设置 / **关于** |
+
+- 关于页从「覆盖层」升级成第四个 tab（`AboutScreen()` 不再接收 `onBack`，
+  删掉 `BackHandler`、左上返回键、`windowInsetsPadding(statusBars)`）。
+- 设置页删除「关于」分区 —— 两个入口指向同一页只会让"关于在哪"变成一个问题。
+- `NavTab` 内边距 22dp → 12dp、字号 titleMedium → titleSmall：360dp 小屏上四项并排时，
+  22dp 会让「Todo」胶囊几乎顶满整格。
+- 设置页「测试」两条说明改成「动作 + 验证什么」：
+  「立即弹一条提醒，确认通知能收到、「完成」按钮能点」/「建一条一分钟后到期的待办，确认提醒准时响」。
+
+### 39.2 归档失效：根因是"计时器挂在了会被回收的 Row 上"
+
+现象：点圆圈后立刻快速滑动，待办没归档。
+
+根因（不是防抖、不是动画状态没写库）：
+
+```kotlin
+// v0.3 TodoRow
+var checked by remember(todo.id, todo.dueAtMillis) { mutableStateOf(false) }
+val scope = rememberCoroutineScope()          // ← 绑定在这一行的组合上
+scope.launch { delay(650); onCircleTap() }    // ← 行被 LazyColumn 回收 → 协程取消
+```
+
+快速滑动把行甩出视口 → 行离开组合 → `rememberCoroutineScope` 的 Job 被取消 →
+`delay` 后面的归档调用永远不执行。行再滑回来时 `remember` 也已重置，勾选态"闪回"。
+
+修法（`MainViewModel`）：
+
+```kotlin
+private val _pendingArchive = MutableStateFlow<Set<Long>>(emptySet())   // 唯一真相源
+fun requestArchive(id: Long, animate: Boolean = true) {
+    if (id in _pendingArchive.value) return          // 防重复
+    _pendingArchive.update { it + id }
+    viewModelScope.launch {                          // ★ 不受 UI 销毁影响
+        try {
+            if (animate) delay(CIRCLE_FILL_MILLIS)
+            if (id !in _pendingArchive.value) return@launch   // 期间被撤销
+            if (!repo.archive(id)) _messages.tryEmit("这条待办已经不在了")
+        } catch (e: CancellationException) { throw e }
+        catch (e: Throwable) { _messages.tryEmit("归档失败：${e.message ?: "未知错误"}") }
+        finally { _pendingArchive.update { it - id } }
+    }
+}
+```
+
+三个配套改动：
+1. `TodoRow` 的 `checked` 改成外部入参 `todo.id in pendingArchive` —— 行被回收再回来，勾选态还在；
+2. `TodoRepository.archive()` 返回 `Boolean`（`false` = 记录已不存在），失败有提示；
+3. **撤销竞态**：`CompletedBar` 的「撤销」会先清 pending，650ms 后那个协程必须靠
+   `if (id !in _pendingArchive.value) return@launch` 收手 —— 否则撤销是假动作，照样归档。
+
+### 39.3 右滑归档
+
+- `detectHorizontalDragGestures` + `Animatable`，阈值 **96dp**，最大跟手 160dp，左滑留 12dp 橡皮筋；
+- 底层用 `secondaryContainer` 画「✓ 归档」提示，`alpha` 跟滑动进度走（在 `graphicsLayer` 里读，
+  延迟读取，不重组）；
+- 达到阈值 → `requestArchive(animate = false)`（行已经滑出去，不必再等 650ms），
+  与圆圈点击共用同一个入口、同一个「撤销」条；
+- 检测器只在水平方向超过 touch slop 后消费事件，垂直滚动仍归 LazyColumn。
+
+### 39.4 拖拽抖动：同一段位移被算了两遍
+
+```kotlin
+// v0.3：所有行都跑这个，包括正在拖的那一行
+LaunchedEffect(index) { baseY.animateTo(index * rowHeightPx, spring(...)) }
+// 交换发生后：baseY 从旧槽位 spring 到新槽位，同时 dragDelta 刚被扣掉整整一行
+translationY = baseY.value + dragDelta
+```
+
+交换瞬间被拖行的 `index` 变了 → `baseY` 开始动画 → 与已扣减的 `dragDelta` 叠加 →
+卡片脱离手指再"追上来"，就是看到的抖动。
+
+修法：
+
+```kotlin
+LaunchedEffect(index, dragging) {
+    val target = index * rowHeightPx
+    if (dragging) baseY.snapTo(target)      // ★ 拖拽中不插值：位移只由 dragDelta 表达
+    else baseY.animateTo(target, spring(dampingRatio = 0.82f, stiffness = 1100f))
+}
+```
+
+另外两处收尾：
+- `onDragCancel` 把 `orderState` 回滚到拖动开始时的顺序（半途状态不该留在界面上）；
+- `onDragEnd` 只在顺序真的变化时才 `onReorder(...)`，避免每次长按都写一次盘 + 父层重组。
+
+### 39.5 卡片颜色收进 Tokens
+
+新建 `ui/theme/Tokens.kt`，全部由 `ColorScheme` 派生（11 套配色自动跟随）：
+
+| token | 用途 | 浅色 | 深色 |
+|---|---|---|---|
+| `cardBackground` | 所有卡片 | `primaryContainer` | 同左（已是保色相容器） |
+| `cardDragging` | 拖拽中 | 种子色 10% 叠卡片 | `primaryContainer` 抬 V +0.07 |
+| `cardPlaceholder` | 预览/空位 | `onSurface` 3.5% | `onSurface` 6% |
+| `fieldSurface` | 输入面 | `onSurface` 3% | `onSurface` 6% |
+| `placeholderText` | 占位文字 | `onSurfaceVariant` @55% | 同左 |
+| `actionContainer/Content` | 主按钮 | `secondaryContainer/onSecondaryContainer` | 同左 |
+| `actionDisabled*` | 禁用 | M3 标准 8%/36% | 同左 |
+
+清掉三处硬编码灰：拖拽行 `surfaceContainerHigh`、通知预览 `surfaceContainerHighest`、
+添加页预览 `surfaceContainerHigh`。「添加」按钮从高饱和 `primary` 改为 `actionContainer`，
+和卡片同族，禁用态仍有明确区分。
+
+### 39.6 通知标题：三段合并为「模板 + 占位符」
+
+问题：三个独立配置项各存一份、各读一次，任何一处写失败都会让"框里显示的"和"实际发出的"漂移。
+而且 `message` 并不总是"该办了"——`ReminderReceiver` 里四种提醒类型各有一套状态语。
+
+方案：
+
+```
+未完成： 事件名 + 空格 + template.replace("{提醒}", 状态语)
+已完成： 事件名 + 空格 + done
+```
+
+- 存储：新键 `notif_title_template`（+ 原有 `notif_done_emoji`）。
+- **迁移**：首次读时若模板键不存在，用 `lead + "{提醒}" + tail` 拼出来并写回；
+  `due_word` 仍作为 DUE 状态语保留（用户改过的词不丢），lead/tail 之后不再读取。
+- 空模板 / `{提醒}` 展开为空 → 只剩事件名，`joinSpace` 保证不出双空格。
+- 设置页只剩**一个**「通知标题」卡片：模板 + 完成后后缀 + 三行预览（到点 / 提前提醒 / 已完成）
+  + **一个保存按钮**（dirty 才可点，保存后 Toast + 变「已保存」）。
+- 预览用 `composeTitle(title, message, done, style)` 的显式 style 重载，喂的是 draft ——
+  输入框 / 预览 / 真发出来的三者共用同一段代码，结构上不可能不一致。
+  顺带解决"删了 emoji 框里还剩"：draft 是唯一编辑态来源，删了就是删了。
+- `{提醒}` 有快捷插入按钮，用户误删后不用记语法。
+
+### 39.7 检查更新 + APK 下载安装
+
+参考 `D:/Workplace/Hyper Music Scape Lock` 的实现（GitHub Releases API + 前台服务下载 + FileProvider 安装），
+按本项目裁剪：
+
+| 环节 | 本项目的做法 |
+|---|---|
+| 版本来源 | `PackageManager.getPackageInfo`（不引 BuildConfig，改 versionName 自动跟随） |
+| 远程源 | `api.github.com/repos/zuige66/todo/releases/latest`，404 = 还没发过版（单独提示，不算失败） |
+| 比较 | `update/Version.kt`，语义化三段逐段比，后缀不参与；解析失败返回 null → 友好提示 |
+| 网络 | `Dispatchers.IO`，6s 超时，DNS/超时/TLS/HTTP 分别给不同文案 |
+| 提示 | 有新版 → 弹窗（当前/最新/changelog + 下载或打开发布页）；已最新 → Toast + 行内状态；失败 → 弹窗 |
+| 下载 | `UpdateDownloadService` 前台服务（`dataSync`），通知栏 + 应用内百分比广播 |
+| 安装 | `FileProvider`（`${applicationId}.fileprovider`，只暴露 `filesDir/update/`）+ `ACTION_VIEW`；失败跳 `ACTION_MANAGE_UNKNOWN_APP_SOURCES` |
+| 防重复 | 函数入口 guard + 按钮 disabled + 失败只写一个状态值（连点不会叠弹窗） |
+
+**没有做 blog 回退源**：hypermelolock 有一个 Hexo 静态 `latest.json` 兜底，本项目没有对应站点，
+留一个不存在的回退源只会让"检查失败"多等一倍时间。以后补的时候在 `UpdateService` 里加一层
+try/catch 即可，UI 不用改。
+
+**权限变化**：新增 `INTERNET` / `ACCESS_NETWORK_STATE` / `FOREGROUND_SERVICE(_DATA_SYNC)` /
+`REQUEST_INSTALL_PACKAGES`。关于页原来那句"完全离线运行，不申请网络权限"已改成准确描述：
+待办只在本机、检查更新只访问 GitHub 且只发送版本号。
+
+### 39.8 验证
+
+- `:app:compileDebugKotlin` / `:app:assembleDebug` / `:app:assembleRelease` 全部通过
+- 单测 **180 条全绿**（解析 113 / 分组 21 / 提醒 18 / 格式 11 / **通知标题 9** / **版本比较 8**）
+- `aapt2 dump badging`：`versionCode='4' versionName='0.4'`，9 个权限齐全
+- `aapt2 dump xmltree`：`UpdateDownloadService` 的 `foregroundServiceType=0x1`（dataSync）、
+  `FileProvider` 的 `authorities=com.lirui.oneline.fileprovider` 均已注册
+- **未做真机 UI 验收**：本次构建时设备未连接（`adb devices` 为空），需要装机后人工过一遍
+  验收清单（四 tab 文案、右滑、拖拽、通知标题保存、检查更新）
+
+---
+
+## 40. v0.4.1 修订（2026-10-22）：拖拽动效二次修复 · 文案可编辑 · 沉浸式顶栏
+
+安装包 `0.4.1`（versionCode 5）。
+
+### 40.1 拖拽还在抖：三个真因，都不是"性能"
+
+v0.4 修掉了「被拖行也跑 baseY 动画」这个主因，但用户反馈仍有问题。复查后发现三处：
+
+**① spring 的过冲（主因）**
+
+```kotlin
+// v0.4
+baseY.animateTo(target, spring(dampingRatio = 0.82f, stiffness = 1100f))
+```
+
+`dampingRatio = 0.82` 是**欠阻尼**，动画会滑过目标位置再回弹。被挤开的那一行每次交换都
+"冲过头 → 弹回来"，快速连续交换时每个邻居都在过冲，肉眼看到的就是抖。
+
+```kotlin
+// v0.4.1：tween 单调过渡，没有回弹
+baseY.animateTo(target, tween(BOARD_SETTLE_MILLIS, easing = FastOutSlowInEasing))
+```
+
+160ms 是"跟得上手指、又看得清位移"的平衡点；< 100ms 在快速拖动时会变成一串瞬移。
+
+**② dragDelta 没有边界 clamp（"松手跳一下"的来源）**
+
+拖到顶/底之后继续拖，`dragDelta` 会一路累加，而容器 `clip = false`，卡片就画出去了
+（压到上面的说明文字和下面的开关上），松手瞬间又被 `baseY` 拽回槽位 —— 看起来就是跳。
+
+```kotlin
+val minDelta = -current * rowHeightPx
+val maxDelta = (orderState.value.lastIndex - current) * rowHeightPx
+dragDelta = (dragDelta + amount.y).coerceIn(minDelta, maxDelta)
+// 交换后槽位变了，边界跟着变，再夹一次
+```
+
+效果：拖到尽头是"顶住"的物理感，不会越界，也就没有回位跳变。
+
+**③ 阴影 0 → 10dp 是硬切**
+
+底色从透明变 `cardDragging` 的同时阴影"啪"地出现，读起来像闪一下。
+改成 `animateFloatAsState` 140ms 过渡；这个值只在 `graphicsLayer` 里读，
+所以动画每帧只改 RenderNode，不触发重组。
+
+顺带保留 v0.4 的两条收尾：`onDragCancel` 回滚顺序、`onDragEnd` 只在顺序真变了才提交。
+
+### 40.2 提醒文案可编辑（收起式）
+
+`Quotes` 从"硬编码 19 条"改成"SP 优先，没自定义过才用内置默认"：
+
+```kotlin
+fun pool(context) = SettingsRepo.customQuotes(context) ?: defaults
+```
+
+| 决定 | 理由 |
+|---|---|
+| 存成 `\n` 分隔的单个字符串，不是 StringSet | StringSet **丢顺序**，用户排在第一位的句子会乱跑；文案本身不可能含换行，分隔符安全 |
+| 清空保存 = 恢复默认（删键） | 空池子会让通知正文变空白，那不是用户想要的副作用 |
+| 编辑区**默认收起**，点开才展开 | 19 条铺开会占掉大半屏设置页，每次进来都要滚过去 |
+| 用一个多行输入框，不是 19 行可删列表 | 后者一屏放不下还要嵌套 LazyColumn（嵌套滚动手感很差）；多行框能全选、清空、粘贴 |
+| 保存时 trim / 去空行 / 去重 | 避免"同一条文案出现三次"这种细节问题 |
+| `Quotes.forTodo(context, id)` 必须带 Context | 任何还写死访问 `defaults` 的地方，用户改了都不生效 |
+
+`QUOTES.md` 仍是长句与分组说明，具体生效的池子以设置页为准。
+
+### 40.3 沉浸式顶栏（带开关）
+
+```kotlin
+val topBarState = rememberTopAppBarState()
+val enterAlwaysScroll = TopAppBarDefaults.enterAlwaysScrollBehavior(topBarState)
+val pinnedScroll = TopAppBarDefaults.pinnedScrollBehavior(topBarState)
+val topBarScroll = if (immersiveTopBar) enterAlwaysScroll else pinnedScroll
+
+Scaffold(
+    modifier = Modifier.nestedScroll(topBarScroll.nestedScrollConnection),
+    topBar = { TopAppBar(..., scrollBehavior = topBarScroll) },
+)
+```
+
+- 向下滚（手指上滑）→ 标题栏收起；往上滚 → 立刻回来。关掉开关就是 `pinned`，即 v0.4 的行为。
+- 默认**开**：纯视觉增强，不碰任何数据路径。
+- ★ **不能把 `enterAlwaysScrollBehavior(...)` 塞进 `remember { }` 的 lambda**：
+  它本身是 `@Composable`（内部有 remember），在非组合上下文里调用直接编译失败
+  （本轮第一版就是这么挂的）。正确做法是两个都构造好，再用 `if` 选。
+- 切 tab 时 `LaunchedEffect(tab) { topBarState.heightOffset = 0f; contentOffset = 0f }`：
+  否则从滚到底的列表切到设置页，会看到"标题栏还没展开"的残留状态。
+- About 页也吃这套（它自己的 LazyColumn 驱动同一套 nestedScroll），滚起来更沉浸。
+
+### 40.4 验证
+
+- `:app:compileDebugKotlin` / `:app:testDebugUnitTest` / `:app:assembleRelease` 全过
+- 单测 180 条仍全绿（本轮没动被覆盖的逻辑）
+- `aapt2 dump badging`：`versionCode='5' versionName='0.4.1'`
+- **仍未做真机验收**：构建时 `adb devices` 依旧为空。拖拽动效属于"必须上手拖"的验证项，
+  装机后请重点试：拖到顶部/底部继续拖（应顶住，不越界）、快速上下连续拖（邻居应平滑滑到位）
+
+---
+
+## 41. v0.4.2 修订（2026-10-22）：沉浸式重写 · 拖拽第三轮 · 文案框滚动隔离
+
+安装包 `0.4.2`（versionCode 6）。这一版主要是把 0.4.1 里两个"改法不对"的地方重做。
+
+### 41.1 沉浸式顶栏为什么会"滑动变快" —— 方案换了
+
+0.4.1 用的是 M3 的 `enterAlwaysScrollBehavior`：
+
+```kotlin
+Scaffold(
+    modifier = Modifier.nestedScroll(behavior.nestedScrollConnection),
+    topBar = { TopAppBar(scrollBehavior = behavior) }
+)
+```
+
+它有两个叠加的副作用：
+
+1. **它会消费滚动**：`onPreScroll` 把上滑的量先拿去收标题栏，列表本身滚得少；
+2. **它让 Scaffold 的 contentPadding 跟着变**：标题栏收起时 `innerPadding.top` 从
+   `状态栏 + 64dp` 掉到 0，视口整体上移 64dp —— 列表的"滚动位置"没变，但内容相对屏幕
+   额外位移了一整条标题栏的高度。
+
+两者叠在一起，用户手指滑同样的距离，看到的内容位移比正常多一截，感知就是"滑得特别快"。
+这不是错觉，是 padding 变化贡献的额外位移。
+
+**新方案：让顶栏自己平移，Scaffold 的 padding 恒定。**
+
+```kotlin
+Scaffold(
+    modifier = Modifier.nestedScroll(topBarCollapse.connection),
+    topBar = {
+        // 高度固定的盒子 -> contentPadding 恒定 -> 内容不会因为收起而位移
+        Box(Modifier.fillMaxWidth().height(statusBar + 64.dp).clipToBounds()) {
+            TopAppBar(
+                modifier = Modifier.graphicsLayer {
+                    translationY = topBarCollapse.offset.floatValue   // deferred read
+                }
+            )
+        }
+    }
+)
+```
+
+`TopBarCollapse` 只做一件事：**观察**列表实际滚了多少。
+
+```kotlin
+override fun onPostScroll(consumed: Offset, available: Offset, source): Offset {
+    if (!enabled) return Offset.Zero
+    when {
+        consumed.y != 0f -> offset = (offset + consumed.y).coerceIn(-max, 0f)  // 1:1 跟手
+        available.y > 0f -> offset = (offset + available.y).coerceIn(-max, 0f) // 到顶下拉时拉回来
+    }
+    return Offset.Zero   // ★ 不消费：列表滚动速度完全保持原样
+}
+```
+
+- 收起上限 64dp（状态栏那一截始终留着，内容不会钻到状态栏后面）；
+- `onPostScroll` 里读 `consumed.y` 而不是 `available.y`：只有列表**真的滚了**才动顶栏，
+  滚到底再往上推不会把标题栏推走；
+- 返回 `Offset.Zero`，一行都不消费 —— 这是"不加速"的关键；
+- 开关关闭时 `enabled = false` + 位移归零，等价于 v0.4 的固定顶栏。
+
+### 41.2 拖拽：为什么又回退到 Animatable
+
+0.4.1 用人 `animateFloatAsState` 做归位动画，认为它比 `Animatable + LaunchedEffect` 更连贯。
+**这个判断是错的**，因为拖拽行需要"立刻等于槽位值"：
+
+```kotlin
+translationY = if (dragging) index * rowHeightPx + dragDelta else settle.value
+```
+
+`animateFloatAsState` 在目标变化后是慢慢追过去的。如果松手那一刻它还在半路，
+`settle.value != index * rowHeightPx`，切换分支的瞬间行就会**跳一下** —— 这才是闪烁的来源。
+
+`Animatable` 可以在拖拽中 `snapTo`，保证松手那一帧基准值已经正确，所以又换回来了：
+
+```kotlin
+LaunchedEffect(index, dragging) {
+    val target = index * rowHeightPx
+    if (dragging) baseY.snapTo(target)          // 松手时一定是准的
+    else baseY.animateTo(target, spring(
+        dampingRatio = Spring.DampingRatioNoBouncy,   // 临界阻尼：无过冲
+        stiffness = 1500f                             // ~100ms 到位，跟手不拖沓
+    ))
+}
+```
+
+另外两处改成过渡而不是硬切：
+
+| 属性 | 0.4.1 | 0.4.2 |
+|---|---|---|
+| 底色 | `background(if (dragging) cardDragging else Transparent)` 直接切 | `animateColorAsState(tween(140))` |
+| 阴影 | 已经是 `animateFloatAsState` | 保留 |
+
+边界 clamp（0.4.1 加的）保留：`dragDelta.coerceIn(-current*rowH, (lastIndex-current)*rowH)`，
+交换后再夹一次。
+
+### 41.3 文案输入框：滚到底不再带动设置页
+
+多行 `TextField` 内部是 `verticalScroll`，滚到顶/底之后剩余量会沿嵌套滚动链传给外层
+`LazyColumn` —— 于是"在框里滑到底，整个设置页跟着动"。
+
+修法是给这个输入框挂一个只"吃剩余量"的 connection：
+
+```kotlin
+val scrollBlocker = remember {
+    object : NestedScrollConnection {
+        override fun onPostScroll(consumed: Offset, available: Offset, source): Offset =
+            if (available.y != 0f) Offset(0f, available.y) else Offset.Zero
+    }
+}
+OutlinedTextField(..., modifier = Modifier.nestedScroll(scrollBlocker))
+```
+
+- `onPostScroll` 不是 `onPreScroll`：TextField 自己先滚，它滚不动了才轮到我们；
+- 返回 `available` 全量消费 → 外层一个像素都收不到；手指在框内滑动就只滚框内文字；
+- 代价：想滚页面得在框外滑（这正是需求要的边界）。
+
+### 41.4 关于页底部说明删除
+
+那段"待办内容只保存在本机 / 检查更新会访问 GitHub…"整段删掉，换成 32dp 留白。
+隐私与权限的事实陈述改由 README 承载（文档面向维护者，App 内不再重复一段免责声明）。
+
+### 41.5 验证
+
+- `:app:compileDebugKotlin` / `:app:testDebugUnitTest` / `:app:assembleRelease` 全过
+- 单测 180 条全绿
+- `aapt2 dump badging`：`versionCode='6' versionName='0.4.2'`
+- **依旧没做真机验收**（`adb devices` 为空）。这一版三个改动都是手感/观感类，
+  装机后请按这个顺序试：
+  1. 开启沉浸式，慢慢滑列表 —— 内容位移应与手指同比（不该有"窜"的感觉）；
+  2. 拖板块：拖到顶/底继续推（顶住）、快速来回拖（相邻行平滑、无过冲回弹）、松手（不跳）；
+  3. 打开提醒文案，在输入框内连续滑动 —— 到顶/底应停住，设置页不动。
+
+### 41.6 同一版内的两处返工（2026-10-22 晚）
+
+**① 顶栏收起后顶部留一条空带**
+
+41.1 把顶栏放进了 Scaffold 的 `topBar` 槽位。问题不在动画，在**视口**：
+Scaffold 会把 content 压到 topBar 下方，列表的可见区域永远从"状态栏 + 64dp"开始。
+顶栏一平移出去，它让出的那 64dp 就是空的 —— 内容根本滚不进去，看着像"卡在黑框上方"。
+
+修法：顶栏不再是 Scaffold 的 topBar，改成**浮层**。
+
+```kotlin
+Box(Modifier.fillMaxSize().nestedScroll(topBarCollapse.connection)) {
+    Scaffold(bottomBar = ..., floatingActionButton = ...) { padding ->
+        // 只吃掉状态栏（Scaffold 的 top padding），不吃标题栏高度
+        Box(Modifier.fillMaxSize().padding(
+            top = padding.calculateTopPadding(),
+            bottom = padding.calculateBottomPadding()
+        )) { when (tab) { ... } }
+    }
+    // 顶栏浮在上面，坐标从屏幕顶端算，TopAppBar 自己处理 statusBars inset
+    Box(Modifier.fillMaxWidth().height(topBarHeight).align(TopCenter).clipToBounds()) {
+        TopAppBar(modifier = Modifier.graphicsLayer { translationY = collapse.offset })
+    }
+}
+```
+
+配套：四个列表的 `contentPadding.top = TOP_BAR_BODY_HEIGHT (64dp)`，把首项让到标题栏下面。
+顶栏收起时内容正好补上那块位置，没有空带；内容也永远进不了状态栏区域（视口从状态栏下沿开始）。
+
+**② 右滑归档"快滑不生效、慢滑才行"**
+
+41.x 里右滑用的是 `Animatable` + `scope.launch { snapTo() }`：
+
+```kotlin
+onHorizontalDrag = { change, dragAmount ->
+    change.consume()
+    settleScope.launch { offsetX.snapTo((offsetX.value + dragAmount).coerceIn(...)) }
+}
+```
+
+两个洞，都来自**协程调度延迟**：
+
+1. 连续快速滑动时，`offsetX.value` 还是上一帧的值，`+ dragAmount` 等于把前一次的位移丢掉
+   —— 卡片始终比手指慢一截，只有慢速滑动（每帧都来得及调度）才追得上；
+2. 松手瞬间 `onDragEnd` 读 `offsetX.value`，最后一次 `snapTo` 可能还没执行，
+   读到旧值 → 判定"没到阈值" → 不归档。
+
+修法：拖动过程用**普通 `mutableFloatStateOf`**（同步写入，读到的一定是最新值），
+回弹动画只负责把值推回 0，且可以被下一次拖动打断：
+
+```kotlin
+var dragX by remember(todo.id) { mutableFloatStateOf(0f) }
+val settleJob = remember { mutableStateOf<Job?>(null) }
+
+onDragStart = { settleJob.value?.cancel() }
+onDragEnd = {
+    if (dragX >= thresholdPx) onSwipeArchive()   // 同步读，快滑不漏
+    settleBack()
+}
+onHorizontalDrag = { change, dragAmount ->
+    change.consume()
+    dragX = (dragX + dragAmount).coerceIn(-resistPx, maxOffsetPx)   // 同步写
+}
+```
+
+`settleBack()` 用 `animate(...)` 逐帧回写 `dragX`；`onDragStart` 里 cancel 旧 Job，
+否则回弹动画会和手指抢 `dragX`（互相拉扯）。
+
+> 通用红线：**高频输入（拖动 / 滑动）的状态必须同步写**。
+> `Animatable.snapTo` 是 suspend，必须投递协程 —— 它只适合"动画驱动的值"，
+> 不适合"每帧都要读回来做判断的值"。
+
+### 41.7 再返工：顶栏纹丝不动 + 快滑仍归档不了（2026-10-22 晚）
+
+**① 顶栏不收起（截图实测：`Todo` 还在原位，列表在它下面滚）**
+
+`onPostScroll(consumed, …)` 的 `consumed` 在这条链上没有拿到滚动量，回调等于没干活。
+换成 `onPreScroll`：它在任何滚动发生**之前**必被调用，`available.y` 就是这一帧的手势位移。
+
+```kotlin
+override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+    if (!enabled) return Offset.Zero
+    offset.floatValue = (offset.floatValue + available.y).coerceIn(-maxOffsetPx, 0f)
+    return Offset.Zero   // 不消费，列表速度不变
+}
+```
+
+顺带把 connection 从 Scaffold **下放到每个列表自己的 LazyColumn** 的 modifier 上。
+嵌套滚动派发要从滚动容器向上找最近的 `NestedScrollNode`，中间隔着 Scaffold
+（SubcomposeLayout）时容易拿不到；挂在自己身上最稳。
+
+另外 `TopBarCollapse` 的 `enabled` 改成构造参数，避免首帧"默认 true"造成一次误动。
+
+**② 快滑仍然不归档**
+
+上一轮修了"同步写"之后，剩下的洞是**判定条件本身**：只看 `dragX >= 96dp`。
+快速短促的一甩，手指抬起时往往还没滑到 96dp —— 距离不够，但意图很明确。
+
+> ~~补速度判定：`dragX >= threshold || vx >= 700 px/s`~~
+>
+> **这个做法已撤销（2026-10-22 18:20）**：速度没有方向绑定，斜着快速滑动列表时
+> 横向分量也能过阈值 —— 真机实测出现"从右往左下快速滑也归档"。归档是不可逆入口
+> （只靠 3 秒撤销条兜底），宁可要求滑够距离，也不能误触发。
+>
+> 现在回到**只按累计位移**判定，并且用一个**不 clamp** 的 `totalDx` 做判据：
+
+```kotlin
+var totalDx by remember(todo.id) { mutableFloatStateOf(0f) }   // 不 clamp，不被回弹污染
+onDragStart = { totalDx = 0f }
+onHorizontalDrag = { change, amount ->
+    change.consume()
+    totalDx += amount                                    // 同步累加
+    dragX = (dragX + amount).coerceIn(-resistPx, maxOffsetPx)   // 只用于视觉
+}
+onDragEnd = { if (totalDx >= thresholdPx) onSwipeArchive() }   // 向左累加为负，永不触发
+```
+
+> 判据升级：**不可逆操作的触发条件不能只看"力度"，必须有明确的方向语义**。
+> 速度、加速度这类标量适合做"加速/减速"，不适合做"要不要删除"。
+
+### 41.8 顶栏还是不动：nestedScroll 派发链彻底不可靠（2026-10-22 18:30）
+
+`onPreScroll` 版改了，真机上顶栏依旧纹丝不动。结论：**这条链上有某个环节不派发嵌套滚动**
+（高度怀疑是 Scaffold 的 SubcomposeLayout，但没必要再挖了）。
+
+改成**直接读列表滚动状态**，这是纯 Compose state，必然拿得到：
+
+```kotlin
+// 四个列表的 LazyListState 提升到 TodoAppContent
+val todoListState = rememberLazyListState()
+val archivedListState = rememberLazyListState()
+val settingsListState = rememberLazyListState()
+val aboutListState = rememberLazyListState()
+val activeListState = when (tab) { TAB_TODO -> todoListState; ... }
+
+LaunchedEffect(activeListState, immersiveTopBar) {
+    if (!immersiveTopBar) { collapse.offset.floatValue = 0f; return@LaunchedEffect }
+    snapshotFlow {
+        // 第一项都滚出视口了，说明至少滚过一个 item，肯定超过 64dp
+        if (activeListState.firstVisibleItemIndex > 0) maxCollapsePx
+        else activeListState.firstVisibleItemScrollOffset.toFloat()
+    }.collect { scrolled ->
+        collapse.offset.floatValue = -scrolled.coerceIn(0f, maxCollapsePx)
+    }
+}
+```
+
+四个列表签名都从 `topBarScroll: NestedScrollConnection` 改成了 `listState: LazyListState`，
+`LazyColumn(state = listState)`。顶栏浮层只读 `collapse.offset` 做 `translationY`。
+
+> 判据：**顶栏/底栏这种"跟随滚动"的效果，优先用 listState 直接驱动，不要用 nestedScroll**。
+> nestedScroll 依赖整条 modifier 链正确派发，隔着 SubcomposeLayout（Scaffold）时不可靠，
+> 而且现场没法验证。listState 是普通 state，读得到就能驱动。
+
+
+
+
+
+
+
 
 
 

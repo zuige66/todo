@@ -14,12 +14,14 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -35,6 +37,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import com.lirui.oneline.parser.ParsedTodo
+import com.lirui.oneline.ui.theme.actionContainer
+import com.lirui.oneline.ui.theme.actionContent
+import com.lirui.oneline.ui.theme.actionDisabledContainer
+import com.lirui.oneline.ui.theme.actionDisabledContent
+import com.lirui.oneline.ui.theme.cardBackground
+import com.lirui.oneline.ui.theme.fieldBorder
+import com.lirui.oneline.ui.theme.fieldSurface
+import com.lirui.oneline.ui.theme.placeholderText
 import com.lirui.oneline.util.Format
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
@@ -78,9 +88,18 @@ fun AddSheet(
             OutlinedTextField(
                 value = text,
                 onValueChange = { t -> text = t; onPreview(t) },
-                placeholder = { Text("周五下午3点 交周报") },
+                // 占位文字调浅：它是"示例"，不该和已输入的内容抢注意力。
+                placeholder = {
+                    Text("周五下午3点 交周报", color = MaterialTheme.colorScheme.placeholderText)
+                },
                 singleLine = false,
                 shape = MaterialTheme.shapes.extraLarge,
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                    unfocusedBorderColor = MaterialTheme.colorScheme.fieldBorder,
+                    focusedContainerColor = MaterialTheme.colorScheme.fieldSurface,
+                    unfocusedContainerColor = MaterialTheme.colorScheme.fieldSurface
+                ),
                 modifier = Modifier.fillMaxWidth(),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(onDone = { submit() })
@@ -90,7 +109,7 @@ fun AddSheet(
             if (editing && initialRepeatDays > 0) {
                 Surface(
                     shape = MaterialTheme.shapes.extraLarge,
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    color = MaterialTheme.colorScheme.fieldSurface,
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(
@@ -134,6 +153,15 @@ fun AddSheet(
                 onClick = { submit() },
                 enabled = text.isNotBlank(),
                 shape = CircleShape,
+                // 「添加」是主按钮，但不需要一块高饱和色块贴在页面底部：
+                // actionContainer 是"种子色低透明度叠 surface"的结果，和卡片同族；
+                // 禁用态用 M3 标准比例，保证"看得出能点 / 点不了"。
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.actionContainer,
+                    contentColor = MaterialTheme.colorScheme.actionContent,
+                    disabledContainerColor = MaterialTheme.colorScheme.actionDisabledContainer,
+                    disabledContentColor = MaterialTheme.colorScheme.actionDisabledContent
+                ),
                 modifier = Modifier.fillMaxWidth().height(52.dp)
             ) {
                 Text(if (editing) "保存" else "添加")
@@ -151,7 +179,9 @@ private fun PreviewCard(parses: List<ParsedTodo>) {
 
     Surface(
         shape = MaterialTheme.shapes.extraLarge,
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        // 与设置页卡片、待办行同一套卡片色（Tokens.cardBackground），
+        // 不再用 surfaceContainerHigh —— 那是中性灰，和主题配色对不上。
+        color = MaterialTheme.colorScheme.cardBackground,
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(

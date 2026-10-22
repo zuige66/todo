@@ -77,15 +77,22 @@ class TodoRepository(private val context: Context) {
         return id
     }
 
-    suspend fun archive(id: Long) {        dao.getById(id)?.let { todo ->
-            // A repeating todo rolls to its next occurrence instead of being archived.
-            if (todo.repeatDays > 0 && SettingsRepo.autoRepeatEnabled(context)) {
-                rollForward(todo)
-                return
-            }
-            dao.update(todo.copy(archived = true, completedAt = System.currentTimeMillis()))
-            ReminderScheduler.cancelForId(context, id)
+    /**
+     * 归档一条待办（重复任务改为顺延）。
+     *
+     * @return false = 这条待办已经不在了（被删除 / 被别处处理过）。
+     *   调用方必须据此收起"归档中"状态，否则 UI 会永远停在勾选态。
+     */
+    suspend fun archive(id: Long): Boolean {
+        val todo = dao.getById(id) ?: return false
+        // A repeating todo rolls to its next occurrence instead of being archived.
+        if (todo.repeatDays > 0 && SettingsRepo.autoRepeatEnabled(context)) {
+            rollForward(todo)
+            return true
         }
+        dao.update(todo.copy(archived = true, completedAt = System.currentTimeMillis()))
+        ReminderScheduler.cancelForId(context, id)
+        return true
     }
 
     /** Advance a repeating todo to its next occurrence and re-schedule its reminders. */
@@ -163,7 +170,6 @@ class TodoRepository(private val context: Context) {
     suspend fun completeFromNotification(id: Long) {
         archive(id)
     }
-
     /**
      * Notification 「撤回」action — the inverse of [completeFromNotification].
      *

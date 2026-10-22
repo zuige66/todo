@@ -11,11 +11,22 @@ import com.lirui.oneline.data.model.Todo
 import com.lirui.oneline.parser.Parser
 import com.lirui.oneline.parser.ParsedTodo
 import com.lirui.oneline.util.AppTime
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+
+/** 圆圈填充动画时长。UI 的 animateFloatAsState 与这里的 delay 必须同值，否则会出现"提前消失"。 */
+const val CIRCLE_FILL_MILLIS = 650L
 
 data class UiState(
     val active: List<Todo> = emptyList(),
@@ -95,14 +106,70 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun archive(id: Long) {
-        viewModelScope.launch { repo.archive(id) }
+        requestArchive(id)
+    }
+
+    // ---------- 归档：点击圆圈 / 右滑 共用的一套状态机 ----------
+    //
+    // ★ 为什么不能像 v0.3 那样写在 TodoRow 里：
+    //     `val scope = rememberCoroutineScope()` 绑在行的组合上，行被 LazyColumn 回收
+    //     （快速滑动、切 tab）时 scope 连同里面的 `delay(650)` 一起被取消，
+    //     `onCircleTap()` 永远不执行 —— 这就是"点了圆圈再快速滑动，待办没归档"的根因。
+    //
+    // 现在的分工：
+    //   - 状态：[_pendingArchive] 是"正在归档"的**唯一真相源**，行被回收再滑回来，
+    //     勾选态照样在（`TodoRow` 用 `id in pendingArchive` 判断，不再自己 remember）。
+    //   - 计时：挂在 `viewModelScope` 上，任何 UI 销毁都取消不了它。
+    //   - 写库：仍然走 [TodoRepository.archive]，重复任务顺延的语义不变。
+
+    private val _pendingArchive = MutableStateFlow<Set<Long>>(emptySet())
+
+    /** 正在播归档动画的待办 id 集合。UI 用它渲染圆圈勾选态。 */
+    val pendingArchive: StateFlow<Set<Long>> = _pendingArchive.asStateFlow()
+
+    private val _messages = MutableSharedFlow<String>(extraBufferCapacity = 4)
+
+    /** 一次性提示（归档失败等）。UI 收集后用 Toast 呈现。 */
+    val messages: SharedFlow<String> = _messages.asSharedFlow()
+
+    /**
+     * 归档请求的唯一入口。
+     *
+     * @param animate true = 圆圈点击：先播完 650ms 填充动画再写库，视觉上"填满 -> 消失"；
+     *                false = 右滑：行已经滑出屏幕，立即写库，不再多等。
+     */
+    fun requestArchive(id: Long, animate: Boolean = true) {
+        // 防重复：动画期间再点一次（或点击后立刻右滑）不会排第二个任务。
+        if (id in _pendingArchive.value) return
+        _pendingArchive.update { it + id }
+        viewModelScope.launch {
+            try {
+                if (animate) delay(CIRCLE_FILL_MILLIS)
+                // ★ 动画期间被撤销（CompletedBar 的「撤销」）：pending 已被 unarchive 清掉，
+                // 这里必须收手，否则 650ms 一到照样写库，撤销就成了假动作。
+                if (id !in _pendingArchive.value) return@launch
+                if (!repo.archive(id)) {
+                    _messages.tryEmit("这条待办已经不在了")
+                }
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (error: Throwable) {
+                _messages.tryEmit("归档失败：${error.message ?: "未知错误"}")
+            } finally {
+                // finally 而不是正常路径：失败 / 取消都要把勾选态收回来，
+                // 否则那一行会永远停在"填满但没消失"。
+                _pendingArchive.update { it - id }
+            }
+        }
     }
 
     fun unarchive(id: Long) {
+        _pendingArchive.update { it - id }
         viewModelScope.launch { repo.unarchive(id) }
     }
 
     fun delete(id: Long) {
+        _pendingArchive.update { it - id }
         viewModelScope.launch { repo.delete(id) }
     }
 }

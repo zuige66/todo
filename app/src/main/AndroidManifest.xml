@@ -12,6 +12,23 @@
         android:name="android.permission.USE_EXACT_ALARM"
         android:minSdkVersion="33" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- 「提醒可靠性」里引导用户把本应用加入电池优化白名单。
+         ⚠️ Play 政策：只允许核心功能确实依赖它的应用使用，且必须由用户主动点击触发，
+         不能在启动时自己弹（详见 docs/BACKGROUND.md §10）。 -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!-- 可选常驻服务（设置→后台增强）使用 specialUse 类型。
+         不用 dataSync：Android 15 起 BOOT_COMPLETED 不允许启动 dataSync 类型的前台服务。 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+
+    <!-- 「检查更新」需要联网。只访问 GitHub：读 release 版本号 + 下载 APK。
+         待办数据始终只在本机，不接受任何上传。 -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- 更新包下载走前台服务（进程被杀会导致"下完不弹安装"，见 UpdateDownloadService）。 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <!-- 安装更新包。仅用于我们自己下载的 APK，不静默安装。 -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <application
         android:name=".OnelineApp"
@@ -43,16 +60,53 @@
             android:name=".reminder.NotificationActionReceiver"
             android:exported="false" />
 
-        <!-- Re-schedule after reboot. Alarms do not survive a reboot, so they are rebuilt
-             from the DB. (TIMEZONE_CHANGED was dropped: all dates are resolved in the pinned
-             北京时间 zone, so a device time-zone change no longer invalidates stored epochs.) -->
+        <!-- 闹钟重建入口。三个 action 缺一不可：
+             BOOT_COMPLETED      重启后重建
+             MY_PACKAGE_REPLACED 升级安装会杀进程并清空该包全部闹钟 —— 不处理的话
+                                 用户每升一次级，此前所有提醒都不响（v0.5 之前就是这样）
+             TIME_SET            用户改系统时间；RTC 闹钟是绝对 epoch，必须按新墙钟重排
+             （TIMEZONE_CHANGED 不需要：所有日期都在固定时区 AppTime.ZONE 里解析） -->
         <receiver
             android:name=".reminder.BootReceiver"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.TIME_SET" />
             </intent-filter>
         </receiver>
+
+        <!-- 更新包下载：前台服务（dataSync）。不导出，只能由本 App 启动。 -->
+        <service
+            android:name=".update.UpdateDownloadService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
+        <!-- 可选常驻服务（设置→后台增强，默认关）。
+             type=specialUse 的理由：Android 15 / target 35+ 禁止 BOOT_COMPLETED 启动
+             dataSync / camera / mediaPlayback 等六种类型的前台服务，specialUse 不在其列。
+             <property> 里的 PROPERTY_SPECIAL_USE_FGS_SUBTYPE 是 Android 14+ 对
+             specialUse 的必填说明（商店审核会读它）。 -->
+        <service
+            android:name=".keepalive.KeepAliveService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="日程提醒常驻：用于及时响应提醒通知上的操作，用户可在设置里关闭" />
+        </service>
+
+        <!-- 把内部存储里的 update/ 目录以 content:// 交给系统安装器。
+             authority 必须与 UpdateDownloadService 里 "$packageName.fileprovider" 一致。 -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
 
 </manifest>

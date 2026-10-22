@@ -1,11 +1,9 @@
 package com.lirui.oneline
 
 import android.Manifest
-import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
-import android.provider.Settings
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
@@ -20,7 +18,9 @@ import androidx.core.content.ContextCompat
 import com.lirui.oneline.ui.MainViewModel
 import com.lirui.oneline.ui.screen.TodoApp
 import com.lirui.oneline.ui.theme.OnelineTheme
+import com.lirui.oneline.keepalive.DeviceCompat
 import com.lirui.oneline.reminder.ReminderScheduler
+import com.lirui.oneline.reminder.ReminderWatchdogWorker
 import com.lirui.oneline.util.SettingsRepo
 
 class MainActivity : androidx.activity.ComponentActivity() {
@@ -42,6 +42,12 @@ class MainActivity : androidx.activity.ComponentActivity() {
                 requestPerms.launch(arrayOf(Manifest.permission.POST_NOTIFICATIONS))
             }
         }
+
+        // 冷启动对账（L2 自愈的第三道）：用户真正打开 App 时，把 DB 里"应该有"的闹钟重排一遍。
+        // 覆盖的场景：被一键清理 force-stop 过、刚升级过、从备份恢复过 —— 这些情况下
+        // AlarmManager 里的条目已经没了，只有重新 set 才能恢复。幂等，重复执行只是白排一次。
+        ReminderScheduler.scheduleAllActive(applicationContext)
+        ReminderWatchdogWorker.ensureScheduled(applicationContext)
         setContent {
             // Theme preference state (follow-system / light / dark).
             var themeMode by remember { mutableStateOf(SettingsRepo.getThemeMode(this)) }
@@ -74,6 +80,8 @@ class MainActivity : androidx.activity.ComponentActivity() {
             var homeBuckets by remember { mutableStateOf(SettingsRepo.homeBuckets(this)) }
             var defaultMinute by remember { mutableStateOf(SettingsRepo.defaultMinuteOfDay(this)) }
             var autoRepeat by remember { mutableStateOf(SettingsRepo.autoRepeatEnabled(this)) }
+            // 沉浸式顶栏（下滑收起标题栏）。
+            var immersiveTopBar by remember { mutableStateOf(SettingsRepo.immersiveTopBar(this)) }
             val onRescheduleReminders: () -> Unit = {
                 ReminderScheduler.scheduleAllActive(applicationContext)
             }
@@ -90,9 +98,8 @@ class MainActivity : androidx.activity.ComponentActivity() {
                 TodoApp(
                     vm,
                     onExactAlarmSettings = {
-                        context.startActivity(
-                            Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM)
-                        )
+                        // 带 package Uri 才能直达本应用；不认这个 action 的 ROM 会自动退到应用详情页。
+                        DeviceCompat.openExactAlarmSettings(context)
                     },
                     themeMode = themeMode,
                     onSetThemeMode = onSetThemeMode,
@@ -156,6 +163,11 @@ class MainActivity : androidx.activity.ComponentActivity() {
                     onSetAutoRepeat = { on ->
                         autoRepeat = on
                         SettingsRepo.setAutoRepeatEnabled(this, on)
+                    },
+                    immersiveTopBar = immersiveTopBar,
+                    onSetImmersiveTopBar = { on ->
+                        immersiveTopBar = on
+                        SettingsRepo.setImmersiveTopBar(this, on)
                     },
                     onRescheduleReminders = onRescheduleReminders
                 )

@@ -13,6 +13,7 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.lirui.oneline.MainActivity
 import com.lirui.oneline.R
+import com.lirui.oneline.util.NotificationStyle
 import com.lirui.oneline.util.Quotes
 import com.lirui.oneline.util.SettingsRepo
 
@@ -67,6 +68,23 @@ object NotificationHelper {
         nm.createNotificationChannel(reminder)
     }
 
+    /**
+     * 这条待办当前是否已有通知挂在状态栏里。
+     *
+     * 巡检兜底（[ReminderWatchdogWorker]）用它做去重：逾期唠叨链还活着时托盘里本来就有
+     * 这条通知，再补发一条就是同一件事响两遍。
+     *
+     * 用 `getActiveNotifications()` 而不是自己存一个"已提醒"标记 —— 后者要和
+     * 「完成 / 撤回 / 通知被用户划掉」三条路径同步，迟早对不上；托盘状态是系统持有的真相。
+     */
+    fun hasActiveReminder(context: Context, todoId: Long): Boolean {
+        val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+            ?: return false
+        return runCatching {
+            nm.activeNotifications.any { it.id == reminderId(todoId) }
+        }.getOrDefault(false)
+    }
+
     fun canPostNotifications(context: Context): Boolean {
         return if (Build.VERSION.SDK_INT >= 33) {
             ContextCompat.checkSelfPermission(
@@ -103,7 +121,8 @@ object NotificationHelper {
         // 文案用 todoId 当种子取，**不能用随机**：
         // 「完成 / 撤回」是同一 notification id 的原地重发，随机会让每点一次按钮文案就换一条，
         // 看起来像 bug。同一条待办从生到死必须是同一句。
-        val quote = Quotes.forTodo(todoId)
+        // 文案池现在可在设置里改，所以必须带 context 读（见 Quotes.pool）。
+        val quote = Quotes.forTodo(context, todoId)
         // 正文（折叠态唯一那一行）放文案。教训：上一版把文案塞进 BigTextStyle，正文留 message，
         // 而折叠态只渲染 contentText，用户看到的还是"该办了"，等于文案根本没出现过。
         val body = if (done) DONE_TEXT else quote
@@ -186,30 +205,36 @@ object NotificationHelper {
     }
 
     /**
-     * 通知标题的排布：`事件 + 空格 + lead + 状态语 + tail`；完成后换成 `事件 + 空格 + done`。
+     * 通知标题的排布（v0.4 起）：
      *
-     * 间距是 zuige 定死的：**「事件」与后面 emoji 之间有且只有一个空格**，
-     * emoji 与状态语之间不留空格（`开组会 🚀🚀该办了⏳⏳`）。
-     * 只影响通知栏；列表里的待办名不带任何装饰。
-     *
-     * 四段装饰全部来自 [SettingsRepo.notificationStyle]，用户在设置页「通知标题」改。
-     * 任一段是空串就整段不出现 —— 连它前后的空格一起省掉，否则会留下双空格或行尾空格
-     * （通知标题是单行，行尾空格看不出来，但截断行为会莫名提前）。
+     * ```
+     * 未完成： 事件名 + 空格 + 模板.replace("{提醒}", 状态语)
+     * 已完成： 事件名 + 空格 + 完成后缀
+     * ```
      *
      * 状态语复用 [message]（该办了 / 提前提醒 / 1小时后到期 / 还没完成，别忘了哦），
-     * 所以四种提醒类型共用这一套版式，不用各写一遍。
+     * 所以四种提醒类型共用一套版式，不用各写一遍。
      *
-     * 设置页的实时预览也调这里，保证「预览」与「真发出来的」不可能不一致。
+     * **模板是唯一的标题来源。** v0.3 及以前是 `lead + dueWord + tail` 三段拼接，
+     * 三处设置各存一份、各读一次，任何一处写失败都会让"框里显示的"和"实际发出的"漂移。
+     * 现在只读 `notif_title_template` 一个键（旧数据在 SettingsRepo 里一次性迁移）。
+     *
+     * 空段处理：模板为空 -> 只剩事件名；`{提醒}` 展开为空 -> 同样只剩事件名。
+     * 绝不拼出双空格或行尾空格（通知标题是单行，行尾空格看不出来，但截断会莫名提前）。
+     *
+     * 设置页的实时预览调 [composeTitle] 的 style 重载 —— 传的是正在编辑的草稿，
+     * 所以"输入框 / 预览 / 真发出来的"三者用的是同一段代码，不可能不一致。
      */
-    fun composeTitle(context: Context, title: String, message: String, done: Boolean = false): String {
-        val style = SettingsRepo.notificationStyle(context)
-        return if (done) {
-            joinSpace(title, style.done)
-        } else {
-            // message 已经由调用方解析好（DUE 用的是设置里的 dueWord，其余是固定状态语），
-            // 这里只管拼接，不再二次判断提醒类型。
-            joinSpace(title, style.lead) + message + style.tail
-        }
+    fun composeTitle(context: Context, title: String, message: String, done: Boolean = false): String =
+        composeTitle(title, message, done, SettingsRepo.notificationStyle(context))
+
+    /** 供设置页预览使用：直接喂草稿，不读 SharedPreferences（保存前也能看到真实效果）。 */
+    fun composeTitle(title: String, message: String, done: Boolean, style: NotificationStyle): String {
+        if (done) return joinSpace(title, style.done)
+        val body = style.titleTemplate
+            .replace(SettingsRepo.NOTIF_REMINDER_TOKEN, message)
+            .trim()
+        return joinSpace(title, body)
     }
 
     /** 空段直接丢掉，避免拼出双空格。 */

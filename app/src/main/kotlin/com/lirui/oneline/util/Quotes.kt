@@ -1,5 +1,7 @@
 package com.lirui.oneline.util
 
+import android.content.Context
+
 /**
  * 测试通知「详情」里那句文案。
  *
@@ -11,12 +13,19 @@ package com.lirui.oneline.util
  *    国产 ROM 上经常不给你点开的机会（小米/OPPO 折叠状态只显示 contentText），放长等于白放。
  * 2. **离开上下文能读懂** —— 所以「阳莽憾陨谁无败？卷土重来再称王」只收了后半句。
  *
+ * v0.5 起这个池子是**可编辑的**（设置 → 提醒文案）：先读 SharedPreferences，
+ * 没自定义过才回落到 [defaults]。所以任何取文案的地方都必须带 Context，
+ * 不要再写死访问 [defaults] —— 那样用户改了半天不生效。
+ *
  * 完整分组与长句见仓库根目录 `QUOTES.md`。
  */
 object Quotes {
 
-    /** 通知详情池：短、收尾干净、不需要上下文也读得懂。 */
-    val short: List<String> = listOf(
+    /** 没有可用文案时的兜底正文。空池子不该让通知正文变成空白。 */
+    const val FALLBACK = "该办了。"
+
+    /** 内置默认池（通知详情用的短句）。用户在设置里改过就不再读它。 */
+    val defaults: List<String> = listOf(
         "岂不闻天无绝人之路？只要我想走，路就在脚下。",
         "不过些许风霜罢了。",
         "男儿不展凌云志，空负天生八尺躯。",
@@ -39,9 +48,13 @@ object Quotes {
         "规矩要在黑暗中摸索。"
     )
 
-    /** 随机取一条。空池子会抛异常，所以这里用 `ifEmpty` 兜一个中性句子。 */
-    fun random(): String =
-        short.ifEmpty { listOf("该办了。") }.random()
+    /** 当前生效的文案池：用户自定义优先，否则 [defaults]。 */
+    fun pool(context: Context): List<String> =
+        SettingsRepo.customQuotes(context) ?: defaults
+
+    /** 随机取一条（测试通知用）。 */
+    fun random(context: Context): String =
+        pool(context).ifEmpty { listOf(FALLBACK) }.random()
 
     /**
      * 按待办 id 取一条 —— **同一条待办永远是同一句**。
@@ -49,11 +62,15 @@ object Quotes {
      * 提醒通知的「完成 / 撤回」是同一个 notification id 的原地重发，
      * 用随机的话每点一次按钮详情就换一条文案，看起来像出了 bug。
      * 这里用 id 取模，天然稳定，也不用把文案塞进 PendingIntent 的 extra。
+     *
+     * 用户中途改了文案池，取模的基数会变 → 同一条待办的句子会换一次。
+     * 这个取舍是接受的：改了文案还坚持用旧的，才是更奇怪的行为。
      */
-    fun forTodo(todoId: Long): String {
-        if (short.isEmpty()) return "该办了。"
-        val size = short.size
+    fun forTodo(context: Context, todoId: Long): String {
+        val quotes = pool(context)
+        if (quotes.isEmpty()) return FALLBACK
+        val size = quotes.size
         val index = ((todoId % size) + size) % size
-        return short[index.toInt()]
+        return quotes[index.toInt()]
     }
 }

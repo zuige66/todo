@@ -84,13 +84,21 @@ object ReminderScheduler {
     }
 
     fun scheduleAllActive(context: Context) {
-        scope.launch {
-            val dao = AppDatabase.get(context).todoDao()
-            val active = dao.getActiveAll()
-            active.forEach { todo ->
-                todo.dueAtMillis?.let { due ->
-                    scheduleBlocking(context, todo.id, due, todo.hasExactTime)
-                }
+        scope.launch { scheduleAllActiveBlocking(context) }
+    }
+
+    /**
+     * 可等待的全量重建。
+     *
+     * 与 [scheduleAllActive] 的区别只有一个：**调用方能等它做完**。
+     * 广播接收器（开机 / 升级）必须用这个版本 —— `onReceive` 返回后进程优先级立刻回落，
+     * 用 fire-and-forget 的版本可能整批闹钟还没排完就被回收（这就是"开机后提醒偶尔丢"的成因）。
+     */
+    suspend fun scheduleAllActiveBlocking(context: Context) {
+        val dao = AppDatabase.get(context).todoDao()
+        dao.getActiveAll().forEach { todo ->
+            todo.dueAtMillis?.let { due ->
+                scheduleBlocking(context, todo.id, due, todo.hasExactTime)
             }
         }
     }

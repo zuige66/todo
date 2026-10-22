@@ -26,9 +26,12 @@ object SettingsRepo {
     private const val KEY_AUTO_REPEAT = "auto_repeat"
     private const val KEY_PALETTE = "palette_id"
     private const val KEY_DARK_CARD = "dark_card_style"
+    private const val KEY_IMMERSIVE_TOPBAR = "immersive_topbar"
     private const val KEY_HOME_BOARD_ORDER = "home_board_order"
     private const val KEY_HOME_BOARD_HIDDEN = "home_board_hidden"
     private const val KEY_HOME_BUCKETS = "home_buckets"
+    private const val KEY_CUSTOM_QUOTES = "custom_quotes"
+    private const val KEY_KEEP_ALIVE = "keep_alive"
 
     const val FOLLOW_SYSTEM = 0
     const val LIGHT = 1
@@ -144,6 +147,75 @@ object SettingsRepo {
             .edit().putBoolean(KEY_AUTO_REPEAT, enabled).apply()
     }
 
+    // ---------- 沉浸式顶栏 (immersive top bar) ----------
+
+    /**
+     * 向下滚动时收起顶部标题栏、向上滚动时回来。默认开。
+     *
+     * 默认给开：这是纯视觉增强，不改任何数据路径；不喜欢的用户可以在「外观」里关掉，
+     * 关掉后就是固定顶栏（v0.4 之前的行为）。
+     */
+    fun immersiveTopBar(context: Context): Boolean =
+        context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            .getBoolean(KEY_IMMERSIVE_TOPBAR, true)
+
+    fun setImmersiveTopBar(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            .edit().putBoolean(KEY_IMMERSIVE_TOPBAR, enabled).apply()
+    }
+
+    // ---------- 后台常驻 (keep-alive FGS) ----------
+    //
+    // 只记录"用户想要什么"，不记录"服务现在在不在跑"。
+    // 真实状态以 `KeepAlive.isRunning`（进程内标志）+ 系统服务列表为准 ——
+    // 把两者混成一个键，就会出现"设置里是开的、服务其实没起来"的假象。
+
+    /** 用户是否打开了「后台常驻」。默认关：它会挂一条常驻通知，不该默认替用户决定。 */
+    fun keepAliveEnabled(context: Context): Boolean =
+        context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            .getBoolean(KEY_KEEP_ALIVE, false)
+
+    fun setKeepAliveEnabled(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            .edit().putBoolean(KEY_KEEP_ALIVE, enabled).apply()
+    }
+
+    // ---------- 提醒文案池 (custom quotes) ----------
+    //
+    // 存成单个字符串（`\n` 分隔）而不是 StringSet：
+    // 1. StringSet 丢顺序，用户排在第一位的那句会随机跑位；
+    // 2. 一条文案本身不可能含换行（通知正文是单行），所以换行是安全的分隔符。
+    //
+    // 语义：**键不存在 = 用内置默认池**；键存在但为空串 = 用户把文案删光了。
+    // 后者不写键（见 setCustomQuotes），所以实际只有"键不存在"和"非空列表"两种状态。
+
+    /**
+     * @return null = 没自定义过，调用方应使用 [Quotes.defaults]
+     */
+    fun customQuotes(context: Context): List<String>? {
+        val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+        if (!prefs.contains(KEY_CUSTOM_QUOTES)) return null
+        val raw = prefs.getString(KEY_CUSTOM_QUOTES, "").orEmpty()
+        return raw.split('\n').map { it.trim() }.filter { it.isNotEmpty() }
+    }
+
+    /**
+     * 保存自定义文案。
+     *
+     * 清空 = 恢复默认（删掉键），而不是"一句都没有"—— 空池子会让通知正文变成空白，
+     * 那是用户不会想要的副作用。
+     */
+    fun setCustomQuotes(context: Context, quotes: List<String>) {
+        val cleaned = quotes.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+        val edit = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE).edit()
+        if (cleaned.isEmpty()) {
+            edit.remove(KEY_CUSTOM_QUOTES)
+        } else {
+            edit.putString(KEY_CUSTOM_QUOTES, cleaned.joinToString("\n"))
+        }
+        edit.apply()
+    }
+
     // ---------- home list grouping (首页分组) ----------
     //
     // Boards are persisted as a comma-separated id list so the ORDER survives; a StringSet
@@ -190,60 +262,98 @@ object SettingsRepo {
             .edit().putString(KEY_HOME_BUCKETS, buckets.joinToString(",") { it.id }).apply()
     }
 
-    // ---------- notification title (通知标题装饰) ----------
+    // ---------- notification title (通知标题) ----------
     //
-    // 版式：`事件 + 空格 + lead + dueWord + tail`；勾选完成后整段换成 `事件 + 空格 + done`。
+    // v0.4 起版式从「四段拼接」改成「一个模板 + 一个完成后缀」：
     //
-    // 四条都用 String 存，「空串」是合法值，含义是"不要这一段"。
-    // 所以一律用 getString(key, default) —— 键存在但值是空串时它返回空串，
-    // 与"从没设置过"（返回 default）区分得开。别换成 takeIf { isNotBlank() } 之类。
+    //   旧： 事件 + 空格 + lead + dueWord + tail        （三段各自一个设置项，易错位）
+    //   新： 事件 + 空格 + template.replace({提醒}, 状态语)
+    //
+    // `{提醒}` 是**占位符**，不是固定文字。原因：通知标题里的状态语随提醒类型变化
+    // （提前提醒 / 1小时后到期 / 该办了 / 还没完成，别忘了哦，见 ReminderReceiver），
+    // 若模板写死「该办了」，提前提醒也会说"该办了"，语义就错了。
+    // 用户把 `{提醒}` 删掉是合法的 —— 那时四种提醒共用同一句固定标题，由用户自己决定。
+    //
+    // 旧键（notif_lead_emoji / notif_tail_emoji / notif_due_word）保留**只读**：
+    // `dueWord` 仍是 DUE 状态语的取值（迁移不丢用户设置），lead/tail 只在首次迁移时
+    // 拼进模板，之后不再读取。别把它们捡回来当第二套写入路径 —— 那正是"框里还有、
+    // 通知里没有"这类不一致的温床。
 
-    private const val KEY_NOTIF_DUE_WORD = "notif_due_word"
+    private const val KEY_NOTIF_TITLE_TEMPLATE = "notif_title_template"
     private const val KEY_NOTIF_LEAD = "notif_lead_emoji"
     private const val KEY_NOTIF_TAIL = "notif_tail_emoji"
+    private const val KEY_NOTIF_DUE_WORD = "notif_due_word"
     private const val KEY_NOTIF_DONE = "notif_done_emoji"
+
+    /** 模板里的状态语占位符。改这个常量等于破坏已存数据，别动。 */
+    const val NOTIF_REMINDER_TOKEN = "{提醒}"
 
     const val DEFAULT_NOTIF_DUE_WORD = "该办了"
     const val DEFAULT_NOTIF_LEAD = "🚀🚀"
     const val DEFAULT_NOTIF_TAIL = "⏳⏳"
     const val DEFAULT_NOTIF_DONE = "🎉🎉"
 
-    /** 一次读全四段，避免每发一条通知就查四遍 SharedPreferences。 */
+    /** 模板 + 完成后缀的默认值（与迁移结果一致）。 */
+    const val DEFAULT_NOTIF_TEMPLATE = DEFAULT_NOTIF_LEAD + NOTIF_REMINDER_TOKEN + DEFAULT_NOTIF_TAIL
+
+    /**
+     * 读取「标题模板」，**顺带完成旧数据迁移**。
+     *
+     * 迁移只在第一次读时发生（写回 `notif_title_template` 后就不再计算），
+     * 所以用户之后怎么改 lead/tail 都不影响模板 —— 单一数据源。
+     */
+    fun notifTitleTemplate(context: Context): String {
+        val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+        val existing = prefs.getString(KEY_NOTIF_TITLE_TEMPLATE, null)
+        if (existing != null) return existing
+
+        // 旧数据：lead + 状态语 + tail 拼成模板。空串是合法值（用户清空过），不能回退默认。
+        val lead = prefs.getString(KEY_NOTIF_LEAD, DEFAULT_NOTIF_LEAD).orEmpty()
+        val tail = prefs.getString(KEY_NOTIF_TAIL, DEFAULT_NOTIF_TAIL).orEmpty()
+        val template = lead + NOTIF_REMINDER_TOKEN + tail
+        prefs.edit().putString(KEY_NOTIF_TITLE_TEMPLATE, template).apply()
+        return template
+    }
+
+    /** 一次性保存「标题模板 + 完成后缀」—— 与设置页那一个保存按钮一一对应。 */
+    fun saveNotificationTitle(context: Context, template: String, done: String) {
+        context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KEY_NOTIF_TITLE_TEMPLATE, template)
+            .putString(KEY_NOTIF_DONE, done)
+            .apply()
+    }
+
+    /** 一次读全，避免每发一条通知就查三遍 SharedPreferences。 */
     fun notificationStyle(context: Context): NotificationStyle {
         val p = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
         return NotificationStyle(
-            dueWord = p.getString(KEY_NOTIF_DUE_WORD, DEFAULT_NOTIF_DUE_WORD).orEmpty(),
-            lead = p.getString(KEY_NOTIF_LEAD, DEFAULT_NOTIF_LEAD).orEmpty(),
-            tail = p.getString(KEY_NOTIF_TAIL, DEFAULT_NOTIF_TAIL).orEmpty(),
-            done = p.getString(KEY_NOTIF_DONE, DEFAULT_NOTIF_DONE).orEmpty()
+            titleTemplate = notifTitleTemplate(context),
+            done = p.getString(KEY_NOTIF_DONE, DEFAULT_NOTIF_DONE).orEmpty(),
+            dueWord = p.getString(KEY_NOTIF_DUE_WORD, DEFAULT_NOTIF_DUE_WORD).orEmpty()
         )
     }
 
+    /**
+     * DUE 状态语（"该办了"）—— 不再是独立设置项，迁移旧值时写入，
+     * 目前只在测试通知和设置页默认值里用到。
+     */
     fun setNotifDueWord(context: Context, value: String) =
         context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
             .edit().putString(KEY_NOTIF_DUE_WORD, value).apply()
-
-    fun setNotifLead(context: Context, value: String) =
-        context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
-            .edit().putString(KEY_NOTIF_LEAD, value).apply()
-
-    fun setNotifTail(context: Context, value: String) =
-        context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
-            .edit().putString(KEY_NOTIF_TAIL, value).apply()
-
-    fun setNotifDone(context: Context, value: String) =
-        context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
-            .edit().putString(KEY_NOTIF_DONE, value).apply()
 }
 
 /**
- * 通知标题的装饰样式，全部由用户在设置页「通知标题」里改。
+ * 通知标题的样式。
+ *
+ * - [titleTemplate]：事件名之后的部分，`{提醒}` 会被替换成当前提醒类型的状态语；
+ * - [done]：勾选完成后整条标题换成 `事件 + 空格 + done`；
+ * - [dueWord]：DUE 那一类的状态语（"该办了"），模板里通过 `{提醒}` 展开。
  *
  * 任何一个字段为空串都表示「这一段不要」，不是「回退默认」。
  */
 data class NotificationStyle(
-    val dueWord: String,
-    val lead: String,
-    val tail: String,
-    val done: String
+    val titleTemplate: String,
+    val done: String,
+    val dueWord: String
 )
