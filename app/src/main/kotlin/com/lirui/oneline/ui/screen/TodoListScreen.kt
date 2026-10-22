@@ -1248,41 +1248,7 @@ private fun SettingsScreen(
         }
 
         // （v0.6：「提醒可靠性」「后台常驻」已上移为第一节 —— 它们是本页最重要的设置。）
-
-        item { SectionHeader("测试") }
-        item {
-            SettingsCard {
-                ListItem(
-                    headlineContent = { Text("发送测试通知") },
-                    // 文案统一成「动作 + 验证什么」：之前"弹一条带「完成」按钮的通知，验证权限、
-                    // 渠道与动作"偏术语，普通用户读不出"我现在该看什么"。
-                    supportingContent = { Text("立即弹一条提醒，确认通知能收到、「完成」按钮能点") },
-                    trailingContent = {
-                        Text(
-                            "发送",
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    },
-                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                    modifier = Modifier.clickable(onClick = onTestNotification)
-                )
-                ItemDivider()
-                ListItem(
-                    headlineContent = { Text("新建测试待办") },
-                    supportingContent = { Text("建一条一分钟后到期的待办，确认提醒准时响") },
-                    trailingContent = {
-                        Text(
-                            "创建",
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    },
-                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                    modifier = Modifier.clickable(onClick = onTestTodo)
-                )
-            }
-        }
+        // （v0.6.2：「测试」下移到全页最后 —— 低频排障项不该夹在日常设置中间。）
 
         item { SectionHeader("外观") }
         item {
@@ -1357,6 +1323,42 @@ private fun SettingsScreen(
                 // 自动顺延属于"完成之后怎么办"，和首页列表的展示方式放在一起 ——
                 // 原「待办行为」节只剩它一个，单独占一节太空。
                 ToggleItem("自动顺延", "每天/每周/每月完成后顺延", autoRepeat, onSetAutoRepeat)
+            }
+        }
+
+        // ═══ 6. 测试（全页最后）═══
+        item { SectionHeader("测试") }
+        item {
+            SettingsCard {
+                ListItem(
+                    headlineContent = { Text("发送测试通知") },
+                    // 文案统一成「动作 + 验证什么」：之前"弹一条带「完成」按钮的通知，验证权限、
+                    // 渠道与动作"偏术语，普通用户读不出"我现在该看什么"。
+                    supportingContent = { Text("立即弹一条提醒，确认通知能收到、「完成」按钮能点") },
+                    trailingContent = {
+                        Text(
+                            "发送",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    },
+                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                    modifier = Modifier.clickable(onClick = onTestNotification)
+                )
+                ItemDivider()
+                ListItem(
+                    headlineContent = { Text("新建测试待办") },
+                    supportingContent = { Text("建一条一分钟后到期的待办，确认提醒准时响") },
+                    trailingContent = {
+                        Text(
+                            "创建",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    },
+                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                    modifier = Modifier.clickable(onClick = onTestTodo)
+                )
             }
         }
 
