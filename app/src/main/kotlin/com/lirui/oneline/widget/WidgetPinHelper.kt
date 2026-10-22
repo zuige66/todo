@@ -27,12 +27,15 @@ object WidgetPinHelper {
         // 诊断：系统 service 层认不认这个 provider（与 Launcher 的列表 UI 无关）。
         // 用 getInstalledProviders()（API 16+ 无参）：getInstalledProvidersForProfile()
         // 的无参重载在这个 compileSdk 上解析不到，会报 "No value passed for parameter p0"。
-        val registered = manager.getInstalledProviders()
-            .any { it.provider == provider }
+        // 把总数一起显示：总数为 0 说明这台机器的查询被 ROM 裁剪（MIUI 系有先例），
+        // 那个"未注册"就不是我们的问题。
+        val all = manager.getInstalledProviders()
+        val registered = all.any { it.provider == provider }
         if (!registered) {
             Toast.makeText(
                 context,
-                "系统还没有注册组件，请重启手机后再试",
+                "诊断：系统已注册 ${all.size} 个组件，本应用不在其中。" +
+                    "请重启手机后重试；仍提示则长按桌面搜「Todo」",
                 Toast.LENGTH_LONG
             ).show()
             return
