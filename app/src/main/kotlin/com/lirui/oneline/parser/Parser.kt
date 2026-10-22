@@ -22,7 +22,10 @@ import java.util.regex.Pattern
  * - year/month keywords: 今年 / 明年 / 下一年 / 从这个月 (本月/下个月) (+ optional X月/X日)
  * - times: HH:mm, N点, N点半, N点一刻, N点三刻, N点M(分), with day-period prefixes
  * - night words (今晚/明晚/后晚/今夜...) imply a 12h->24h shift for a following bare hour
- * - a time that is already *past* today (dueDate==today && time < now) => timeError
+ * - **a time with no date** ("早上开会" / "3点开会") resolves to today when that clock is still
+ *   ahead, otherwise tomorrow. Without this it stayed dateless and landed under 无期.
+ * - a time that is already *past* **and explicitly dated today** => timeError
+ *   (an explicit "今天" is never silently moved; only the implicit case rolls forward)
  */
 class Parser(
     /** Optional fixed reference date for deterministic tests; null = read fresh each parse. */
@@ -72,8 +75,11 @@ class Parser(
     private val yearMonthKeywords = listOf("下一年", "下个月", "明年", "今年", "本月")
 
     // numeric date prefixes (lookingAt; no trailing anchor so a trailing title stays)
-    private val num3Re = Pattern.compile("^((?:19|20)?\\d{2})[-./](\\d{1,2})[-./](\\d{1,2})")
-    private val absYearRe = Pattern.compile("^((?:19|20)\\d{2})[年\\-/.](\\d{1,2})[月\\-/.](\\d{1,2})")
+    // `(?:[日号])?` is required: "2026年10月24日开会" would otherwise leave a stray "日"
+    // at the head of the title ("日开会").
+    private val num3Re = Pattern.compile("^((?:19|20)?\\d{2})[-./](\\d{1,2})[-./](\\d{1,2})(?:[日号])?")
+    private val absYearRe =
+        Pattern.compile("^((?:19|20)\\d{2})[年\\-/.](\\d{1,2})[月\\-/.](\\d{1,2})(?:[日号])?")
     private val monthDayRe = Pattern.compile("^(\\d{1,2})[月\\-/.](\\d{1,2})(?:日|号)?")
     private val dayOnlyRe = Pattern.compile("^(\\d{1,2})(?:日|号)")
     private val monthOnlyRe = Pattern.compile("^(\\d{1,2})月")
@@ -142,6 +148,19 @@ class Parser(
             var rest = stripLeadingDate(token, acc)
             rest = stripLeadingTime(rest, acc)
             if (rest.isNotBlank()) acc.title += rest
+        }
+
+        // ---- 只有时间、没有日期 -> 推断"下一次这个钟点" ----
+        // "早上开会" / "3点开会" 这类输入只给了时间。此前 dueDate 一直是 null，
+        // 于是 repository.parsedToDue() 直接返回 null，待办存成"无期"；可预览卡片
+        // 又会显示时间芯片 —— 用户看到"8点"，落库却是无日期，认知完全错位。
+        // 规则：这个钟点今天还没到就是今天，已经过了就是明天（"早上"在 9 点说 = 明早）。
+        val parsedTime = acc.time
+        if (parsedTime != null && acc.date == null) {
+            acc.setDate(
+                if (parsedTime.isBefore(now)) today.plusDays(1) else today,
+                today
+            )
         }
 
         // A time that lies before "now" on today is inherently impossible -> timeError.

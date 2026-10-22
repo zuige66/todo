@@ -8,6 +8,7 @@ package com.lirui.oneline.ui.screen
 
 import android.widget.Toast
 
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -30,7 +31,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -85,7 +85,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.lirui.oneline.data.model.Todo
@@ -940,10 +939,11 @@ private val BOARD_ROW_HEIGHT = 56.dp
 /**
  * 板块排序列表：长按左侧三条杠（整行也可长按）拖动，松手才提交。
  *
- * Compose 没有内置"非 lazy 列表的拖拽排序"，这里用固定行高 + `offset` 自己算位置：
- * - 拖动中的行跟手（`tween(0)`，不插值）；
- * - 其它行靠 `spring` 平滑滑到新槽位（位置来源是 index 变化）；
- * - 交换后同步扣减 [dragDelta]，让手指和行保持贴合（见下方注释）。
+ * Compose 没有内置"非 lazy 列表的拖拽排序"，这里用固定行高 + `graphicsLayer` 自己算位置：
+ * - 拖动中的行跟手（`translationY = dragDelta`，不插值）；
+ * - 其它行靠 `Animatable` + `spring` 平滑滑到新槽位；
+ * - **所有位移都在 layer 层读 state**，拖动全程不重组（见下方 ★ 注释）；
+ * - 交换后同步扣减 [dragDelta]，让手指和行保持贴合。
  *
  * 行高固定 56dp 是有意的：只有三行、单行文字，换来的是可以精确计算落点。
  */
@@ -971,26 +971,28 @@ private fun ReorderableBoardList(
         items.forEachIndexed { index, board ->
             key(board) {
                 val dragging = draggingId == board.id
-                val baseY = index * rowHeightPx
-                val y by animateFloatAsState(
-                    targetValue = if (dragging) baseY + dragDelta else baseY,
-                    animationSpec = if (dragging) {
-                        tween(0)
-                    } else {
-                        // 松手回落、以及被挤开的行归位，都走这条曲线。
-                        spring(dampingRatio = 0.72f, stiffness = 900f)
-                    },
-                    label = "board-row-y"
-                )
+                // 基准位置用 Animatable：被挤开时平滑滑到新槽位。它的值只在 graphicsLayer
+                // 里读，所以动画每帧只改 RenderNode，不触发重组。
+                val baseY = remember { Animatable(index * rowHeightPx) }
+                LaunchedEffect(index) {
+                    baseY.animateTo(
+                        targetValue = index * rowHeightPx,
+                        animationSpec = spring(dampingRatio = 0.72f, stiffness = 900f)
+                    )
+                }
                 Box(
                     Modifier
                         .fillMaxWidth()
                         .height(BOARD_ROW_HEIGHT)
-                        .offset { IntOffset(0, y.roundToInt()) }
                         .zIndex(if (dragging) 1f else 0f)
-                        // 拖动时浮起来：阴影 + 圆角底色，松手回落。
+                        // ★ 性能关键：位移走 graphicsLayer（deferred read）。
+                        // 之前用 animateFloatAsState 在组合期读 y，拖动时每帧都重组整个
+                        // 列表——这就是"卡卡的"的根源。现在 translationY 只是 RenderNode
+                        // 属性，拖动全程零重组，只有拖动开始/结束各重组一次（改 zIndex）。
                         .graphicsLayer {
-                            shadowElevation = if (dragging) 10.dp.toPx() else 0f
+                            val isDragging = draggingId == board.id
+                            translationY = baseY.value + if (isDragging) dragDelta else 0f
+                            shadowElevation = if (isDragging) 10.dp.toPx() else 0f
                             shape = rowShape
                             clip = false
                         }

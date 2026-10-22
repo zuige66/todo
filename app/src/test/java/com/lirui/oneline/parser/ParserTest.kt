@@ -571,4 +571,67 @@ class ParserTest {
         assertEquals(7, r.repeatDays)
         assertEquals(LocalDate.of(2026, 10, 23), r.dueDate)
     }
+
+    // ---- 只有时间没有日期：必须推断成"下一次这个钟点"，不能留成无日期 ----
+    // 回归：输入"早上测试一"曾经 dueDate=null + dueTime=08:00，落库成"无期"，
+    // 但预览卡片显示"8点"，两处说法打架。
+
+    private fun parserAt(now: LocalTime) = Parser(today, now)
+
+    @Test fun timeOnly_noDate_infersToday_whenClockAhead() {
+        val r = parserAt(LocalTime.of(7, 0)).parse("早上测试一")
+        assertEquals("测试一", r.title)
+        assertEquals(today, r.dueDate)
+        assertEquals(LocalTime.of(8, 0), r.dueTime)
+        assertFalse(r.timeError)
+    }
+
+    @Test fun timeOnly_noDate_infersTomorrow_whenClockPassed() {
+        // 09:00 输入"早上…"，8 点已经过了 -> 明天 8 点，而不是无日期。
+        val r = parserAt(LocalTime.of(9, 0)).parse("早上测试一")
+        assertEquals("测试一", r.title)
+        assertEquals(today.plusDays(1), r.dueDate)
+        assertEquals(LocalTime.of(8, 0), r.dueTime)
+        assertFalse(r.timeError)
+    }
+
+    @Test fun clockOnly_noDate_infersTomorrow_whenPassed() {
+        val r = parserAt(LocalTime.of(15, 0)).parse("3点开会")
+        assertEquals("开会", r.title)
+        assertEquals(today.plusDays(1), r.dueDate)
+        assertEquals(LocalTime.of(3, 0), r.dueTime)
+    }
+
+    @Test fun clockOnly_noDate_staysToday_whenAhead() {
+        val r = parserAt(LocalTime.of(8, 0)).parse("下午3点开会")
+        assertEquals(today, r.dueDate)
+        assertEquals(LocalTime.of(15, 0), r.dueTime)
+    }
+
+    // 显式写了"今天"就不顺延，仍然报"时间已过"——用户明确指定了日期。
+    @Test fun explicitToday_pastTime_stillTimeError() {
+        val r = parserAt(LocalTime.of(9, 0)).parse("今天早上8点开会")
+        assertEquals(today, r.dueDate)
+        assertTrue(r.timeError)
+    }
+
+    // 没有时间的纯标题不受影响。
+    @Test fun noTimeNoDate_staysDateless() {
+        val r = parserAt(LocalTime.of(9, 0)).parse("买牛奶")
+        assertNull(r.dueDate)
+        assertNull(r.dueTime)
+    }
+
+    // 完整日期后面带"日/号"时，后缀必须一起吃掉，不能留在标题里。
+    @Test fun fullDate_withDaySuffix_notLeakedIntoTtitle() {
+        val r = parse("2026年10月24日开会")
+        assertEquals("开会", r.title)
+        assertEquals(LocalDate.of(2026, 10, 24), r.dueDate)
+    }
+
+    @Test fun dashedDate_withDaySuffix_notLeakedIntoTtitle() {
+        val r = parse("2026-10-24日开会")
+        assertEquals("开会", r.title)
+        assertEquals(LocalDate.of(2026, 10, 24), r.dueDate)
+    }
 }
