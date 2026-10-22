@@ -1,12 +1,25 @@
-# Todo · 一句话待办
+<p align="center">
+  <img src="docs/icon.png" width="150" alt="Todo" />
+</p>
 
-一款 Android 待办应用。核心只有一件事：**用一句话把事情记下来，日期、时间、提醒都由它自己解析。**
+<h1 align="center">Todo</h1>
 
-```
-周五 下午3点 交周报
-└┬─┘ └──┬──┘ └─┬─┘
- 日期   时间    事件
-```
+<p align="center">
+  用一句话把事情记下来，日期、时间、提醒都由它自己解析
+</p>
+
+<p align="center">
+  <a href="https://github.com/zuige66/todo/releases"><img src="https://img.shields.io/badge/release-v0.3-3F3F46?style=flat-square" alt="release" /></a>
+  <img src="https://img.shields.io/badge/platform-Android-3DDC84?style=flat-square" alt="platform" />
+  <img src="https://img.shields.io/badge/build-Kotlin%20%2B%20Compose-7F52FF?style=flat-square" alt="build" />
+  <img src="https://img.shields.io/badge/storage-Room-4479A1?style=flat-square" alt="storage" />
+  <img src="https://img.shields.io/badge/network-offline-4B5563?style=flat-square" alt="offline" />
+  <img src="https://img.shields.io/badge/min%20sdk-26-F59E0B?style=flat-square" alt="min sdk" />
+</p>
+
+---
+
+独立的 Android 待办应用：**输入框是唯一入口**，没有日期选择器、没有分类和标签、没有账号。一句话里写了日期和时间，就自动解析并排好精确闹钟；只写了一句事，就安静地落在「无日期」里。数据全部留在本机 —— 未声明 `INTERNET` 权限，也不依赖任何在线服务。
 
 ---
 
@@ -50,6 +63,12 @@
 ---
 
 ## 一句话输入
+
+```
+周五 下午3点 交周报
+└┬─┘ └──┬──┘ └─┬─┘
+ 日期   时间    事件
+```
 
 解析器是**纯离线的规则引擎**，不联网、不调用任何模型，正则与词表都在本地。
 
