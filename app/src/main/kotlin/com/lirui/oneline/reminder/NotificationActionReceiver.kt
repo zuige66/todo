@@ -17,8 +17,9 @@ import kotlinx.coroutines.launch
  * The same notification is then re-posted in its `done` state, so its button flips to 「撤回」.
  *
  * 「撤回」is the inverse: archived todos are un-archived, repeating ones are rolled back one
- * period (see [ReminderEngine.previousOccurrence]). Reminders are re-armed either way, so a
- * restored todo can still fire.
+ * period (see [ReminderEngine.previousOccurrence]). The notification is deliberately KEPT and
+ * flipped back to its 「完成」 state (silently), so the row stays usable instead of vanishing.
+ * Reminders are re-armed either way, so a restored todo can still fire.
  *
  * Uses [BroadcastReceiver.goAsync] because the DB work is async; without the pending-result
  * window the process may be killed mid-write.
@@ -51,10 +52,19 @@ class NotificationActionReceiver : BroadcastReceiver() {
                         )
                     }
                     NotificationHelper.ACTION_UNDO -> {
-                        repo.undoFromNotification(todoId)
-                        // The todo is back in the list with its reminders re-armed, so the
-                        // reminder notification has no reason to stay — drop it.
-                        NotificationHelper.cancelReminder(appContext, todoId)
+                        val todo = repo.undoFromNotification(todoId) ?: return@launch
+                        // The notification must STAY: the todo is active again and the user may
+                        // want to complete it right from here. Re-post on the same id so the
+                        // action flips back to 「完成」, silent because they just acted on it.
+                        NotificationHelper.postReminder(
+                            appContext,
+                            todoId,
+                            todo.title,
+                            intent.getStringExtra(NotificationHelper.EXTRA_MESSAGE)
+                                ?: "别忘了处理",
+                            done = false,
+                            silent = true
+                        )
                     }
                 }
             } finally {

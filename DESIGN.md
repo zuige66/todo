@@ -976,8 +976,18 @@ OVERDUE 响  → 发通知 + reScheduleOverdue() → 重排，得到下一个 OV
 | 按钮 | `NotificationCompat.addAction`，PendingIntent 指向 `NotificationActionReceiver`（`exported=false`） |
 | 完成 | `TodoRepository.completeFromNotification()` → 直接 `archive()`，与列表圆圈**同一个入口**（普通待办归档、重复待办 `rollForward` 顺延） |
 | 态切换 | 用**同一个 notification id** 重发 + `setOnlyAlertOnce(true)`，文案变「已完成 · 点「撤回」可恢复」 |
-| 撤回 | 普通待办 `unarchive()` + 重排提醒；重复待办回滚一个周期；随后取消这条通知 |
+| 撤回 | 普通待办 `unarchive()` + 重排提醒；重复待办回滚一个周期；**通知保留**并静默切回「完成」态 |
 | 点击通知本体 | 新增 `contentIntent` → 打开 App |
+
+**为什么撤回后通知不消失**：v2.0 初版是"撤回即取消通知"，真机反馈是操作后整条通知消失，
+没法接着再点一次完成。现在撤回 = 把同一条通知静默重发回「完成」态：
+`setSilent(true)` + `setOnlyAlertOnce(true)` 保证不再响铃/震动，原提醒文案由
+`EXTRA_MESSAGE` 随 action 的 PendingIntent 带下去，撤回时原样还原。
+
+**关于「完成」按钮能不能放在右侧**：不能。action 落在系统 StatusBar 的 action row 里，
+由 SystemUI 从起始边（中文环境是从左）依次排布，App 只能决定按钮文字、图标和顺序，
+没有任何 API 可以右对齐。真要放右边只能整条通知换成自定义 `RemoteViews`，代价是丢掉
+系统的折叠/展开、大字号、无障碍与深浅色适配，且在 HyperOS 上可能被折叠成一行 —— 不值得。
 
 **重复任务的撤回为什么是"回滚一个周期"而不是"回到原始时刻"**：库里没有存"完成前的 epoch"，
 不想为这个功能加字段/迁移。每天任务拖了 5 天才完成时，`rollForward` 会一路跳到明天，
@@ -1013,7 +1023,7 @@ OVERDUE 响  → 发通知 + reScheduleOverdue() → 重排，得到下一个 OV
 - 真机自查要点：
   1. 新建一条 1 分钟后到期的待办，等它响 → 通知上应出现「完成」按钮；
   2. 点「完成」→ 列表里该条消失，通知按钮变「撤回」且**不会**再响一声；
-  3. 点「撤回」→ 待办回到列表、通知消失；
+  3. 点「撤回」→ 待办回到列表，**通知仍在**、按钮变回「完成」且不再响一声；
   4. 设置里把「逾期反复叮嘱」的间隔调成 1 小时，新建一条 1 分钟后到期的待办，
      到期后等 1 小时确认收到 OVERDUE 唠叨（这是 bug1 的直接验证路径）。
 

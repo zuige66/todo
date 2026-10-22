@@ -28,6 +28,7 @@ object NotificationHelper {
     const val ACTION_COMPLETE = "com.lirui.oneline.action.COMPLETE"
     const val ACTION_UNDO = "com.lirui.oneline.action.UNDO"
     const val EXTRA_TODO_ID = "todoId"
+    const val EXTRA_MESSAGE = "message"
 
     /**
      * Per-todo notification id. The previous code reused ONE constant for every reminder,
@@ -58,17 +59,25 @@ object NotificationHelper {
      * Post a reminder notification. Requires [canPostNotifications]; silently no-ops if denied
      * (excluding: exact-alarm scheduling still runs; only display is suppressed).
      *
+     * The action button lives in the system's action row, which StatusBar lays out from the
+     * leading edge — its position (left) is not something an app can override, only a fully
+     * custom `RemoteViews` layout could, at the cost of losing the stock notification styling.
+     *
      * @param done renders the "already completed" state of the SAME notification, whose only
      *   action becomes 「撤回」. Tapping 「完成」 re-posts this method with `done = true` on the
      *   same stable id, which is what makes the button "flip" in place instead of stacking a
      *   second notification.
+     * @param silent suppresses sound/vibration/heads-up for this update. Used when the user
+     *   undoes a completion: the notification must stay (and flip back to 「完成」) but there is
+     *   no reason to alert them again for an action they just took.
      */
     fun postReminder(
         context: Context,
         todoId: Long,
         title: String,
         message: String,
-        done: Boolean = false
+        done: Boolean = false,
+        silent: Boolean = false
     ) {
         if (!canPostNotifications(context)) return
         val builder = NotificationCompat.Builder(context, CHANNEL_REMINDER)
@@ -80,12 +89,14 @@ object NotificationHelper {
             .setContentIntent(openAppIntent(context, todoId, done))
             .setAutoCancel(true)
             // The in-place update must not buzz/ring a second time.
-            .setOnlyAlertOnce(done)
+            .setOnlyAlertOnce(done || silent)
             .addAction(
                 R.drawable.ic_notification,
                 if (done) "撤回" else "完成",
-                actionIntent(context, todoId, if (done) ACTION_UNDO else ACTION_COMPLETE)
+                // Carry the original message so 「撤回」 can restore the exact same text.
+                actionIntent(context, todoId, if (done) ACTION_UNDO else ACTION_COMPLETE, message)
             )
+        if (silent) builder.setSilent(true)
         try {
             NotificationManagerCompat.from(context).notify(reminderId(todoId), builder.build())
         } catch (_: SecurityException) {
@@ -132,11 +143,20 @@ object NotificationHelper {
     /**
      * Distinct requestCode per (todo, action): reusing one would let `FLAG_UPDATE_CURRENT`
      * silently rewrite the other action's extras.
+     *
+     * [message] rides along so 「撤回」 can restore the original reminder text after the action
+     * row flips back to 「完成」.
      */
-    private fun actionIntent(context: Context, todoId: Long, action: String): PendingIntent {
+    private fun actionIntent(
+        context: Context,
+        todoId: Long,
+        action: String,
+        message: String
+    ): PendingIntent {
         val intent = Intent(context, NotificationActionReceiver::class.java).apply {
             this.action = action
             putExtra(EXTRA_TODO_ID, todoId)
+            putExtra(EXTRA_MESSAGE, message)
         }
         val slot = if (action == ACTION_UNDO) 4 else 3
         return PendingIntent.getBroadcast(
