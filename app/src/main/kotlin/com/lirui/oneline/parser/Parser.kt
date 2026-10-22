@@ -16,7 +16,9 @@ import java.util.regex.Pattern
  *
  * Decision set (DESIGN §3.2 / §9):
  * - current-week weekday already past this week => dateError
- * - 下周X / 下个星期X / 下礼拜X => next week
+ * - 下周X / 下个星期X / 下礼拜X => next week; **下下周X => +2 weeks** (not +1)
+ * - 本周X / 这周X / 这个星期X => same week as a bare 周X (the prefix is just swallowed)
+ * - full-width digits / colon / dot are normalised to ASCII before tokenising (８：３０ -> 8:30)
  * - numeric short dates M.D / YY.M.D / YYYY.M.D accept . - / separators; 2-digit year -> 20yy
  * - **date digits may be Chinese numerals** (一~三十一): `1月二日` / `十二月三十一号` / `二号`
  * - explicit year (2026年1月2日 / 26.1.2) resolved to the past => dateError
@@ -63,7 +65,8 @@ class Parser(
             listOf("周四", "星期四", "礼拜四", "周4"),
             listOf("周五", "星期五", "礼拜五", "周5"),
             listOf("周六", "星期六", "礼拜六", "周6"),
-            listOf("周天", "周日", "星期天", "礼拜天", "周7")
+            // 周日这一组要同时收中文数字「七」：'周7' 有人打，'周七' 也有人打
+            listOf("周天", "周日", "周七", "星期七", "星期天", "礼拜天", "周7")
         )
         sets.flatMapIndexed { i, forms -> forms.map { it to DayOfWeek.of(i + 1) } }
             .distinctBy { it.first }
@@ -72,11 +75,20 @@ class Parser(
 
     // next-week prefixes, longest first
     private val nextWeekPrefixes = listOf(
-        "下下周", "下下个星期", "下个星期", "下星期", "下礼拜", "下个礼拜", "下周", "下个周"
+        "下下个星期", "下下个礼拜", "下下周",
+        "下个星期", "下星期", "下个礼拜", "下礼拜", "下个周", "下周"
+    )
+
+    /**
+     * "本周/这周" 前缀。它们是**同一周**，解析结果与裸「周X」完全一致，
+     * 存在的意义只是别让「本」「这」两个字留在标题里。
+     */
+    private val thisWeekPrefixes = listOf(
+        "这个星期", "这个礼拜", "这个周", "本星期", "本礼拜", "这星期", "这礼拜", "本周", "这周"
     )
 
     // year / month anchor keywords, longest first
-    private val yearMonthKeywords = listOf("下一年", "下个月", "明年", "今年", "本月")
+    private val yearMonthKeywords = listOf("下一年", "下个月", "下月", "明年", "今年", "本月")
 
     /**
      * 日期里的"数字位"：ASCII 1-2 位，或中文数字（一 / 十二 / 三十一）。
@@ -103,29 +115,37 @@ class Parser(
 
     /**
      * Day-period words used as a *bare* time expression (no "点"), mapped to the
-     * conventional default hour: 早上/上午 = 08:00, 中午 = 12:00, 下午 = 14:00,
-     * 晚上/傍晚 = 18:00. e.g. "周日早上组会" -> 08:00 + title 组会.
+     * conventional default hour: 凌晨 = 01:00, 半夜 = 00:00, 清晨/早上/上午 = 08:00,
+     * 中午 = 12:00, 下午 = 14:00, 傍晚/晚上 = 18:00, 夜里 = 22:00.
+     * e.g. "周日早上组会" -> 08:00 + title 组会.
+     *
+     * 凌晨/半夜/夜里/清晨 四个是审计（DESIGN §28.2）补的：此前只覆盖 早上~晚上，
+     * 单独写「凌晨开会」会整段留在标题里。
      */
     private val periodDefaults = linkedMapOf(
-        "早上" to 8, "早晨" to 8, "上午" to 8,
+        "半夜" to 0, "凌晨" to 1, "清晨" to 6,
+        "早晨" to 8, "早上" to 8, "上午" to 8,
         "中午" to 12,
         "下午" to 14,
-        "傍晚" to 18, "晚上" to 18
+        "傍晚" to 18, "晚上" to 18,
+        "夜里" to 22
     )
 
     // Optional day-period in front of a clock: "晚上11:50" must read as 23:50, not as
     // a bare "晚上" (18:00) plus a leftover "11:50" in the title.
     private val clockBody =
-        "(凌晨|早上|早晨|上午|中午|下午|傍晚|晚上|夜里|半夜)?(\\d{1,2})\\s*[:：](\\d{1,2})"
+        "(凌晨|清晨|早上|早晨|上午|中午|下午|傍晚|晚上|夜里|半夜)?(\\d{1,2})\\s*[:：](\\d{1,2})"
     private val clockRe = Pattern.compile("^$clockBody")
     // Same expression without the ^ anchor: used to find a time buried inside a token.
     private val clockFindRe = Pattern.compile(clockBody)
 
-    // 小时既支持 ASCII 数字（3点/15点）也支持中文数字（两点/十二点）。
+    // 小时既支持 ASCII 数字（3点/15点）也支持中文数字（两点/十二点/二十三点）。
+    // 中文位数放宽到 3 位：`{1,2}` 拼不出「二十五」，会在 embedded 阶段错取成「十五」。
+    // 加「零」是为了让「零点」成立（此前整段留标题）。
     // 分钟支持 半/一刻/三刻、ASCII 数字（05/15分）、中文数字（十分/三十分）。
     private val hourBody =
-        "(凌晨|早上|早晨|上午|中午|下午|傍晚|晚上|夜里|半夜)?" +
-            "(\\d{1,4}|[一两二三四五六七八九十]{1,2})\\s*点(?:\\s*" +
+        "(凌晨|清晨|早上|早晨|上午|中午|下午|傍晚|晚上|夜里|半夜)?" +
+            "(\\d{1,4}|[零一两二三四五六七八九十]{1,3})\\s*点(?:\\s*" +
             "(半|一刻|三刻|\\d{1,2}\\s*分?|[一两二三四五六七八九十]{1,3}分))?"
     private val hourRe = Pattern.compile("^$hourBody")
     // Unanchored variant: "开会晚上9点" must still yield 21:00.
@@ -159,7 +179,7 @@ class Parser(
         refreshClock()
 
         val acc = Acc()
-        for (token in splitTokens(input)) {
+        for (token in splitTokens(normalize(input))) {
             var rest = stripLeadingDate(token, acc)
             rest = stripLeadingTime(rest, acc)
             if (rest.isNotBlank()) acc.title += rest
@@ -217,7 +237,7 @@ class Parser(
 
         val dates = LinkedHashSet<LocalDate>()
         val acc = Acc()
-        for (token in splitTokens(input)) {
+        for (token in splitTokens(normalize(input))) {
             var rest = token
             if (repeatDays(token) != null) {
                 // A repeat word ("每天/每周一") is a step, not a second due date.
@@ -274,6 +294,32 @@ class Parser(
     private fun splitTokens(input: String): List<String> =
         input.trim().split(Regex("[\\s，,。、　&；;·]+")).filter { it.isNotBlank() }
 
+    /**
+     * 全角 -> 半角归一。
+     *
+     * 中文输入法很容易打出「８：３０」「２０２６年」「８月８号」「１５点」，
+     * 而所有正则都基于 ASCII `\d`，不归一就会整段进标题（审计 §28.2）。
+     * 只在真的含全角字符时才建新字符串，正常输入零开销。
+     */
+    private fun normalize(input: String): String {
+        if (input.none { it in '０'..'９' || it in "：．－—–／　" }) return input
+        return buildString(input.length) {
+            for (c in input) {
+                append(
+                    when (c) {
+                        in '０'..'９' -> '0' + (c - '０')
+                        '：' -> ':'
+                        '．' -> '.'
+                        '－', '—', '–' -> '-'
+                        '／' -> '/'
+                        '　' -> ' '
+                        else -> c
+                    }
+                )
+            }
+        }
+    }
+
     /** Remove one *leading* date expression from [rest]; mutate [acc]; return the remainder. */
     private fun stripLeadingDate(rest: String, acc: Acc): String {
         // 0) repeat prefixes (每天/每周/每月/每周X). These establish the repeat step and also
@@ -307,16 +353,33 @@ class Parser(
             // No concrete date (e.g. bare 今年/明年) -> fall through and keep text.
         }
 
-        // 2) 下周X...
+        // 2) 下周X / 下下周X
         for (prefix in nextWeekPrefixes) {
             if (rest.startsWith(prefix)) {
                 val day = weekdayChar(rest.getOrNull(prefix.length) ?: ' ')
                 if (day != null) {
+                    // "下下周" 是两周后。此前所有前缀都按 +0 周算，`下下周三` 给出的其实是
+                    // 下周三 —— 认了关键词却给错日期，比"不识别"更危险（审计 §28.2）。
+                    val weeksAhead = if (prefix.startsWith("下下")) 2L else 1L
                     val nextMonday = today.plusDays((8 - today.dayOfWeek.value).toLong())
-                    acc.setDate(nextMonday.plusDays((day.value - 1).toLong()), today)
+                    acc.setDate(
+                        nextMonday.plusDays(7L * (weeksAhead - 1) + (day.value - 1).toLong()),
+                        today
+                    )
                     return rest.substring(prefix.length + 1)
                 }
                 break
+            }
+        }
+
+        // 2.5) 本周X / 这周X：与裸「周X」等价，唯一作用是别把「本」「这」留在标题里
+        val twPrefix = thisWeekPrefixes.firstOrNull { rest.startsWith(it) }
+        if (twPrefix != null) {
+            val after = rest.substring(twPrefix.length)
+            val day = weekdayChar(after.firstOrNull() ?: ' ')
+            if (day != null) {
+                acc.setDate(today.with(day), today)
+                return after.substring(1)
             }
         }
 
@@ -425,7 +488,7 @@ class Parser(
         when (key) {
             "下一年", "明年" -> year = today.year + 1
             "今年" -> {}
-            "下个月" -> {
+            "下个月", "下月" -> {
                 val nm = today.plusMonths(1)
                 year = nm.year
                 month = nm.monthValue
@@ -532,7 +595,9 @@ class Parser(
     private fun clockMatchTime(m: java.util.regex.Matcher, acc: Acc): LocalTime {
         val prefix = m.group(1)
         val rawHour = m.group(2)!!.toInt()
-        val minute = m.group(3)!!.toInt()
+        // 分钟必须卡到 0~59：`8:60` 会让 LocalTime.of 抛 DateTimeException，
+        // 而预览是每敲一个字符就 parse 一次 —— 等于打字打到一半 App 崩溃（审计 §28.1）。
+        val minute = m.group(3)!!.toInt().coerceIn(0, 59)
         val period = prefix ?: acc.pendingPeriod
         var hour = if (period != null) applyPeriod(period, rawHour) else rawHour
         // 晚上12:xx rolls past midnight -> next day.
@@ -548,8 +613,11 @@ class Parser(
     /** Turn an hourRe match (groups: period, hour, minute-suffix) into a concrete time. */
     private fun hourMatchTime(m: java.util.regex.Matcher, acc: Acc): LocalTime {
         val prefix = m.group(1)
-        var hour = m.group(2)!!.let { chineseToInt(it) ?: it.toInt() }
-        val minute = m.group(3)?.let {
+        // `numOf` 覆盖 ASCII 与中文数字一~九十九。旧的 `chineseToInt(it) ?: it.toInt()`
+        // 只认到「十二」，「十三点」「二十三点」会 null 落到 toInt() 上抛
+        // NumberFormatException（审计 §28.1）。
+        var hour = m.group(2)!!.let { numOf(it) } ?: 0
+        val minute = (m.group(3)?.let {
             when {
                 it == "半" -> 30
                 it == "一刻" -> 15
@@ -562,7 +630,7 @@ class Parser(
                 it.isNotBlank() -> it.trim().toIntOrNull() ?: 0
                 else -> 0
             }
-        } ?: 0
+        } ?: 0).coerceIn(0, 59) // 同上：`8点70分` 不能让 LocalTime.of 崩
 
         if (prefix != null) {
             hour = applyPeriod(prefix, hour)
@@ -574,6 +642,10 @@ class Parser(
             // e.g. 今晚9点 / 明晚8点 -> a bare hour after a "night" day word is PM.
             hour += 12
         }
+        // 与 clockMatchTime 对齐：24 点以后跨天（24点 / 晚上12点 = 次日 00:00）。
+        if (hour >= 24) {
+            acc.date?.let { acc.setDate(it.plusDays((hour / 24).toLong()), today) }
+        }
         acc.night = false
         acc.pendingPeriod = null
         return LocalTime.of(hour % 24, minute)
@@ -584,7 +656,7 @@ class Parser(
         "下午", "傍晚", "晚上", "夜里", "半夜" -> if (hour in 1..12) hour + 12 else hour
         "凌晨" -> if (hour == 12) 0 else hour
         "中午" -> if (hour in 1..11) 12 else hour
-        "上午", "早上", "早晨" -> if (hour == 12) 0 else hour
+        "上午", "早上", "早晨", "清晨" -> if (hour == 12) 0 else hour
         else -> hour
     }
 
@@ -642,31 +714,22 @@ class Parser(
         return d
     }
 
-    /** ASCII 数字或中文数字（一~三十一）-> Int；都不是则返回 null。 */
+    /**
+     * ASCII 数字或中文数字（零~九十九）-> Int；都不是则返回 null。
+     *
+     * 日期与时间**都**必须走这里。曾经小时用的是只认到「十二」的 `chineseToInt`，
+     * 拼出「十三」后返回 null 再被 `toInt()` 硬转，直接 NumberFormatException（审计 §28.1）。
+     */
     private fun numOf(s: String): Int? = s.toIntOrNull() ?: chineseNumber(s)
-
-    /** Map a Chinese numeral hour (一两..十二) to an Int, or null for non-Chinese text. */
-    private fun chineseToInt(s: String): Int? = when (s) {
-        "零" -> 0
-        "一" -> 1
-        "二", "两" -> 2
-        "三" -> 3
-        "四" -> 4
-        "五" -> 5
-        "六" -> 6
-        "七" -> 7
-        "八" -> 8
-        "九" -> 9
-        "十" -> 10
-        "十一" -> 11
-        "十二" -> 12
-        else -> null
-    }
 
     /** Parse an arbitrary Chinese numeral (零..九十九) such as 十五 / 二十 / 三十五. */
     private fun chineseNumber(s: String): Int? {
         if (s.isEmpty()) return null
-        val digit = { c: Char -> "零一二三四五六七八九".indexOf(c).takeIf { it >= 0 } }
+        // 「两」不在「零一二三…」里，但口语里"两点半""两点二十分"极常见，
+        // 单列出来当 2 用（此前靠 chineseToInt 里的 "两" 分支兜着）。
+        val digit = { c: Char ->
+            if (c == '两') 2 else "零一二三四五六七八九".indexOf(c).takeIf { it >= 0 }
+        }
         return when {
             // `十` 必须排在 `length == 1` 之前：它既是一位、又不属于 零~九，
             // 顺序反了会走到 digit('十') = null，导致「十月」「十号」全部解析失败。

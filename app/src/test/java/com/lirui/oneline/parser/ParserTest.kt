@@ -402,6 +402,70 @@ class ParserTest {
         assertEquals(LocalDate.of(2026, 10, 31), r.dueDate)
     }
 
+    // ---------- 健壮性审计（DESIGN §28）回归 ----------
+
+    // §28.1 P0：分钟 > 59 曾抛 DateTimeException（预览每敲一字符就 parse，等于打字打到一半崩溃）
+    @Test fun minuteOver59_clampedNotCrash() {
+        assertEquals(LocalTime.of(8, 59), parse("8:60 开会").dueTime)
+        assertEquals(LocalTime.of(8, 59), parse("8点70分 开会").dueTime)
+        // 99:99 是垃圾输入，只要不崩、取值落在合法区间即可（99%24=3，分钟被卡到 59）
+        assertEquals(LocalTime.of(3, 59), parse("99:99 开会").dueTime)
+    }
+
+    // §28.1 P0：中文小时超过「十二」曾抛 NumberFormatException
+    @Test fun chineseHourBeyondTwelve() {
+        assertEquals(LocalTime.of(13, 0), parse("十三点 开会").dueTime)
+        assertEquals(LocalTime.of(23, 0), parse("二十三点 开会").dueTime)
+        assertEquals(LocalTime.of(15, 30), parse("十五点半 开会").dueTime)
+    }
+
+    // §28.2：小时字符类补「零」
+    @Test fun zeroHourWord() {
+        assertEquals(LocalTime.of(0, 0), parse("零点 开会").dueTime)
+        assertEquals(LocalTime.of(0, 0), parse("凌晨零点 开会").dueTime)
+    }
+
+    // §28.2：本周X / 这周X（今天周三，本周五 = 10-23）
+    @Test fun thisWeekPrefix() {
+        assertEquals(LocalDate.of(2026, 10, 23), parse("本周五 开会").dueDate)
+        assertEquals(LocalDate.of(2026, 10, 23), parse("这周五 开会").dueDate)
+        assertEquals(LocalDate.of(2026, 10, 23), parse("这个星期五 开会").dueDate)
+        assertEquals("开会", parse("本周五 开会").title)
+    }
+
+    // §28.2：下月 = 下个月
+    @Test fun nextMonthShortForm() {
+        assertEquals(LocalDate.of(2026, 11, 5), parse("下月5号 交租").dueDate)
+    }
+
+    // §28.2：周七
+    @Test fun weekdaySeven() {
+        assertEquals(LocalDate.of(2026, 10, 25), parse("周七 开会").dueDate)
+    }
+
+    // §28.2：下下周X 曾只加一周（给了下周三的日期）
+    @Test fun nextNextWeek_isTwoWeeksAhead() {
+        assertEquals(LocalDate.of(2026, 10, 28), parse("下周三 开会").dueDate)
+        assertEquals(LocalDate.of(2026, 11, 4), parse("下下周三 开会").dueDate)
+    }
+
+    // §28.2：裸时段词补齐
+    @Test fun bareEarlyMorningPeriods() {
+        assertEquals(LocalTime.of(1, 0), parse("凌晨 开会").dueTime)
+        assertEquals(LocalTime.of(0, 0), parse("半夜 开会").dueTime)
+        assertEquals(LocalTime.of(6, 0), parse("清晨 跑步").dueTime)
+        assertEquals(LocalTime.of(22, 0), parse("夜里 开会").dueTime)
+        assertEquals("开会", parse("清晨6点 开会").title)
+    }
+
+    // §28.2：全角数字/冒号归一
+    @Test fun fullWidthInput() {
+        assertEquals(LocalTime.of(8, 30), parse("８：３０ 开会").dueTime)
+        assertEquals(LocalTime.of(15, 0), parse("１５点 开会").dueTime)
+        assertEquals(LocalDate.of(2026, 10, 24), parse("１０月２４日 开会").dueDate)
+        assertEquals(LocalDate.of(2026, 10, 24), parse("２０２６年１０月２４日 开会").dueDate)
+    }
+
     // ---- times ----
     @Test fun exactClock_hhmm() {
         val r = parse("下午3点 交周报")
