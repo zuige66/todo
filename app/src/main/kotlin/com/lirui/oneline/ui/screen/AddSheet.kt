@@ -211,6 +211,13 @@ private fun PreviewCard(parses: List<ParsedTodo>) {
     }
 }
 
+/**
+ * chip 的水平内边距。**标题要靠它左对齐**：chip 的背景从卡片 padding 起算，
+ * 但里面的文字还有一个内边距 —— 标题若只对齐到背景，视觉上会比日期文字靠左
+ * （用户反馈"开会太靠左下角，与上面日期对齐"）。抽成常量让两边永远一致。
+ */
+private val PREVIEW_CHIP_HPAD = 12.dp
+
 @Composable
 private fun PreviewItem(p: ParsedTodo) {
     val hasChips = p.dueDate != null || p.dueTime != null || p.repeatDays > 0
@@ -228,13 +235,16 @@ private fun PreviewItem(p: ParsedTodo) {
         }
         Text(
             p.cleanTitle.ifBlank { "（没有事件内容）" },
-            style = MaterialTheme.typography.titleMedium
+            style = MaterialTheme.typography.titleMedium,
+            // 与 chip 内的文字左对齐，而不是和 chip 的背景左缘对齐。
+            modifier = Modifier.padding(start = if (hasChips) PREVIEW_CHIP_HPAD else 0.dp)
         )
         p.detail?.let {
             Text(
                 it,
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = if (hasChips) PREVIEW_CHIP_HPAD else 0.dp)
             )
         }
     }
@@ -250,7 +260,7 @@ private fun InfoChip(text: String) {
         Text(
             text,
             style = MaterialTheme.typography.labelLarge,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+            modifier = Modifier.padding(horizontal = PREVIEW_CHIP_HPAD, vertical = 6.dp)
         )
     }
 }

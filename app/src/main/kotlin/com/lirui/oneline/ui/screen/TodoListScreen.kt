@@ -1192,56 +1192,91 @@ private fun SettingsScreen(
 
         // ═══ 3. 通知样式 ═══
         // ═══ 3. 通知（v0.6.2 由「通知样式」改名）═══
-        // 一张卡装三样"通知长什么样"：标题模板、提醒文案、常驻通知文案。
+        // 整节做成一个折叠入口「通知模板」：标题模板、提醒文案、常驻通知文案都收在里面，
+        // 默认只露一行摘要 —— 这三样都是"偶尔才改"的，不该每次都占半屏。
         item { SectionHeader("通知") }
         item {
+            var notifExpanded by remember { mutableStateOf(false) }
+            val arrow by animateFloatAsState(
+                targetValue = if (notifExpanded) 90f else 0f,
+                animationSpec = spring(dampingRatio = 0.8f, stiffness = 900f),
+                label = "notifArrow"
+            )
             SettingsCard {
-                NotificationTitleEditor(
-                    template = notifTemplate,
-                    done = notifDone,
-                    dueWord = notifDueWord,
-                    dirty = notifTemplate != savedTemplate || notifDone != savedDone,
-                    onTemplateChange = { notifTemplate = it },
-                    onDoneChange = { notifDone = it },
-                    onSave = {
-                        // 一个按钮写两个字段：要么一起成功，要么一起不动。
-                        SettingsRepo.saveNotificationTitle(context, notifTemplate, notifDone)
-                        savedTemplate = notifTemplate
-                        savedDone = notifDone
-                        Toast.makeText(context, "通知标题已保存", Toast.LENGTH_SHORT).show()
-                    }
+                ListItem(
+                    headlineContent = { Text("通知模板", style = MaterialTheme.typography.bodyLarge) },
+                    supportingContent = {
+                        Text(
+                            if (notifExpanded) "标题 · 文案 · 常驻通知"
+                            else "标题模板 · 提醒文案 · 常驻通知 · 点开可编辑",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    },
+                    trailingContent = {
+                        Icon(
+                            Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.graphicsLayer { rotationZ = arrow }
+                        )
+                    },
+                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                    modifier = Modifier.clickable { notifExpanded = !notifExpanded }
                 )
-                ItemDivider()
-                QuotesEditor(
-                    text = quotesText,
-                    expanded = quotesExpanded,
-                    dirty = quotesText != savedQuotesText,
-                    count = quotesText.lineSequence().count { it.isNotBlank() },
-                    onToggle = { quotesExpanded = !quotesExpanded },
-                    onTextChange = { quotesText = it },
-                    onRestoreDefault = { quotesText = builtinQuotesText },
-                    onSave = {
-                        val normalized = quotesText.lineSequence()
-                            .map { it.trim() }
-                            .filter { it.isNotEmpty() }
-                            .distinct()
-                            .toList()
-                        SettingsRepo.setCustomQuotes(context, normalized)
-                        // 清空 = 恢复默认（SettingsRepo 会删掉键）。界面上也切回默认池，
-                        // 否则"我清空了但通知里还有文案"看起来像没保存。
-                        val applied = if (normalized.isEmpty()) builtinQuotesText
-                        else normalized.joinToString("\n")
-                        quotesText = applied
-                        savedQuotesText = applied
-                        Toast.makeText(
-                            context,
-                            if (normalized.isEmpty()) "已恢复默认文案" else "文案已保存（${normalized.size} 条）",
-                            Toast.LENGTH_SHORT
-                        ).show()
+                AnimatedVisibility(
+                    visible = notifExpanded,
+                    enter = expandVertically() + fadeIn(),
+                    exit = shrinkVertically() + fadeOut()
+                ) {
+                    Column {
+                        NotificationTitleEditor(
+                            template = notifTemplate,
+                            done = notifDone,
+                            dueWord = notifDueWord,
+                            dirty = notifTemplate != savedTemplate || notifDone != savedDone,
+                            onTemplateChange = { notifTemplate = it },
+                            onDoneChange = { notifDone = it },
+                            onSave = {
+                                // 一个按钮写两个字段：要么一起成功，要么一起不动。
+                                SettingsRepo.saveNotificationTitle(context, notifTemplate, notifDone)
+                                savedTemplate = notifTemplate
+                                savedDone = notifDone
+                                Toast.makeText(context, "通知标题已保存", Toast.LENGTH_SHORT).show()
+                            }
+                        )
+                        ItemDivider()
+                        QuotesEditor(
+                            text = quotesText,
+                            expanded = quotesExpanded,
+                            dirty = quotesText != savedQuotesText,
+                            count = quotesText.lineSequence().count { it.isNotBlank() },
+                            onToggle = { quotesExpanded = !quotesExpanded },
+                            onTextChange = { quotesText = it },
+                            onRestoreDefault = { quotesText = builtinQuotesText },
+                            onSave = {
+                                val normalized = quotesText.lineSequence()
+                                    .map { it.trim() }
+                                    .filter { it.isNotEmpty() }
+                                    .distinct()
+                                    .toList()
+                                SettingsRepo.setCustomQuotes(context, normalized)
+                                // 清空 = 恢复默认（SettingsRepo 会删掉键）。界面上也切回默认池，
+                                // 否则"我清空了但通知里还有文案"看起来像没保存。
+                                val applied = if (normalized.isEmpty()) builtinQuotesText
+                                else normalized.joinToString("\n")
+                                quotesText = applied
+                                savedQuotesText = applied
+                                Toast.makeText(
+                                    context,
+                                    if (normalized.isEmpty()) "已恢复默认文案" else "文案已保存（${normalized.size} 条）",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        )
+                        ItemDivider()
+                        KeepAliveNotifEditor()
                     }
-                )
-                ItemDivider()
-                KeepAliveNotifEditor()
+                }
             }
         }
 
@@ -1608,10 +1643,10 @@ private fun PreviewLine(label: String, title: String) {
 }
 
 /**
- * 「常驻通知文案」编辑器（v0.6.2 新增，设置 → 通知）。
+ * 「常驻通知文案」编辑器（v0.6.2 新增，设置 → 通知 → 通知模板）。
  *
+ * 折叠交互与「提醒文案」一致：默认收起只显示摘要，点开才出现输入区。
  * 编辑的是「后台常驻」开启后常驻在通知栏那条通知的标题和正文。
- * 与「通知标题」同一套交互约定：草稿 + 脏标记 + 显式保存（不边打边写盘）。
  *
  * ★ 保存后调 [KeepAlive.refresh]：服务在跑就同一个通知 id 原地重建，
  *   否则用户改完文案发现通知栏还是旧字，会以为保存失败了。
@@ -1619,65 +1654,99 @@ private fun PreviewLine(label: String, title: String) {
 @Composable
 private fun KeepAliveNotifEditor() {
     val context = LocalContext.current
+    val cs = MaterialTheme.colorScheme
     val initial = remember { SettingsRepo.keepAliveNotifStyle(context) }
     var title by remember { mutableStateOf(initial.title) }
     var body by remember { mutableStateOf(initial.body) }
     var saved by remember { mutableStateOf(initial) }
+    var expanded by remember { mutableStateOf(false) }
     val dirty = title != saved.title || body != saved.body
 
+    val arrow by animateFloatAsState(
+        targetValue = if (expanded) 90f else 0f,
+        animationSpec = spring(dampingRatio = 0.8f, stiffness = 900f),
+        label = "keepAliveArrow"
+    )
     val fieldColors = OutlinedTextFieldDefaults.colors(
-        focusedBorderColor = MaterialTheme.colorScheme.primary,
-        unfocusedBorderColor = MaterialTheme.colorScheme.fieldBorder,
-        focusedContainerColor = MaterialTheme.colorScheme.fieldSurface,
-        unfocusedContainerColor = MaterialTheme.colorScheme.fieldSurface
+        focusedBorderColor = cs.primary,
+        unfocusedBorderColor = cs.fieldBorder,
+        focusedContainerColor = cs.fieldSurface,
+        unfocusedContainerColor = cs.fieldSurface
     )
 
-    Column(
-        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        Text("常驻通知文案", style = MaterialTheme.typography.bodyLarge)
-        Text(
-            "开启「后台常驻」后常驻在通知栏的那条通知。留空标题会用应用名兜底。",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+    Column {
+        ListItem(
+            headlineContent = { Text("常驻通知文案", style = MaterialTheme.typography.bodyLarge) },
+            supportingContent = {
+                Text(
+                    if (expanded) "开启「后台常驻」后常驻在通知栏的那条通知"
+                    else "${saved.title} · 点开可编辑",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            },
+            trailingContent = {
+                Icon(
+                    Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                    contentDescription = null,
+                    tint = cs.onSurfaceVariant,
+                    modifier = Modifier.graphicsLayer { rotationZ = arrow }
+                )
+            },
+            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+            modifier = Modifier.clickable { expanded = !expanded }
         )
-        OutlinedTextField(
-            value = title,
-            onValueChange = { title = it },
-            label = { Text("标题") },
-            singleLine = true,
-            shape = MaterialTheme.shapes.extraLarge,
-            colors = fieldColors,
-            modifier = Modifier.fillMaxWidth()
-        )
-        OutlinedTextField(
-            value = body,
-            onValueChange = { body = it },
-            label = { Text("正文") },
-            singleLine = true,
-            shape = MaterialTheme.shapes.extraLarge,
-            colors = fieldColors,
-            modifier = Modifier.fillMaxWidth()
-        )
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.End,
-            verticalAlignment = Alignment.CenterVertically
+        AnimatedVisibility(
+            visible = expanded,
+            enter = expandVertically() + fadeIn(),
+            exit = shrinkVertically() + fadeOut()
         ) {
-            if (dirty) {
-                TextButton(onClick = { title = saved.title; body = saved.body }) { Text("还原") }
-            }
-            TextButton(
-                enabled = dirty,
-                onClick = {
-                    SettingsRepo.saveKeepAliveNotif(context, title, body)
-                    saved = KeepAliveNotifStyle(title, body)
-                    // 服务在跑就原地重建通知（同一个 id），不用等它被杀后重启。
-                    KeepAlive.refresh(context)
-                    Toast.makeText(context, "常驻通知文案已保存", Toast.LENGTH_SHORT).show()
+            Column(
+                modifier = Modifier.padding(horizontal = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(
+                    "开启「后台常驻」后常驻在通知栏的那条通知。留空标题会用应用名兜底。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = cs.onSurfaceVariant
+                )
+                OutlinedTextField(
+                    value = title,
+                    onValueChange = { title = it },
+                    label = { Text("标题") },
+                    singleLine = true,
+                    shape = MaterialTheme.shapes.extraLarge,
+                    colors = fieldColors,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = body,
+                    onValueChange = { body = it },
+                    label = { Text("正文") },
+                    singleLine = true,
+                    shape = MaterialTheme.shapes.extraLarge,
+                    colors = fieldColors,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (dirty) {
+                        TextButton(onClick = { title = saved.title; body = saved.body }) { Text("还原") }
+                    }
+                    TextButton(
+                        enabled = dirty,
+                        onClick = {
+                            SettingsRepo.saveKeepAliveNotif(context, title, body)
+                            saved = KeepAliveNotifStyle(title, body)
+                            // 服务在跑就原地重建通知（同一个 id），不用等它被杀后重启。
+                            KeepAlive.refresh(context)
+                            Toast.makeText(context, "常驻通知文案已保存", Toast.LENGTH_SHORT).show()
+                        }
+                    ) { Text("保存") }
                 }
-            ) { Text("保存") }
+            }
         }
     }
 }
