@@ -80,8 +80,6 @@ class MainActivity : androidx.activity.ComponentActivity() {
             var homeBuckets by remember { mutableStateOf(SettingsRepo.homeBuckets(this)) }
             var defaultMinute by remember { mutableStateOf(SettingsRepo.defaultMinuteOfDay(this)) }
             var autoRepeat by remember { mutableStateOf(SettingsRepo.autoRepeatEnabled(this)) }
-            // 沉浸式顶栏（下滑收起标题栏）。
-            var immersiveTopBar by remember { mutableStateOf(SettingsRepo.immersiveTopBar(this)) }
             val onRescheduleReminders: () -> Unit = {
                 ReminderScheduler.scheduleAllActive(applicationContext)
             }
@@ -163,11 +161,6 @@ class MainActivity : androidx.activity.ComponentActivity() {
                     onSetAutoRepeat = { on ->
                         autoRepeat = on
                         SettingsRepo.setAutoRepeatEnabled(this, on)
-                    },
-                    immersiveTopBar = immersiveTopBar,
-                    onSetImmersiveTopBar = { on ->
-                        immersiveTopBar = on
-                        SettingsRepo.setImmersiveTopBar(this, on)
                     },
                     onRescheduleReminders = onRescheduleReminders
                 )

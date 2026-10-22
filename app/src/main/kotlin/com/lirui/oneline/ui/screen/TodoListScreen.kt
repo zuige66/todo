@@ -215,8 +215,6 @@ fun TodoApp(
     onSetDefaultMinuteOfDay: (Int) -> Unit,
     autoRepeat: Boolean,
     onSetAutoRepeat: (Boolean) -> Unit,
-    immersiveTopBar: Boolean,
-    onSetImmersiveTopBar: (Boolean) -> Unit,
     onRescheduleReminders: () -> Unit
 ) {
     val uiState by vm.state.collectAsState()
@@ -254,8 +252,6 @@ fun TodoApp(
         onSetDefaultMinuteOfDay = onSetDefaultMinuteOfDay,
         autoRepeat = autoRepeat,
         onSetAutoRepeat = onSetAutoRepeat,
-        immersiveTopBar = immersiveTopBar,
-        onSetImmersiveTopBar = onSetImmersiveTopBar,
         onRescheduleReminders = onRescheduleReminders
     )
 }
@@ -293,8 +289,6 @@ private fun TodoAppContent(
     onSetDefaultMinuteOfDay: (Int) -> Unit,
     autoRepeat: Boolean,
     onSetAutoRepeat: (Boolean) -> Unit,
-    immersiveTopBar: Boolean,
-    onSetImmersiveTopBar: (Boolean) -> Unit,
     onRescheduleReminders: () -> Unit
 ) {
     var showAdd by remember { mutableStateOf(false) }
@@ -342,11 +336,8 @@ private fun TodoAppContent(
     //   这是"滑动速度不变"的关键（M3 的 scrollBehavior 会消费滚动 + 改 contentPadding，
     //   两者叠加让用户觉得"滑得特别快"）。
     // ★ 直接读 listState 而不是 nestedScroll：派发链路实测不可靠（顶栏纹丝不动）。
-    LaunchedEffect(activeListState, immersiveTopBar) {
-        if (!immersiveTopBar) {
-            topBarCollapse.offset.floatValue = 0f
-            return@LaunchedEffect
-        }
+    //   v0.6：原「沉浸式顶栏」开关随设置页重排退役，浮层收起成为固定行为。
+    LaunchedEffect(activeListState) {
         snapshotFlow {
             // 第一项都滚出视口了，说明至少滚过一个 item，肯定超过 64dp。
             if (activeListState.firstVisibleItemIndex > 0) {
@@ -504,8 +495,6 @@ private fun TodoAppContent(
                         onSetDefaultMinuteOfDay = onSetDefaultMinuteOfDay,
                         autoRepeat = autoRepeat,
                         onSetAutoRepeat = onSetAutoRepeat,
-                        immersiveTopBar = immersiveTopBar,
-                        onSetImmersiveTopBar = onSetImmersiveTopBar,
                         onRescheduleReminders = onRescheduleReminders,
                         onExactAlarmSettings = onExactAlarmSettings,
                         onTestNotification = {
@@ -525,7 +514,8 @@ private fun TodoAppContent(
                         topInset = statusBarDp
                     )
                     TAB_ABOUT -> AboutScreen(
-                        topPadding = statusBarDp + TOP_BAR_BODY_HEIGHT,
+                        // 浮层顶栏在关于页不显示：hero 就是页头，只需让出状态栏。
+                        topPadding = statusBarDp,
                         listState = aboutListState
                     )
                 }
@@ -571,58 +561,64 @@ private fun TodoAppContent(
         // 之前交给 TopAppBar 的默认 windowInsets 处理，它会自己加一次状态栏 padding，
         // 于是"顶栏高度"与"内部实际布局"两个口径并存；一旦 insets 派发时机变化就会错位。
         // 现在只有一个口径：外层高度 = statusBar + 64，内部先让出 statusBar 再放 64 的主体。
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .height(topBarHeight)
-                .align(Alignment.TopCenter)
-                // ★★★ graphicsLayer 必须放在 background **之前**。
-                //   Compose 的修饰符链是"左外右内"：graphicsLayer 只包住**它右边**的绘制。
-                //   v0.5.2/0.5.3 写成了 `.background().clipToBounds().graphicsLayer{}`——
-                //   底色画在层外面，translationY 动的是层内的 TopAppBar，底色纹丝不动。
-                //   这就是四轮都修不好的真因：文字和底色根本不在同一个坐标系里。
-                //   现在顺序是 层 → 底色 → 裁剪：三者一起平移，整条同时离场。
-                .graphicsLayer {
-                    // 延迟读取：滚动时只改 RenderNode 的 translationY，不重组。
-                    // 位移上限 = 整条高度，滑到底就是彻底离场（内容顶到状态栏下面）。
-                    translationY = topBarCollapse.offset.floatValue
-                }
-                .background(MaterialTheme.colorScheme.surfaceContainer)
-                .clipToBounds()
-        ) {
-            Column(Modifier.fillMaxSize()) {
-                Spacer(Modifier.height(statusBarDp))
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .height(TOP_BAR_BODY_HEIGHT)
-                ) {
-                    TopAppBar(
-                        title = {
-                            Crossfade(
-                                targetState = title,
-                                animationSpec = tween(180),
-                                label = "topBarTitle"
-                            ) { t ->
-                                Text(
-                                    t,
-                                    fontWeight = FontWeight.Bold,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                    // ★ 不给标题单独加淡出。
-                                    //   v0.5.1/0.5.2 试过"标题先淡、整条后走"，结果出现一个
-                                    //   明确的坏状态：文字已经没了、下面还有一条空底色 ——
-                                    //   用户看到的就是"导航栏还在，只是文字消失了"。
-                                    //   标题和底色必须**同时**离场：要么一起在，要么一起走。
-                                )
-                            }
-                        },
-                        windowInsets = WindowInsets(0, 0, 0, 0),
-                        colors = TopAppBarDefaults.topAppBarColors(
-                            // 与底部导航栏同一个容器色，上下呼应。
-                            containerColor = MaterialTheme.colorScheme.surfaceContainer
+        //
+        // ★ 关于页不显示这条浮层：关于页自带 hero（图标 + 应用名）作页头，
+        //   再叠一条"关于"小标题栏，既重复又把渐变 hero 压出一条生硬的灰带 ——
+        //   关于页本来就该是整页沉浸的（hero 直接顶到状态栏下面）。
+        if (tab != TAB_ABOUT) {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(topBarHeight)
+                    .align(Alignment.TopCenter)
+                    // ★★★ graphicsLayer 必须放在 background **之前**。
+                    //   Compose 的修饰符链是"左外右内"：graphicsLayer 只包住**它右边**的绘制。
+                    //   v0.5.2/0.5.3 写成了 `.background().clipToBounds().graphicsLayer{}`——
+                    //   底色画在层外面，translationY 动的是层内的 TopAppBar，底色纹丝不动。
+                    //   这就是四轮都修不好的真因：文字和底色根本不在同一个坐标系里。
+                    //   现在顺序是 层 → 底色 → 裁剪：三者一起平移，整条同时离场。
+                    .graphicsLayer {
+                        // 延迟读取：滚动时只改 RenderNode 的 translationY，不重组。
+                        // 位移上限 = 整条高度，滑到底就是彻底离场（内容顶到状态栏下面）。
+                        translationY = topBarCollapse.offset.floatValue
+                    }
+                    .background(MaterialTheme.colorScheme.surfaceContainer)
+                    .clipToBounds()
+            ) {
+                Column(Modifier.fillMaxSize()) {
+                    Spacer(Modifier.height(statusBarDp))
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .height(TOP_BAR_BODY_HEIGHT)
+                    ) {
+                        TopAppBar(
+                            title = {
+                                Crossfade(
+                                    targetState = title,
+                                    animationSpec = tween(180),
+                                    label = "topBarTitle"
+                                ) { t ->
+                                    Text(
+                                        t,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                        // ★ 不给标题单独加淡出。
+                                        //   v0.5.1/0.5.2 试过"标题先淡、整条后走"，结果出现一个
+                                        //   明确的坏状态：文字已经没了、下面还有一条空底色 ——
+                                        //   用户看到的就是"导航栏还在，只是文字消失了"。
+                                        //   标题和底色必须**同时**离场：要么一起在，要么一起走。
+                                    )
+                                }
+                            },
+                            windowInsets = WindowInsets(0, 0, 0, 0),
+                            colors = TopAppBarDefaults.topAppBarColors(
+                                // 与底部导航栏同一个容器色，上下呼应。
+                                containerColor = MaterialTheme.colorScheme.surfaceContainer
+                            )
                         )
-                    )
+                    }
                 }
             }
         }
@@ -1038,8 +1034,6 @@ private fun SettingsScreen(
     onSetDefaultMinuteOfDay: (Int) -> Unit,
     autoRepeat: Boolean,
     onSetAutoRepeat: (Boolean) -> Unit,
-    immersiveTopBar: Boolean,
-    onSetImmersiveTopBar: (Boolean) -> Unit,
     onRescheduleReminders: () -> Unit,
     onExactAlarmSettings: () -> Unit,
     onTestNotification: () -> Unit,
@@ -1050,6 +1044,21 @@ private fun SettingsScreen(
     val context = LocalContext.current
     // Used to keep at least one board visible.
     val visibleBoardCount = boardOrder.count { it !in hiddenBoards }
+
+    // ── 提醒可靠性的状态（v0.6 从 ReliabilitySection 上提）──
+    // 上提的原因：分组标题要显示"有 N 项需处理"的徽章，徽章和卡片必须读同一份状态 ——
+    // 两处各算一遍迟早漂移。ON_RESUME 自增 tick 触发重读（用户去系统设置改完回来即刷新）。
+    var reliabilityTick by remember { mutableIntStateOf(0) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) reliabilityTick++
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    val notificationsOk = remember(reliabilityTick) { DeviceCompat.canPostNotifications(context) }
+    val exactOk = remember(reliabilityTick) { DeviceCompat.canScheduleExactAlarms(context) }
 
     // 「通知标题」的编辑草稿。三个关键点：
     // 1. 放在 LazyColumn 外面 —— item 被滚动回收时输入框内容不会丢；
@@ -1085,6 +1094,51 @@ private fun SettingsScreen(
             bottom = 8.dp
         )
     ) {
+        // ═══ 1. 提醒可靠性（v0.6 置顶）═══
+        // zuige 拍板：这一节决定"提醒到底响不响"，是整个 App 最重要的设置，必须放第一且强调。
+        // 强调方式：标题恒定显示状态徽章 —— 有未放行项时整行转红并写明后果，全齐时显示"已就绪"。
+        // 合并「后台常驻」：它和可靠性是同一件事的两半（系统放不放行 / 用户愿不愿意付常驻通知的代价），
+        // 拆成两节会让人以为常驻是可有可无的装饰。
+        item {
+            val pending = listOf(notificationsOk, exactOk).count { !it }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "提醒可靠性",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = if (pending > 0) MaterialTheme.colorScheme.error
+                            else MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(start = 8.dp)
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    if (pending > 0) "$pending 项需处理，否则提醒可能不响" else "已就绪",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = if (pending > 0) MaterialTheme.colorScheme.error
+                            else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+        item {
+            ReliabilitySection(
+                notificationsOk = notificationsOk,
+                exactOk = exactOk,
+                onExactAlarmSettings = onExactAlarmSettings,
+                onStateRefresh = { reliabilityTick++ }
+            )
+        }
+        if (!exactOk) {
+            item {
+                Text(
+                    "未获得精确闹钟权限，提醒可能被系统延后几分钟。请在上方开启，并允许后台运行。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+                )
+            }
+        }
+
+        // ═══ 2. 提醒行为 ═══
         item { SectionHeader("提醒") }
         item {
             SettingsCard {
@@ -1093,10 +1147,45 @@ private fun SettingsScreen(
                 ToggleItem("到点提醒", "到设定时间再提醒一次", remindAtDue, onSetRemindAtDue)
                 ItemDivider()
                 ToggleItem("提前提醒", "提前 7/3/1 天及 1 小时", remindInAdvance, onSetRemindInAdvance)
+                // ↓ 原「逾期处理」「待办行为(默认时刻)」两节并入这里：
+                //   它们和到点/提前一样都是"什么时候响"，不该被外观类设置隔开。
+                ItemDivider()
+                ToggleItem("逾期反复叮嘱", "过期后每隔一段时间再提醒", overdueNag, onSetOverdueNag)
+                // 打开开关后"提醒间隔"不该让整张卡片突然长高一截
+                AnimatedVisibility(
+                    visible = overdueNag,
+                    enter = expandVertically() + fadeIn(),
+                    exit = shrinkVertically() + fadeOut()
+                ) {
+                    Column {
+                        ItemDivider()
+                        ChoiceItem(
+                            "提醒间隔",
+                            listOf(6 to "6小时", 12 to "12小时", 24 to "1天", 48 to "2天"),
+                            overdueInterval,
+                            onSetOverdueInterval
+                        )
+                    }
+                }
+                ItemDivider()
+                ChoiceItem(
+                    "默认提醒时刻",
+                    listOf(9 * 60 to "9:00", 12 * 60 to "12:00", 18 * 60 to "18:00", 21 * 60 to "21:00"),
+                    defaultMinuteOfDay,
+                    onSetDefaultMinuteOfDay
+                )
+                Text(
+                    "只写日期、不写时间的待办，到这个时刻提醒。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp)
+                )
             }
         }
 
-        item { SectionHeader("通知标题") }
+        // ═══ 3. 通知样式 ═══
+        // 原「通知标题」「提醒文案」两节合并：都是"通知长什么样"，没有分 two 节的理由。
+        item { SectionHeader("通知样式") }
         item {
             SettingsCard {
                 NotificationTitleEditor(
@@ -1151,23 +1240,7 @@ private fun SettingsScreen(
             }
         }
 
-        // v0.5：原来这里只有一行「通知与精确闹钟」的门牌号，用户点进去还是不知道要开什么。
-        // 现在拆成四条可自检的状态行 —— 每一条都能回答"我现在到底缺什么"。
-        item { SectionHeader("提醒可靠性") }
-        item { ReliabilitySection(onExactAlarmSettings = onExactAlarmSettings) }
-        if (!canScheduleExact(context)) {
-            item {
-                Text(
-                    "未获得精确闹钟权限，提醒可能被系统延后几分钟。请在上方开启，并允许后台运行。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
-                )
-            }
-        }
-
-        item { SectionHeader("后台常驻") }
-        item { KeepAliveSection() }
+        // （v0.6：「提醒可靠性」「后台常驻」已上移为第一节 —— 它们是本页最重要的设置。）
 
         item { SectionHeader("测试") }
         item {
@@ -1225,16 +1298,12 @@ private fun SettingsScreen(
                     modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp)
                 )
                 ItemDivider()
-                ToggleItem(
-                    "沉浸式顶栏",
-                    "向下滚动时收起标题栏，向上滚动时回来",
-                    immersiveTopBar,
-                    onSetImmersiveTopBar
-                )
+                // v0.6：浮层顶栏的"沉浸式顶栏"开关已随浮层方案一起退役，不再提供。
             }
         }
 
-        item { SectionHeader("首页分组") }
+        // ═══ 5. 列表与待办 ═══
+        item { SectionHeader("列表与待办") }
         item {
             SettingsCard {
                 ListItem(
@@ -1277,45 +1346,14 @@ private fun SettingsScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp)
                 )
-            }
-        }
-
-        item { SectionHeader("逾期处理") }
-        item {
-            SettingsCard {
-                ToggleItem("逾期反复叮嘱", "过期后每隔一段时间再提醒", overdueNag, onSetOverdueNag)
-                // 打开开关后"提醒间隔"不该让整张卡片突然长高一截
-                AnimatedVisibility(
-                    visible = overdueNag,
-                    enter = expandVertically() + fadeIn(),
-                    exit = shrinkVertically() + fadeOut()
-                ) {
-                    Column {
-                        ItemDivider()
-                        ChoiceItem(
-                            "提醒间隔",
-                            listOf(6 to "6小时", 12 to "12小时", 24 to "1天", 48 to "2天"),
-                            overdueInterval,
-                            onSetOverdueInterval
-                        )
-                    }
-                }
-            }
-        }
-
-        item { SectionHeader("待办行为") }
-        item {
-            SettingsCard {
-                ChoiceItem(
-                    "默认提醒时刻",
-                    listOf(9 * 60 to "9:00", 12 * 60 to "12:00", 18 * 60 to "18:00", 21 * 60 to "21:00"),
-                    defaultMinuteOfDay,
-                    onSetDefaultMinuteOfDay
-                )
                 ItemDivider()
+                // 自动顺延属于"完成之后怎么办"，和首页列表的展示方式放在一起 ——
+                // 原「待办行为」节只剩它一个，单独占一节太空。
                 ToggleItem("自动顺延", "每天/每周/每月完成后顺延", autoRepeat, onSetAutoRepeat)
             }
         }
+
+        // （v0.6：「逾期处理」并入「提醒」，「待办行为」拆进「提醒」与「列表与待办」。）
         // 「关于」v0.4 起是独立的第四个导航项，设置页不再保留入口 ——
         // 两个入口指向同一页，只会让"关于到底在哪"变成一个问题。
         item { Spacer(Modifier.height(24.dp)) }
@@ -2413,31 +2451,25 @@ private fun CheckCircle(progress: Float, overdue: Boolean, onClick: () -> Unit, 
  * ★ 第 4 条的状态文案故意写成"需确认"而不是"未开启"：那是厂商在系统设置里加的
  *   非 AOSP 开关，没有任何标准 API 能读到它的值。假装知道答案只会骗用户。
  *
- * 刷新机制：用户去系统设置改完回来，`ON_RESUME` 自增 tick，三个 `remember(tick)` 重读。
- * 不用"每帧读一次 PowerManager"—— 那会让整页在滚动时反复查系统服务。
+ * 刷新机制：状态计算与 ON_RESUME 重读在 SettingsScreen 里（分组标题的徽章要与卡片读同一份），
+ * 本组件只接收算好的值；任何让状态可能变化的操作（跳转、授权）回调 [onStateRefresh]。
  */
 @Composable
-private fun ReliabilitySection(onExactAlarmSettings: () -> Unit) {
+private fun ReliabilitySection(
+    notificationsOk: Boolean,
+    exactOk: Boolean,
+    onExactAlarmSettings: () -> Unit,
+    onStateRefresh: () -> Unit
+) {
     val context = LocalContext.current
 
-    var tick by remember { mutableIntStateOf(0) }
-    val lifecycleOwner = LocalLifecycleOwner.current
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) tick++
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
-    }
-
-    val notificationsOk = remember(tick) { DeviceCompat.canPostNotifications(context) }
-    val exactOk = remember(tick) { DeviceCompat.canScheduleExactAlarms(context) }
     val vendorHint = remember { DeviceCompat.vendorHint() }
+    var keepAliveOn by remember { mutableStateOf(SettingsRepo.keepAliveEnabled(context)) }
 
     val notifLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
-        tick++
+        onStateRefresh()
         if (!granted) {
             Toast.makeText(
                 context, "没有通知权限，提醒弹不出来（可稍后在系统设置里开启）", Toast.LENGTH_LONG
@@ -2483,7 +2515,7 @@ private fun ReliabilitySection(onExactAlarmSettings: () -> Unit) {
                 if (!opened) {
                     Toast.makeText(context, "没有找到电池优化页面，已打开应用详情", Toast.LENGTH_LONG).show()
                 }
-                tick++
+                onStateRefresh()
             }
         )
         ItemDivider()
@@ -2500,8 +2532,29 @@ private fun ReliabilitySection(onExactAlarmSettings: () -> Unit) {
                         context, "已打开应用详情，请在那里找到「自启动 / 后台运行」", Toast.LENGTH_LONG
                     ).show()
                 }
-                tick++
+                onStateRefresh()
             }
+        )
+        // ── 后台常驻（原独立一节，v0.6 并入）──
+        ItemDivider()
+        ToggleItem(
+            label = "后台常驻",
+            sub = "会显示一条常驻通知；让通知栏操作响应更快",
+            checked = keepAliveOn,
+            onChecked = { on ->
+                val ok = KeepAlive.setEnabled(context, on)
+                keepAliveOn = ok
+                if (on && !ok) {
+                    Toast.makeText(context, "系统拒绝了后台常驻（可稍后重试）", Toast.LENGTH_LONG).show()
+                }
+            }
+        )
+        Text(
+            "提醒本身由系统闹钟触发：应用被划掉、被系统回收都不会漏；" +
+                "只有「强行停止」或一键清理会清掉闹钟，下次打开应用会自动恢复。",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 14.dp)
         )
     }
 }
@@ -2552,42 +2605,4 @@ private fun ReliabilityRow(
         colors = ListItemDefaults.colors(containerColor = Color.Transparent),
         modifier = Modifier.clickable(onClick = onClick)
     )
-}
-
-/**
- * 「后台常驻」—— 唯一一个会改变进程行为的开关，所以文案必须把代价讲清楚。
- *
- * 三句话缺一不可：
- *   1. 它做了什么（进程更晚被回收，通知栏多一条常驻通知）；
- *   2. 它**不**做什么（挡不住"强行停止"和一键清理）；
- *   3. 不做它行不行（提醒由系统闹钟触发，本来就不依赖进程）。
- *
- * 第 3 句是这一节存在的意义：绝大多数用户不需要打开它。
- */
-@Composable
-private fun KeepAliveSection() {
-    val context = LocalContext.current
-    var enabled by remember { mutableStateOf(SettingsRepo.keepAliveEnabled(context)) }
-
-    SettingsCard {
-        ToggleItem(
-            label = "后台常驻",
-            sub = "会显示一条常驻通知；让通知栏操作响应更快",
-            checked = enabled,
-            onChecked = { on ->
-                val ok = KeepAlive.setEnabled(context, on)
-                enabled = ok
-                if (on && !ok) {
-                    Toast.makeText(context, "系统拒绝了后台常驻（可稍后重试）", Toast.LENGTH_LONG).show()
-                }
-            }
-        )
-        Text(
-            "提醒本身由系统闹钟触发：应用被划掉、被系统回收都不会漏；" +
-                "只有「强行停止」或一键清理会清掉闹钟，下次打开应用会自动恢复。",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 14.dp)
-        )
-    }
 }

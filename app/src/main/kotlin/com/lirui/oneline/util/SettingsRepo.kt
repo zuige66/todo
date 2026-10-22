@@ -26,7 +26,6 @@ object SettingsRepo {
     private const val KEY_AUTO_REPEAT = "auto_repeat"
     private const val KEY_PALETTE = "palette_id"
     private const val KEY_DARK_CARD = "dark_card_style"
-    private const val KEY_IMMERSIVE_TOPBAR = "immersive_topbar"
     private const val KEY_HOME_BOARD_ORDER = "home_board_order"
     private const val KEY_HOME_BOARD_HIDDEN = "home_board_hidden"
     private const val KEY_HOME_BUCKETS = "home_buckets"
@@ -147,22 +146,10 @@ object SettingsRepo {
             .edit().putBoolean(KEY_AUTO_REPEAT, enabled).apply()
     }
 
-    // ---------- 沉浸式顶栏 (immersive top bar) ----------
-
-    /**
-     * 向下滚动时收起顶部标题栏、向上滚动时回来。默认开。
-     *
-     * 默认给开：这是纯视觉增强，不改任何数据路径；不喜欢的用户可以在「外观」里关掉，
-     * 关掉后就是固定顶栏（v0.4 之前的行为）。
-     */
-    fun immersiveTopBar(context: Context): Boolean =
-        context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
-            .getBoolean(KEY_IMMERSIVE_TOPBAR, true)
-
-    fun setImmersiveTopBar(context: Context, enabled: Boolean) {
-        context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
-            .edit().putBoolean(KEY_IMMERSIVE_TOPBAR, enabled).apply()
-    }
+    // ---------- 沉浸式顶栏（已退役，v0.6）----------
+    //
+    // 浮层顶栏成为固定行为后这个开关没有意义；KEY_IMMERSIVE_TOPBAR 留在老用户的
+    // SharedPreferences 里不再读取，与「overdue_pin」同一处理方式（保留脏键、永不读取）。
 
     // ---------- 后台常驻 (keep-alive FGS) ----------
     //

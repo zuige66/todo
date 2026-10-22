@@ -51,9 +51,12 @@ android {
         //         "文字没了、下面还留一条空底色"（用户报的"导航栏还在，只是文字消失"）。
         // 0.5.4 = 修顶栏不动的真因：graphicsLayer 写在 background 之后，层只包住内部内容，
         //         底色画在层外 → translationY 永远动不了底色。调整修饰符顺序（层→底色→裁剪）。
+        // 0.6.0 = 设置页重排：提醒可靠性(含后台常驻)置顶并带状态徽章、逾期/默认时刻并入「提醒」、
+        //         通知标题+文案合并「通知样式」、自动顺延进「列表与待办」；关于页隐藏浮层顶栏（hero 即页头）；
+        //         「沉浸式顶栏」开关退役。
         // 每次发版：versionCode 必须单调递增（Android 用它判断升级），versionName 给人看。
-        versionCode = 11
-        versionName = "0.5.4"
+        versionCode = 12
+        versionName = "0.6.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
