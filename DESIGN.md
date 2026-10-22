@@ -1940,5 +1940,91 @@ Surface(...) {                 // Surface 的 content 没有作用域 → 子节
 - **未能自动验收**：该设备拒绝 `INJECT_EVENTS`（`adb shell input tap` 抛 SecurityException），
   关于页需要点两下才到，只能靠手指。重叠与头像这两项属"静态可证 + 视觉待确认"。
 
+---
+
+## 34. 提醒通知：按钮为什么不显示 / 标题正文详情（2026-10-22）
+
+### 34.1 「没有确认」不是没有按钮，是被折叠了
+
+现场那条通知：标题「测试通知」、正文「到时间了，该办啦」。
+
+**先定位它到底是谁发的**——这两行分别指向两处代码：
+
+| 位置 | 代码 |
+|---|---|
+| 标题「测试通知」 | `TodoRepository.addTestInOneMinute()` 里 `title = "测试通知"` |
+| 正文「到时间了，该办啦」 | `ReminderReceiver` 里 `Kind.DUE -> "到时间了，该办啦"` |
+
+也就是说它走的是**真实提醒链路** `postReminder()`，而不是设置页那个 `postTest()`。
+而 `postReminder()` 里一直有：
+
+```kotlin
+.addAction(
+    R.drawable.ic_notification,
+    if (done) "撤回" else "完成",
+    actionIntent(...)
+)
+```
+
+**所以按钮在，只是没画出来。** 澎湃（以及 MIUI / ColorOS / Funtouch）对通知动作行是
+"展开态才渲染"：折叠的一行只放标题 + 正文，动作按钮要下拉那条通知展开后才出现。
+
+这不是我们能控制的：动作行由 SystemUI 布局，`NotificationCompat` 只负责把 action 交上去。
+想让它默认可见，唯一的办法是全自定义 `RemoteViews`，代价是丢掉系统通知的全部样式与适配。
+
+> 判据（下次怀疑按钮丢了，先这样查）：
+> `adb shell dumpsys notification --noredact | grep -A2 "pkg=com.lirui.oneline"`
+> 记录里有 `actions=1` 就说明按钮在，看不到是 ROM 折叠。
+
+### 34.2 文案调整
+
+| 位置 | 之前 | 现在 | 改在哪 |
+|---|---|---|---|
+| 通知标题 | 测试通知 | **通知测试（事件）** | `TodoRepository.addTestInOneMinute()` 的 `title` |
+| 通知正文 | 到时间了，该办啦 | **该办了** | `ReminderReceiver` 的 `Kind.DUE` |
+| 展开后的"详情" | 无 | **正文 + 空行 + 一句文案** | `NotificationHelper.postReminder()` 的 `BigTextStyle` |
+
+注意第一行是**待办标题**，不是写死的通知标题：改完之后这条测试待办在列表里也叫
+「通知测试（事件）」，这是符合预期的（通知标题 = 待办标题，一直是这个规则）。
+
+第三行改动是**全局的**：所有到期提醒展开后都会多一句文案，不只是测试那条。
+
+### 34.3 详情用 `BigTextStyle`，文案用 todoId 取模而不是随机
+
+```kotlin
+val quote = Quotes.forTodo(todoId)               // ← 不是 Quotes.random()
+val body = if (done) "已完成 · 点「撤回」可恢复" else message
+...
+.setStyle(NotificationCompat.BigTextStyle().bigText("$body\n\n$quote"))
+```
+
+两个决定：
+
+1. **折叠态只显示 `body`，展开态才是「body + 空行 + 文案」。** 正好对上"折叠看不到，
+   点开才有的详情"。国产 ROM 默认折叠，所以这句文案是"想看才看得到"的彩蛋，不占正文。
+2. **必须用 id 取模，不能用随机。** 「完成 / 撤回」是同一个 notification id 的**原地重发**
+   （这是通知栏按钮能"翻转"而不是堆第二条的原因）。用随机的话，每点一次按钮详情就换一句，
+   用户会以为点坏了。`forTodo` 天然稳定，也省得把文案塞进 PendingIntent 的 extra。
+
+文案池与收录标准见仓库根目录 `QUOTES.md`，代码在 `util/Quotes.kt`。
+
+### 34.4 顺手：`postTest()` 也补上了动作按钮
+
+设置页「发送测试通知」走的是另一条路径 `postTest()`，它**原来没有 `addAction`** ——
+所以那条通知确实永远不会有「完成」。但它的名字叫"测试通知"，却测不到按钮，容易误导。
+
+这次一并补上：标题/正文/详情与真实提醒**完全一致**，动作只翻转它自己的状态
+（「完成」⇄「撤回」），**绝不碰数据库**（它没有对应待办，靠 `EXTRA_IS_TEST` 区分）。
+requestCode 用尾数 5/6，真实待办只用 1~4 号 slot，结构上撞不到。
+
+### 34.5 验证
+
+- `assembleRelease` 通过；单测 **163 条全绿**
+- 新文案已确认在包里（`classes2.dex` 中能搜到「通知测试（事件）」「该办了」「坚持蛊没有凡蛊」）
+- **真机已装**：`adb install -r` Success，`lastUpdateTime=2026-10-22 12:56:02`
+- 待手指验收：点「新建下一分钟测试待办」→ 等一分钟 → **下拉那条通知展开**，
+  应看到「完成」按钮 + 正文下面那句文案
+
+
 
 

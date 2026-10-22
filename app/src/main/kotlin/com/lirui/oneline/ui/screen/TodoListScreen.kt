@@ -113,6 +113,7 @@ import com.lirui.oneline.util.Format
 import com.lirui.oneline.util.HomeBoard
 import com.lirui.oneline.util.HomeBucket
 import com.lirui.oneline.util.HomeGrouping
+import com.lirui.oneline.util.Quotes
 import com.lirui.oneline.util.SettingsRepo
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -373,10 +374,13 @@ private fun TodoAppContent(
                     onExactAlarmSettings = onExactAlarmSettings,
                     onTestNotification = {
                         if (NotificationHelper.canPostNotifications(context)) {
+                            // 标题/正文是固定的，"详情"每次随机一条文案 —— 顺带能看出
+                            // 不同长度在通知栏里会不会被截断。
                             NotificationHelper.postTest(
                                 context,
-                                "测试通知",
-                                "通知权限与提醒渠道正常 ✅"
+                                "通知测试（事件）",
+                                "该办了",
+                                quote = Quotes.random()
                             )
                         } else {
                             Toast.makeText(context, "请先允许通知权限", Toast.LENGTH_SHORT).show()
@@ -851,7 +855,7 @@ private fun SettingsScreen(
             SettingsCard {
                 ListItem(
                     headlineContent = { Text("发送测试通知") },
-                    supportingContent = { Text("立刻弹一条通知，检查权限与渠道") },
+                    supportingContent = { Text("弹一条带「完成」按钮的通知，验证权限、渠道与动作") },
                     trailingContent = {
                         Text(
                             "发送",

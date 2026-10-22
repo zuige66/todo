@@ -34,7 +34,7 @@ class ReminderReceiver : BroadcastReceiver() {
                     val message = when (ReminderEngine.Reminder.Kind.entries.getOrNull(kind)) {
                         ReminderEngine.Reminder.Kind.GRADED -> "提前提醒"
                         ReminderEngine.Reminder.Kind.EXACT_PREP -> "1小时后到期"
-                        ReminderEngine.Reminder.Kind.DUE -> "到时间了，该办啦"
+                        ReminderEngine.Reminder.Kind.DUE -> "该办了"
                         ReminderEngine.Reminder.Kind.OVERDUE -> "还没完成，别忘了哦"
                         else -> "提醒"
                     }

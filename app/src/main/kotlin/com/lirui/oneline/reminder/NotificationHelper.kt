@@ -13,6 +13,7 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.lirui.oneline.MainActivity
 import com.lirui.oneline.R
+import com.lirui.oneline.util.Quotes
 
 object NotificationHelper {
 
@@ -29,6 +30,16 @@ object NotificationHelper {
     const val ACTION_UNDO = "com.lirui.oneline.action.UNDO"
     const val EXTRA_TODO_ID = "todoId"
     const val EXTRA_MESSAGE = "message"
+
+    /**
+     * Marks an action intent as coming from the *test* notification.
+     *
+     * 测试通知没有对应的待办，收到这些动作时只能翻转通知本身的状态，
+     * 绝不能去动数据库 —— 否则会拿一个不存在的 id 去 archive。
+     */
+    const val EXTRA_IS_TEST = "isTest"
+    const val EXTRA_TITLE = "title"
+    const val EXTRA_QUOTE = "quote"
 
     /**
      * Per-todo notification id. The previous code reused ONE constant for every reminder,
@@ -80,10 +91,18 @@ object NotificationHelper {
         silent: Boolean = false
     ) {
         if (!canPostNotifications(context)) return
+        // 详情那句文案用 todoId 当种子取，**不能用随机**：
+        // 「完成 / 撤回」是同一 notification id 的原地重发，随机会让每点一次按钮文案就换一条，
+        // 看起来像 bug。同一条待办从生到死必须是同一句。
+        val quote = Quotes.forTodo(todoId)
+        val body = if (done) "已完成 · 点「撤回」可恢复" else message
         val builder = NotificationCompat.Builder(context, CHANNEL_REMINDER)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(title)
-            .setContentText(if (done) "已完成 · 点「撤回」可恢复" else message)
+            .setContentText(body)
+            // 折叠时只显示 body；展开后才是「body + 空行 + 一句文案」。
+            // 国产 ROM（澎湃 / ColorOS / Funtouch）默认就是折叠态，所以这行是"点开才有"的详情。
+            .setStyle(NotificationCompat.BigTextStyle().bigText("$body\n\n$quote"))
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
             .setContentIntent(openAppIntent(context, todoId, done))
@@ -104,15 +123,51 @@ object NotificationHelper {
         }
     }
 
-    /** One-off notification from the settings test button (fixed id, replaces itself). */
-    fun postTest(context: Context, title: String, message: String) {
+    /**
+     * One-off notification from the settings test button (fixed id, replaces itself).
+     *
+     * **它故意带一个「完成」按钮。** 早先这里没有 `addAction`，于是"发送测试通知"只能验证
+     * "通知能不能弹出来"，验证不了"动作按钮在通知栏里长什么样、点了有没有反应" ——
+     * 用户看到的现象就是「正式提醒有完成，测试通知没有」，很容易误判成 ROM 的锅。
+     *
+     * 按钮只翻转这条通知自己的状态（「完成」⇄「撤回」），不碰数据库，原因见 [EXTRA_IS_TEST]。
+     *
+     * @param quote 走 `BigTextStyle`：折叠时看到的是 [message]（比如「该办了」），
+     *   展开后才显示这行长文案。国产 ROM 很多默认就是折叠态，这正好当"详情"用。
+     */
+    fun postTest(
+        context: Context,
+        title: String,
+        message: String,
+        quote: String? = null,
+        done: Boolean = false
+    ) {
         if (!canPostNotifications(context)) return
+        val body = if (done) "已完成 · 点「撤回」可恢复" else message
         val builder = NotificationCompat.Builder(context, CHANNEL_REMINDER)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(title)
-            .setContentText(message)
+            .setContentText(body)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_REMINDER)
+            .setContentIntent(openAppIntent(context, 0L, done))
             .setAutoCancel(true)
+            // 「完成」后的重发不该再响一次，和正式提醒保持一致的取舍。
+            .setOnlyAlertOnce(done)
+            .addAction(
+                R.drawable.ic_notification,
+                if (done) "撤回" else "完成",
+                testActionIntent(
+                    context,
+                    if (done) ACTION_UNDO else ACTION_COMPLETE,
+                    title,
+                    message,
+                    quote
+                )
+            )
+        if (quote != null) {
+            builder.setStyle(NotificationCompat.BigTextStyle().bigText("$body\n\n$quote"))
+        }
         try {
             NotificationManagerCompat.from(context).notify(NOTIFICATION_ID_TEST, builder.build())
         } catch (_: SecurityException) {
@@ -169,4 +224,37 @@ object NotificationHelper {
 
     private fun requestCode(todoId: Long, slot: Int): Int =
         (todoId % 100_000L * 10L + slot).toInt()
+
+    /**
+     * 测试通知的动作意图。
+     *
+     * 单独一套 requestCode（900_005 / 900_006）。真实待办只用 1~4 号 slot
+     * （1=打开未完成、2=打开已完成、3=完成、4=撤回），算出来的 requestCode 尾数必然是 1~4，
+     * 所以尾数 5/6 的这两个**结构上撞不到**真实待办。
+     *
+     * 更要紧的是带上标题 / 正文 / 文案三个 extra：测试通知没有数据库记录可回查，
+     * 而「撤回」必须能把原文案一字不差地重发出来。
+     */
+    private fun testActionIntent(
+        context: Context,
+        action: String,
+        title: String,
+        message: String,
+        quote: String?
+    ): PendingIntent {
+        val intent = Intent(context, NotificationActionReceiver::class.java).apply {
+            this.action = action
+            putExtra(EXTRA_IS_TEST, true)
+            putExtra(EXTRA_TITLE, title)
+            putExtra(EXTRA_MESSAGE, message)
+            putExtra(EXTRA_QUOTE, quote)
+        }
+        val slot = if (action == ACTION_UNDO) 6 else 5
+        return PendingIntent.getBroadcast(
+            context,
+            900_000 + slot,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+    }
 }

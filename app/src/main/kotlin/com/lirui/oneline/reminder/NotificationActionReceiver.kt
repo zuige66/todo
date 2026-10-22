@@ -23,13 +23,30 @@ import kotlinx.coroutines.launch
  *
  * Uses [BroadcastReceiver.goAsync] because the DB work is async; without the pending-result
  * window the process may be killed mid-write.
+ *
+ * 「测试通知」那一条走的是另一条分支：它没有待办，只把通知自己翻转成「完成 / 撤回」，
+ * 同步完成、不进协程、不碰数据库（见 [NotificationHelper.EXTRA_IS_TEST]）。
  */
 class NotificationActionReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
+        val action = intent.action ?: return
+
+        // 测试通知没有对应的待办：只把这条通知自己翻转成「完成 / 撤回」，绝不碰数据库。
+        // 判断必须在 todoId 校验之前 —— 测试通知压根不带 todoId。
+        if (intent.getBooleanExtra(NotificationHelper.EXTRA_IS_TEST, false)) {
+            NotificationHelper.postTest(
+                context.applicationContext,
+                intent.getStringExtra(NotificationHelper.EXTRA_TITLE) ?: "通知测试（事件）",
+                intent.getStringExtra(NotificationHelper.EXTRA_MESSAGE) ?: "该办了",
+                quote = intent.getStringExtra(NotificationHelper.EXTRA_QUOTE),
+                done = action == NotificationHelper.ACTION_COMPLETE
+            )
+            return
+        }
+
         val todoId = intent.getLongExtra(NotificationHelper.EXTRA_TODO_ID, -1L)
-        val action = intent.action
-        if (todoId < 0L || action == null) return
+        if (todoId < 0L) return
 
         val pending = goAsync()
         val appContext = context.applicationContext
