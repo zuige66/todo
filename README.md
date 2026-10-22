@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/zuige66/todo/releases"><img src="https://img.shields.io/badge/release-v0.3-3F3F46?style=flat-square" alt="release" /></a>
+  <a href="https://github.com/zuige66/todo/releases"><img src="https://img.shields.io/badge/release-v0.6.2-3F3F46?style=flat-square" alt="release" /></a>
   <img src="https://img.shields.io/badge/platform-Android-3DDC84?style=flat-square" alt="platform" />
   <img src="https://img.shields.io/badge/build-Kotlin%20%2B%20Compose-7F52FF?style=flat-square" alt="build" />
   <img src="https://img.shields.io/badge/storage-Room-4479A1?style=flat-square" alt="storage" />
@@ -18,7 +18,9 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/zuige66/todo/releases/latest"><b>下载 APK</b></a>
+  <a href="https://github.com/zuige66/todo/releases/latest"><b>下载 APK（GitHub）</b></a>
+  &nbsp;·&nbsp;
+  <a href="https://blog.zuiges.com/downloads/oneline/todo-0.6.2.apk"><b>下载 APK（博客源）</b></a>
   &nbsp;·&nbsp;
   <a href="DESIGN.md">设计文档</a>
   &nbsp;·&nbsp;
@@ -240,15 +242,12 @@
 
 | 分区 | 内容 |
 |---|---|
-| 提醒 | 提醒总开关、到点提醒、提前提醒 |
-| 通知标题 | 一个「标题模板」（含 `{提醒}` 占位符）+ 完成后后缀，一个保存按钮 + 三种预览 |
-| 提醒文案 | 收起式编辑区：通知正文的文案池，每行一条，可恢复默认 |
-| 权限 | 跳转系统设置，开启通知与精确闹钟 |
-| 测试 | 发送测试通知、创建下一分钟到期的测试待办 |
-| 外观 | 主题模式、配色、深色卡片底色、沉浸式顶栏（下滑收起标题栏） |
-| 首页分组 | 板块排序与显隐、有日期档位（多选） |
-| 逾期处理 | 逾期是否反复叮嘱、叮嘱间隔 |
-| 待办行为 | 无日期待办的默认时刻、重复任务完成后是否自动顺延 |
+| 提醒可靠性 | 四条自检（通知 / 精确闹钟 / 系统电池优化 / 自启动）+ 后台常驻开关；标题带「已就绪 / N 项需处理」徽章 |
+| 提醒 | 提醒总开关、到点提醒、提前提醒、逾期反复叮嘱与间隔、只写日期时的默认提醒时刻 |
+| 通知 | 三个并列的折叠项：**通知模板**（标题模板 + 完成后缀 + 三种预览）、**提醒文案**（通知正语文案池）、**常驻通知文案**（后台常驻那条通知的标题/正文） |
+| 外观 | 主题模式、配色（11 套）、深色卡片底色（三档） |
+| 列表与待办 | 板块排序与显隐、有日期档位（多选）、自动顺延 |
+| 测试 | 发送测试通知、创建下一分钟到期的测试待办（位于全页最底部） |
 
 底部导航四项：**Todo / 归档 / 设置 / 关于**。「关于」独立成页，设置页不再重复入口。
 
@@ -259,6 +258,7 @@
 关于页有「检查更新」：读 GitHub Releases 的最新版本号，与本机 `versionName` 比对（语义化版本，逐段比较）。
 发现新版本弹窗展示更新日志，可以直接下载 APK 并调起系统安装器；没有新版本、仓库还没发过版、网络失败各有独立提示。
 
+- 下载源两处并行维护：GitHub Releases（主）与博客镜像 `blog.zuiges.com/downloads/oneline/`
 - 网络请求在 `Dispatchers.IO` + 6s 超时，失败按 DNS / 超时 / TLS / HTTP 状态码分类，不崩溃不卡死
 - 下载走**前台服务**（`UpdateDownloadService`），下完用 `FileProvider` 交给系统安装器；
   没有「安装未知应用」权限时会跳到对应设置页

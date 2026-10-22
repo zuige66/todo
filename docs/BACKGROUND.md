@@ -731,3 +731,22 @@ PKG=com.lirui.oneline
 | 顶栏上面变成空白、能看到下面的内容 | 0.5.1 把状态栏那一截交给 `Spacer` 让位却没画底色，TopAppBar 的 surface 只有 64dp 主体；且 alpha 曾加在整条容器上 | 底色移到滑动容器（覆盖 statusBar+64），淡出只作用于标题 |
 | 「系统电池优化」点了没反应 | `requestIgnoreBatteryOptimizations` 里 `if (已加白名单) return true` —— 已经加过就什么都不做 | 新入口 `openBatteryOptimizationSettings()`：未加白名单→弹确认框；已加/不能用→打开列表页；再不行→应用详情。**保证每次都做点看得见的事** |
 | 不要「我已开启自启动」开关，也不要在行尾显示「已加入 / 已确认」 | — | 删掉该开关与 `autostart_confirmed` 键；`ReliabilityRow.ok` 改为三态 `Boolean?`：`null` = 检测不到 → 只显示「前往」。只有「通知 / 精确闹钟」还保留「已允许 / 去开启」 |
+
+---
+
+## 16. v0.6.2 发布记录（2026-10-22）
+
+| 改动 | 说明 |
+|---|---|
+| 「测试」下移 | 低频排障项从「通知」与「外观」之间移到设置页**最底部** |
+| 「通知」节语义纠正 | zuige 指出「通知模板」只含 标题模板+完成后后缀+预览，与「提醒文案」「常驻通知文案」**并列**；NotificationTitleEditor 改为自折叠，撤掉外层大折叠 |
+| chip 选中态 | `FilterChip` 默认 secondaryContainer 在深色配色下与卡片底几乎无色差 → 新增 `SettingsFilterChip`（主色实底/反色字/主色粗边），ChoiceItem 与 BucketChips 共用 |
+| 常驻通知文案 | 设置 → 通知 → 常驻通知文案：可编辑后台常驻通知的标题/正文，保存即原地重建通知 |
+| 添加弹层预览 | 内边距 16→14/12、行距 10→8；标题与 chip 内文字左对齐（chip 有 12dp 水平内边距） |
+| 后台常驻关不掉 | `KeepAlive.setEnabled` 关闭分支误返 true → 返回值语义改为「调用后服务在不在跑」 |
+| 归档撤销条被挡 | 移到浮层顶栏下方并跟随其 translationY |
+| 关于页沉浸式 | 浮层顶栏在关于页不显示，hero 即页头 |
+| 顶栏四轮不动的真因 | `graphicsLayer` 写在 `background` 之后，层只包住内部内容 → 底色永不动；顺序改为 层→底色→裁剪 |
+
+**发布链路**：GitHub Release `v0.6.2`（asset `todo-0.6.2.apk`）+ 博客镜像
+`https://blog.zuiges.com/downloads/oneline/todo-0.6.2.apk`。README 徽章与下载入口同步。
