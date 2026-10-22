@@ -103,7 +103,7 @@ class ReminderEngineTest {
     // FUTURE must still get its first nag (due + interval) scheduled at creation time.
     // Previously this returned null, so nothing ever scheduled the first OVERDUE alarm.
     @Test fun overdueNag_notYetDue_returnsFirstPoint() {
-        val nag = ReminderEngine.nextOverdueReminder(due(2026, 10, 22), now, zone, 24)
+        val nag = ReminderEngine.nextOverdueReminder(due(2026, 10, 22), now, 24)
         assertEquals(ReminderEngine.Reminder.Kind.OVERDUE, nag!!.kind)
         // due 10/22 09:00 + 24h
         assertEquals(due(2026, 10, 23, 9, 0), nag.fireAtMillis)
@@ -112,22 +112,22 @@ class ReminderEngineTest {
     // A nag point is never earlier than the due instant (no nagging before the DUE reminder).
     @Test fun overdueNag_notYetDue_isAlwaysAfterDue() {
         val dueAt = due(2026, 10, 22, 9, 0)
-        val nag = ReminderEngine.nextOverdueReminder(dueAt, now, zone, 6)!!
+        val nag = ReminderEngine.nextOverdueReminder(dueAt, now, 6)!!
         assertTrue(nag.fireAtMillis >= dueAt)
     }
 
     // Re-scheduling (edit / reboot / settings change) must be idempotent before the due time.
     @Test fun overdueNag_notYetDue_stableAcrossReschedules() {
         val dueAt = due(2026, 10, 22)
-        val first = ReminderEngine.nextOverdueReminder(dueAt, now, zone, 24)!!.fireAtMillis
-        val again = ReminderEngine.nextOverdueReminder(dueAt, now + 3 * 3600_000L, zone, 24)!!.fireAtMillis
+        val first = ReminderEngine.nextOverdueReminder(dueAt, now, 24)!!.fireAtMillis
+        val again = ReminderEngine.nextOverdueReminder(dueAt, now + 3 * 3600_000L, 24)!!.fireAtMillis
         assertEquals(first, again)
     }
 
     // Just overdue: first nag is due + interval.
     @Test fun overdueNag_firstBoundary() {
         // overdue since 10/20 09:00; now 10/21 12:00; interval 24h.
-        val nag = ReminderEngine.nextOverdueReminder(due(2026, 10, 20), now, zone, 24)
+        val nag = ReminderEngine.nextOverdueReminder(due(2026, 10, 20), now, 24)
         assertEquals(ReminderEngine.Reminder.Kind.OVERDUE, nag!!.kind)
         // first boundary = 10/21 09:00 (past now), so next boundary = 10/22 09:00.
         assertEquals(due(2026, 10, 22, 9, 0), nag.fireAtMillis)
@@ -136,14 +136,14 @@ class ReminderEngineTest {
     // Aligns to the next whole-interval boundary at/after now.
     @Test fun overdueNag_alignsToBoundary() {
         // overdue 5h; now 10/21 12:00; interval 6h => due was 10/21 07:00? No, set due 10/21 06:00.
-        val nag = ReminderEngine.nextOverdueReminder(due(2026, 10, 21, 6, 0), now, zone, 6)
+        val nag = ReminderEngine.nextOverdueReminder(due(2026, 10, 21, 6, 0), now, 6)
         // first tiere: due+6h = 12:00, which equals now -> boundary at/after now.
         assertEquals(due(2026, 10, 21, 12, 0), nag!!.fireAtMillis)
     }
 
     // Non-positive interval falls back to 24h.
     @Test fun overdueNag_invalidInterval() {
-        val nag = ReminderEngine.nextOverdueReminder(due(2026, 10, 20), now, zone, 0)
+        val nag = ReminderEngine.nextOverdueReminder(due(2026, 10, 20), now, 0)
         assertEquals(due(2026, 10, 22, 9, 0), nag!!.fireAtMillis)
     }
 

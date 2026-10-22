@@ -97,19 +97,20 @@ object ReminderEngine {
      *
      * Points are aligned to the next boundary at/after now, so re-scheduling never fires
      * immediately in a loop.
+     *
+     * Pure epoch arithmetic, hence timezone-free: `due + k·interval` is the same instant
+     * whatever the device timezone is.
      */
     fun nextOverdueReminder(
         dueAtMillis: Long,
         nowMillis: Long = System.currentTimeMillis(),
-        zone: ZoneId = AppTime.ZONE,
         nagIntervalHours: Int = 24
     ): Reminder? {
         if (dueAtMillis <= 0L) return null
         val hours = if (nagIntervalHours <= 0) 24 else nagIntervalHours
         val stepMs = hours * 3600_000L
         val firstNagMs = dueAtMillis + stepMs
-        val nowMs = nowMillis
-        val steps = if (firstNagMs >= nowMs) 0L else ((nowMs - firstNagMs) / stepMs) + 1L
+        val steps = if (firstNagMs >= nowMillis) 0L else ((nowMillis - firstNagMs) / stepMs) + 1L
         return Reminder(
             firstNagMs + steps * stepMs,
             Reminder.Kind.OVERDUE,
