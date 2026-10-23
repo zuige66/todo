@@ -1,22 +1,28 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  紧凑行（2×2 用）：同样的结构，行高压到 34dp、字号降一档，
-  让 160dp 的高度里塞得下 4 条（zuige 要求 2×2 也显示最近 4 条）。
+  行布局 C：**不显示日期**（设置里关掉「显示日期」时用）。
+
+  为什么单独做一张而不是把 widget_due 设成 GONE：
+  vivo 桌面复用行视图时，嵌套 RemoteViews 的 setViewVisibility 不可靠 —— 关掉日期后
+  文字仍会留在屏幕上。这张布局里根本没有 widget_due 这个 view，任何桌面都藏得住。
+
+  ★ layout_weight="1"：4 行平分 widget_rows 的高度。
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widget_row"
     android:layout_width="match_parent"
-    android:layout_height="34dp"
+    android:layout_height="36dp"
+    android:layout_weight="1"
     android:background="@drawable/widget_row_bg"
     android:gravity="center_vertical"
     android:orientation="horizontal"
-    android:paddingStart="4dp"
-    android:paddingEnd="8dp">
+    android:paddingStart="6dp"
+    android:paddingEnd="10dp">
 
     <ImageView
         android:id="@+id/widget_circle"
-        android:layout_width="16dp"
-        android:layout_height="16dp"
+        android:layout_width="18dp"
+        android:layout_height="18dp"
         android:contentDescription="@string/done"
         android:src="@drawable/widget_circle" />
 
@@ -29,14 +35,5 @@
         android:maxLines="1"
         android:paddingStart="8dp"
         android:textColor="@color/widget_text"
-        android:textSize="12sp" />
-
-    <TextView
-        android:id="@+id/widget_due"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:maxLines="1"
-        android:paddingStart="6dp"
-        android:textColor="@color/widget_text_secondary"
-        android:textSize="10sp" />
+        android:textSize="13sp" />
 </LinearLayout>

@@ -4,13 +4,17 @@
 
   ★ v0.8.1 重构：不用 ListView + RemoteViewsService —— vivo 桌面（com.bbk.launcher2）
   实测从不绑定数据服务（onDataSetChanged 一次都不跑，列表恒空）。
-  行数本来就是固定的（2×2 最多 4 条、2×4 最多 6 条），所以改成
+  行数本来就是固定的（恒 4 条），所以改成
   updateOne 里用 RemoteViews.addView 直接把行塞进 widget_rows 容器：
   数据同步构建、无 bind、无 factory，任何 ROM 都没有兼容性问题。
 
-  ★ 高度自适应逻辑在 TodoWidgetProvider 里（读 AppWidgetOptions 的 heightDp）：
-   - 高 < 200dp（2×2）：行用 widget_item_todo_compact，最多 4 条
-   - 否则（2×4 / 4×4）：行用 widget_item_todo，最多 6 条
+  ★ 行布局不再按尺寸切（vivo 报的 AppWidgetOptions 尺寸恒为 152px，不可信），
+  改由设置决定：widget_item_todo（日期在右）/ widget_item_todo_below（日期在下）/
+  widget_item_todo_nodate（不显示日期）。三张布局的根节点都带 layout_weight="1"，
+  4 行平分 widget_rows 的高度 —— 隐藏头部后多出的空间由 4 行吃掉，底部不留空。
+  ★ 条数恒为 4 条，不随尺寸 / 隐藏头部变化。
+  ★ updateOne 里每次都要先 removeAllViews(R.id.widget_rows) 再 addView ——
+    桌面复用视图树时 addView 是追加，不清空会堆出多余的历史行。
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
@@ -45,7 +49,8 @@
             android:textSize="11sp" />
     </LinearLayout>
 
-    <!-- 行容器：内容由 updateOne 动态塞入（RemoteViews.addView）。 -->
+    <!-- 行容器：内容由 updateOne 动态塞入（RemoteViews.addView）。
+         行自带 weight，4 行会平分这里的高度；底部只留 2dp，避免隐藏头部后看得出空隙。 -->
     <LinearLayout
         android:id="@+id/widget_rows"
         android:layout_width="match_parent"
@@ -54,7 +59,7 @@
         android:orientation="vertical"
         android:paddingStart="10dp"
         android:paddingEnd="10dp"
-        android:paddingBottom="6dp" />
+        android:paddingBottom="2dp" />
 
     <!-- 空状态：没有待办时显示（visibility 由代码切换）。 -->
     <TextView

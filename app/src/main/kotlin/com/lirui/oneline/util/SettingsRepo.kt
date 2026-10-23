@@ -33,9 +33,12 @@ object SettingsRepo {
     private const val KEY_KEEP_ALIVE = "keep_alive"
     private const val KEY_KEEPALIVE_NOTIF_TITLE = "keepalive_notif_title"
     private const val KEY_KEEPALIVE_NOTIF_TEXT = "keepalive_notif_text"
-    private const val KEY_WIDGET_COMPACT_DATE = "widget_compact_show_date"
-    private const val KEY_WIDGET_STANDARD_DATE = "widget_standard_show_date"
+    private const val KEY_WIDGET_SHOW_DATE = "widget_show_date"
+    private const val KEY_WIDGET_DATE_BELOW = "widget_date_below"
+    private const val KEY_WIDGET_DATE_ONLY = "widget_date_only"
     private const val KEY_WIDGET_HIDE_HEADER = "widget_hide_header"
+    // 退役键（保留、永不读取）：widget_compact_show_date / widget_standard_show_date /
+    // widget_show_weekday —— 见下方「桌面小组件」段落的说明。
 
     const val FOLLOW_SYSTEM = 0
     const val LIGHT = 1
@@ -198,25 +201,49 @@ object SettingsRepo {
     }
 
     // ---------- 桌面小组件 ----------
+    //
+    // ★ 2026-10-23 重构：**不再按组件尺寸分档**。
+    //   原因：vivo 桌面（com.bbk.launcher2）报的 OPTION_APPWIDGET_MIN/MAX_HEIGHT 恒为 152px，
+    //   不管组件拉到 2×2 还是 2×4 —— 按高度判档位会把 2×4 也判成 2×2，
+    //   设置里"我明明是 2×4 却说我是 2×2"就是这么来的。
+    //   现在日期怎么显示完全由下面三个开关决定，与尺寸无关：
+    //     widget_show_date   是否显示日期（总开关）
+    //     widget_date_below  true = 日期在标题下方（事件优先）；false = 日期在右侧（日期优先）
+    //     widget_date_only   true = 只显示「10月23日」，不带「14点」
+    //   旧键 widget_compact_show_date / widget_standard_show_date / widget_show_weekday
+    //   一并退役（脏键保留、永不读取）。
 
-    /** 紧凑行（2×2）是否显示日期。默认关：2×2 宽度小，事件会被日期挤成省略号。 */
-    fun widgetCompactShowDate(context: Context): Boolean =
+    /** 是否显示日期。默认开。 */
+    fun widgetShowDate(context: Context): Boolean =
         context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
-            .getBoolean(KEY_WIDGET_COMPACT_DATE, false)
+            .getBoolean(KEY_WIDGET_SHOW_DATE, true)
 
-    fun setWidgetCompactShowDate(context: Context, value: Boolean) {
+    fun setWidgetShowDate(context: Context, value: Boolean) {
         context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
-            .edit().putBoolean(KEY_WIDGET_COMPACT_DATE, value).apply()
+            .edit().putBoolean(KEY_WIDGET_SHOW_DATE, value).apply()
     }
 
-    /** 标准行（2×3 及以上）是否显示日期。默认开。 */
-    fun widgetStandardShowDate(context: Context): Boolean =
+    /**
+     * 日期放哪：true = 标题下方（事件占满整行宽度，**事件优先**）；
+     * false = 标题右侧（日期完整显示、事件太长才省略，**日期优先**）。默认下方。
+     */
+    fun widgetDateBelow(context: Context): Boolean =
         context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
-            .getBoolean(KEY_WIDGET_STANDARD_DATE, true)
+            .getBoolean(KEY_WIDGET_DATE_BELOW, true)
 
-    fun setWidgetStandardShowDate(context: Context, value: Boolean) {
+    fun setWidgetDateBelow(context: Context, value: Boolean) {
         context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
-            .edit().putBoolean(KEY_WIDGET_STANDARD_DATE, value).apply()
+            .edit().putBoolean(KEY_WIDGET_DATE_BELOW, value).apply()
+    }
+
+    /** 只显示日期、不带具体时间（「10月23日」而不是「10月23日 14点」）。默认开。 */
+    fun widgetDateOnly(context: Context): Boolean =
+        context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            .getBoolean(KEY_WIDGET_DATE_ONLY, true)
+
+    fun setWidgetDateOnly(context: Context, value: Boolean) {
+        context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            .edit().putBoolean(KEY_WIDGET_DATE_ONLY, value).apply()
     }
 
     /** 是否隐藏组件头部（「待办」标题 + 条数）。默认显示。 */

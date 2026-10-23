@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  行布局 B：**日期在标题下方**（事件优先）。
+
+  [圆圈] [ 标题
+            日期 ]
+  标题独占整行宽度（2×2 只有约 132dp 宽，一行排"标题+日期"必然把标题挤成「收…」），
+  日期用 10sp 小字跟在下面 —— 事件优先，日期让位。
+
+  ★ layout_weight="1"：4 行平分 widget_rows 的高度。
+  ★ 只有 widget_title / widget_due / widget_circle 三个 id，其余与布局 A 一致。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_row"
+    android:layout_width="match_parent"
+    android:layout_height="36dp"
+    android:layout_weight="1"
+    android:background="@drawable/widget_row_bg"
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:paddingStart="6dp"
+    android:paddingEnd="10dp">
+
+    <ImageView
+        android:id="@+id/widget_circle"
+        android:layout_width="18dp"
+        android:layout_height="18dp"
+        android:contentDescription="@string/done"
+        android:src="@drawable/widget_circle" />
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:paddingStart="8dp">
+
+        <TextView
+            android:id="@+id/widget_title"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:textColor="@color/widget_text"
+            android:textSize="13sp" />
+
+        <TextView
+            android:id="@+id/widget_due"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:textColor="@color/widget_text_secondary"
+            android:textSize="10sp" />
+    </LinearLayout>
+</LinearLayout>

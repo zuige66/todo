@@ -1,15 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  标准行（2×4 / 4×4 用）。
+  行布局 A：**日期在右侧**（日期优先）。
 
-  行结构：[圆圈] [标题（弹性，单行省略）] [日期]
-  圆圈是独立的 view（widget_circle），点它 = 直接完成（PendingIntent 走广播）；
-  整行点 = 打开 App。两个 PendingIntent 挂在不同的 view 上，互不冲突。
+  [圆圈] [标题（弹性，太长才省略）] [日期]
+  日期是 wrap_content，永远完整；标题分到剩下的宽度 —— 这就是"日期优先"。
+
+  ★ layout_weight="1"：4 行平分 widget_rows 的高度（隐藏头部后多出的空间由 4 行吃掉），
+    36dp 只是下限，LayoutParams 万一没生成时退回定高、不会塌成 0。
+
+  ★ 组件尺寸在这台 vivo 上不可信（options 恒报 152px，2×2 和 2×4 一样），
+    所以不再按尺寸分两套布局：用哪张布局完全由设置里的「显示日期 / 日期在下方」决定。
+    另有 widget_item_todo_below（日期在下方，事件优先）和 widget_item_todo_nodate（不显示日期）。
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widget_row"
     android:layout_width="match_parent"
-    android:layout_height="46dp"
+    android:layout_height="36dp"
+    android:layout_weight="1"
     android:background="@drawable/widget_row_bg"
     android:gravity="center_vertical"
     android:orientation="horizontal"
@@ -18,8 +25,8 @@
 
     <ImageView
         android:id="@+id/widget_circle"
-        android:layout_width="20dp"
-        android:layout_height="20dp"
+        android:layout_width="18dp"
+        android:layout_height="18dp"
         android:contentDescription="@string/done"
         android:src="@drawable/widget_circle" />
 
@@ -30,9 +37,9 @@
         android:layout_weight="1"
         android:ellipsize="end"
         android:maxLines="1"
-        android:paddingStart="10dp"
+        android:paddingStart="8dp"
         android:textColor="@color/widget_text"
-        android:textSize="14sp" />
+        android:textSize="13sp" />
 
     <TextView
         android:id="@+id/widget_due"
@@ -41,5 +48,5 @@
         android:maxLines="1"
         android:paddingStart="8dp"
         android:textColor="@color/widget_text_secondary"
-        android:textSize="11sp" />
+        android:textSize="10sp" />
 </LinearLayout>

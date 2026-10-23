@@ -47,16 +47,26 @@ object Format {
         return timeLabel(t)
     }
 
-    /** The fine detail line under the title, ordered 年份(如有)→日期→星期→时间. */
-    fun dueLine(due: Long, today: LocalDate = AppTime.today()): String {
+    /** The fine detail line under the title, ordered 年份(如有)→日期→星期→时间.
+     *  [showWeekday]=false 时省略「周几」（小组件默认不带星期，zuige 要求）。
+     *  [showTime]=false 时只到日期（「10月23日」），不带「14点」——小组件「只显示日期」开关用。
+     *  参数顺序保持 today 在 showTime 之前，老的 `dueLine(due, today)` 位置调用不受影响。 */
+    fun dueLine(
+        due: Long,
+        showWeekday: Boolean = true,
+        today: LocalDate = AppTime.today(),
+        showTime: Boolean = true
+    ): String {
         val zdt = java.time.Instant.ofEpochMilli(due).atZone(AppTime.ZONE)
         val d = zdt.toLocalDate()
         val t = zdt.toLocalTime()
         val parts = ArrayList<String>()
         if (d.year != today.year) parts += "%d年".format(d.year, Locale.CHINA)
         parts += "%d月%d日".format(Locale.CHINA, d.monthValue, d.dayOfMonth)
-        parts += WEEKDAYS_CN[d.dayOfWeek.value - 1]
-        parts += if (t.minute == 0) "${t.hour}点" else String.format("%d:%02d", t.hour, t.minute)
+        if (showWeekday) parts += WEEKDAYS_CN[d.dayOfWeek.value - 1]
+        if (showTime) {
+            parts += if (t.minute == 0) "${t.hour}点" else String.format("%d:%02d", t.hour, t.minute)
+        }
         return parts.joinToString(" ")
     }
 

@@ -10,10 +10,12 @@ import android.net.Uri
 import android.util.Log
 import android.view.View
 import android.widget.RemoteViews
+import androidx.compose.ui.graphics.toArgb
 import com.lirui.oneline.MainActivity
 import com.lirui.oneline.R
 import com.lirui.oneline.data.AppDatabase
 import com.lirui.oneline.data.model.Todo
+import com.lirui.oneline.ui.theme.Palettes
 import com.lirui.oneline.util.AppTime
 import com.lirui.oneline.util.Format
 import com.lirui.oneline.util.SettingsRepo
@@ -24,16 +26,21 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 
 /**
- * 桌面小组件：一个 provider，纵横都可拉伸，按高度切换两种行布局。
+ * 桌面小组件：一个 provider，纵横都可拉伸，**恒显示最近 4 条**。
  *
- * - 高 < 200dp（2×2 / 4×2）：紧凑行，最多 4 条
- * - 否则（2×4 / 4×4）：标准行，最多 6 条
+ * ★ 2026-10-23 起**不再按组件尺寸切布局**：vivo 桌面（com.bbk.launcher2）报的
+ *   OPTION_APPWIDGET_MIN/MAX_HEIGHT 恒为 152px，2×2 和 2×4 一模一样 —— 按高度判档位
+ *   必然判错（用户把组件拉到 2×4，设置里还说"当前是 2×2"）。
+ *   现在日期怎么显示由设置里的三个开关决定，与尺寸无关：
+ *     widget_show_date / widget_date_below / widget_date_only（见 SettingsRepo）
  *
  * ★ 架构（v0.8.1 重构）：**静态多行 RemoteViews**（removeAllViews + addView），
  *   不是 ListView + RemoteViewsService。
- *   原因：vivo 桌面（com.bbk.launcher2）实测从不 bind 数据服务——onDataSetChanged
- *   一次都不跑，列表恒空且无任何报错。行数本来就是固定的（4/6 条），静态塞行
- *   完全覆盖需求，还消灭了 service/bind/factory 这一整层 ROM 兼容性问题。
+ *   原因：vivo 桌面实测从不 bind 数据服务——onDataSetChanged 一次都不跑，列表恒空
+ *   且无任何报错。行数本来就是固定的（4 条），静态塞行完全覆盖需求，
+ *   还消灭了 service/bind/factory 这一整层 ROM 兼容性问题。
+ *   ★ 每次更新必须 `removeAllViews` 再 `addView`：桌面会复用视图树，addView 是追加，
+ *     漏了清空就会堆出多余的历史行（表现为"日期关了还在""行数对不上"）。
  */
 class TodoWidgetProvider : AppWidgetProvider() {
 
@@ -61,7 +68,7 @@ class TodoWidgetProvider : AppWidgetProvider() {
         appWidgetId: Int,
         newOptions: android.os.Bundle
     ) {
-        // 用户拖大了组件：重新按高度算行布局与条数。同样要在 IO 上查库。
+        // 用户拖大了组件：重新按高度选行布局（条数恒 4）。同样要在 IO 上查库。
         val pendingResult = goAsync()
         WidgetUpdater.ioScope.launch {
             try {
@@ -102,26 +109,24 @@ object WidgetUpdater {
         ids.forEach { updateOne(context, manager, it) }
     }
 
+    /**
+     * 组件最多显示几条待办。**固定 4 条**（zuige 2026-10-23 要求）：
+     * 不随尺寸、也不随「隐藏头部」变化 —— 隐藏头部只省 26dp，不该变成"多显示一条"。
+     */
+    private const val MAX_ROWS = 4
+
     fun updateOne(context: Context, manager: AppWidgetManager, appWidgetId: Int) {
         try {
-            val options = manager.getAppWidgetOptions(appWidgetId)
-            // OPTION_APPWIDGET_MAX_HEIGHT 单位是 px；没有 options（组件还没上屏）时按 2×2 兜底。
-            val density = context.resources.displayMetrics.density
-            val heightDp = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT, 0)
-                .takeIf { it > 0 }
-                ?.let { (it / density).toInt() }
-                ?: 160
-            val compact = heightDp < 200
-            val limit = if (compact) 4 else 6
-
-            // 行内容可配（zuige）：紧凑行默认只显示事件（2×2 宽度小，日期会挤掉标题）；
-            // 标准行默认事件+日期。头部（「待办」+ 条数）也可隐藏。
-            val showDate = if (compact) SettingsRepo.widgetCompactShowDate(context)
-            else SettingsRepo.widgetStandardShowDate(context)
+            // ★ 不再读 AppWidgetOptions 判尺寸：vivo 桌面报的 MIN/MAX_HEIGHT 恒为 152px，
+            //   2×2 和 2×4 一模一样（实测），按高度分档必然判错。
+            //   日期怎么显示完全由设置里的三个开关决定，与尺寸无关。
+            val showDate = SettingsRepo.widgetShowDate(context)
+            val dateBelow = SettingsRepo.widgetDateBelow(context)
+            val dateOnly = SettingsRepo.widgetDateOnly(context)
             val hideHeader = SettingsRepo.widgetHideHeader(context)
 
             val dao = AppDatabase.get(context).todoDao()
-            val todos = runBlocking { dao.getActiveAll().take(limit) }
+            val todos = runBlocking { dao.getActiveAll().take(MAX_ROWS) }
 
             val rv = RemoteViews(context.packageName, R.layout.widget_todo_list)
             rv.setTextViewText(
@@ -134,13 +139,23 @@ object WidgetUpdater {
             )
 
             if (todos.isEmpty()) {
+                rv.removeAllViews(R.id.widget_rows)
                 rv.setViewVisibility(R.id.widget_rows, View.GONE)
                 rv.setViewVisibility(R.id.widget_empty, View.VISIBLE)
             } else {
                 rv.setViewVisibility(R.id.widget_rows, View.VISIBLE)
                 rv.setViewVisibility(R.id.widget_empty, View.GONE)
+                // ★★ 必须先清空容器再 addView。桌面（vivo 实测）会复用已 inflate 的视图树，
+                //    addView 是**追加**而不是替换 —— 少了这句，历史更新的行会一直堆在下面：
+                //    于是"日期已经关掉"的新行在前、还带着日期的旧行在后（被裁到可视区边缘），
+                //    看起来就是「设置里关了，组件上还是显示时间」，行数也会多出来。
+                //    类注释里一直写着 removeAllViews + addView，实现里却漏了这一句。
+                rv.removeAllViews(R.id.widget_rows)
                 todos.forEach { todo ->
-                    rv.addView(R.id.widget_rows, buildRow(context, todo, compact, showDate))
+                    rv.addView(
+                        R.id.widget_rows,
+                        buildRow(context, todo, showDate, dateBelow, dateOnly)
+                    )
                 }
             }
 
@@ -155,7 +170,11 @@ object WidgetUpdater {
             rv.setOnClickPendingIntent(R.id.widget_empty, openApp)
 
             manager.updateAppWidget(appWidgetId, rv)
-            Log.d(TAG, "updateOne id=$appWidgetId compact=$compact limit=$limit rows=${todos.size}")
+            Log.d(
+                TAG,
+                "updateOne id=$appWidgetId rows=${todos.size} showDate=$showDate " +
+                    "dateBelow=$dateBelow dateOnly=$dateOnly hideHeader=$hideHeader"
+            )
         } catch (error: Throwable) {
             // 组件更新失败绝不能带崩广播（上次主线程查库就是这么炸出"空白组件"的）。
             Log.e(TAG, "updateOne id=$appWidgetId failed", error)
@@ -165,30 +184,48 @@ object WidgetUpdater {
     /**
      * 构建一行。两个 PendingIntent 挂不同 view：
      * 整行 = 打开 App；圆圈 = 完成广播（独立 receiver，见 TodoWidgetActionReceiver）。
-     * [showDate] = false 时隐藏日期列（2×2 默认，事件占满一行）。
+     *
+     * 三张布局按设置选（**不再按组件尺寸**，vivo 报的尺寸不可信）：
+     *  - [showDate]=false      → widget_item_todo_nodate（布局里根本没有 widget_due，
+     *                            不靠 setViewVisibility —— vivo 复用行视图时会藏不住）
+     *  - [dateBelow]=true      → widget_item_todo_below（日期在标题下方，**事件优先**）
+     *  - 否则                   → widget_item_todo（日期在右侧，**日期优先**）
      */
     private fun buildRow(
         context: Context,
         todo: Todo,
-        compact: Boolean,
-        showDate: Boolean
+        showDate: Boolean,
+        dateBelow: Boolean,
+        dateOnly: Boolean
     ): RemoteViews {
-        val rv = RemoteViews(
-            context.packageName,
-            if (compact) R.layout.widget_item_todo_compact else R.layout.widget_item_todo
-        )
+        val layout = when {
+            !showDate -> R.layout.widget_item_todo_nodate
+            dateBelow -> R.layout.widget_item_todo_below
+            else -> R.layout.widget_item_todo
+        }
+        val rv = RemoteViews(context.packageName, layout)
         rv.setTextViewText(R.id.widget_title, todo.title)
 
-        // 到期文案 + 逾期标红。无日期（dueAtMillis == null）不显示右侧文字。
+        // 圆圈描边跟随 App 里选的配色（设置 → 外观 → 配色）。
+        // shape 是空心圆，setColorFilter 会整体着色 → 描边变成当前主题主色。
+        rv.setInt(
+            R.id.widget_circle,
+            "setColorFilter",
+            Palettes.byId(SettingsRepo.paletteId(context)).primary.toArgb()
+        )
+
+        // 到期文案 + 逾期标红。无日期（dueAtMillis == null）时右侧留空。
+        // 组件**不带星期**（zuige 2026-10-23：只要日期），故 showWeekday 恒 false。
         val due = todo.dueAtMillis
         if (due != null && showDate) {
-            val (label, overdue) = dueLabel(due, todo.hasExactTime)
+            val (label, overdue) = dueLabel(due, todo.hasExactTime, showTime = !dateOnly)
             rv.setTextViewText(R.id.widget_due, label)
-            if (overdue) {
-                rv.setTextColor(R.id.widget_due, context.getColor(R.color.widget_overdue))
-            }
-        } else {
-            rv.setViewVisibility(R.id.widget_due, View.GONE)
+            rv.setTextColor(
+                R.id.widget_due,
+                context.getColor(
+                    if (overdue) R.color.widget_overdue else R.color.widget_text_secondary
+                )
+            )
         }
 
         // 整行 → 打开 App（带 id，先留着给将来的"跳到该待办"）。
@@ -238,11 +275,21 @@ object TodoWidgetRepo {
         }
 }
 
-/** 一行的到期文案：是否逾期。无日期返回空串 + false。 */
-internal fun dueLabel(dueAtMillis: Long?, hasExactTime: Boolean): Pair<String, Boolean> {
+/**
+ * 一行的到期文案：是否逾期。无日期返回空串 + false。
+ *
+ * 组件里**不带「周几」**（zuige 2026-10-23：只要日期），所以这里恒传 `showWeekday = false`；
+ * App 列表仍用 `Format.dueLine` 的默认值（带星期）。
+ * [showTime]=false 时只到日期（「10月23日」）—— 对应设置里的「只显示日期」开关。
+ */
+internal fun dueLabel(
+    dueAtMillis: Long?,
+    hasExactTime: Boolean,
+    showTime: Boolean = true
+): Pair<String, Boolean> {
     if (dueAtMillis == null) return "" to false
     val today = AppTime.today()
     val now = AppTime.nowMillis()
     val overdue = Format.isOverdue(dueAtMillis, today, now, hasExactTime)
-    return Format.dueLine(dueAtMillis) to overdue
+    return Format.dueLine(dueAtMillis, showWeekday = false, showTime = showTime) to overdue
 }

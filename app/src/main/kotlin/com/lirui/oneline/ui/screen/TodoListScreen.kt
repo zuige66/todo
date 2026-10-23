@@ -1256,7 +1256,12 @@ private fun SettingsScreen(
             SettingsCard {
                 ThemeDropdown(themeMode, onSetThemeMode)
                 ItemDivider()
-                PaletteDropdown(paletteId, onSetPalette)
+                // 换配色要顺手刷新组件：圆圈描边取的是当前配色的主色，
+                // 不刷新的话桌面上那个圈还是旧颜色。
+                PaletteDropdown(paletteId) { id ->
+                    onSetPalette(id)
+                    WidgetUpdater.refreshAsync(context)
+                }
                 ItemDivider()
                 // 深色模式下的卡片底色：不再用"种子色叠近黑"，而是三档明度可选。
                 ChoiceItem(
@@ -1291,38 +1296,59 @@ private fun SettingsScreen(
         }
 
         // ═══ 小组件 ═══
-        // 显示内容的三个开关。直接读写 SettingsRepo + 立即刷新组件
+        // 四个开关，直接读写 SettingsRepo + 立即刷新组件
         // （同 KeepAliveNotifEditor 的局部状态模式，不走 VM 参数链）。
+        // ★ 2026-10-23：不再按组件尺寸分档 —— vivo 桌面报的尺寸恒为 152px，
+        //   2×2 和 2×4 一样，按尺寸分开关必然出现"我明明拉到 2×4 却说我是 2×2"。
         item { SectionHeader("小组件") }
         item {
             SettingsCard {
-                var compactDate by remember {
-                    mutableStateOf(SettingsRepo.widgetCompactShowDate(context))
+                var showDate by remember {
+                    mutableStateOf(SettingsRepo.widgetShowDate(context))
                 }
-                var standardDate by remember {
-                    mutableStateOf(SettingsRepo.widgetStandardShowDate(context))
+                var dateBelow by remember {
+                    mutableStateOf(SettingsRepo.widgetDateBelow(context))
+                }
+                var dateOnly by remember {
+                    mutableStateOf(SettingsRepo.widgetDateOnly(context))
                 }
                 var hideHeader by remember {
                     mutableStateOf(SettingsRepo.widgetHideHeader(context))
                 }
                 ToggleItem(
-                    "2×2 显示日期",
-                    "默认只显示事件，防止标题被挤",
-                    compactDate,
+                    "显示日期",
+                    "关掉后只显示事件，任何尺寸都生效",
+                    showDate,
                     onChecked = { on ->
-                        SettingsRepo.setWidgetCompactShowDate(context, on)
-                        compactDate = on
+                        SettingsRepo.setWidgetShowDate(context, on)
+                        showDate = on
+                        WidgetUpdater.refreshAsync(context)
+                    }
+                )
+                ItemDivider()
+                // 优先级开关：事件优先 = 日期挪到标题下方（标题占满整行）；
+                // 日期优先 = 日期放右侧、永远完整，标题太长才省略。
+                // 一个旋钮同时决定"放哪"和"谁让位"——这两件事本来就是同一件事：
+                // 2×2 只有约 132dp 宽，右侧放日期就必然挤事件，没有第三种可能。
+                ChoiceItem(
+                    "优先显示",
+                    listOf(0 to "事件优先", 1 to "日期优先"),
+                    if (dateBelow) 0 else 1,
+                    onSelect = { value ->
+                        val below = value == 0
+                        SettingsRepo.setWidgetDateBelow(context, below)
+                        dateBelow = below
                         WidgetUpdater.refreshAsync(context)
                     }
                 )
                 ItemDivider()
                 ToggleItem(
-                    "大组件显示日期",
-                    "2×3 及以上，默认显示",
-                    standardDate,
+                    "只显示日期",
+                    "开=「10月23日」；关=「10月23日 14点」",
+                    dateOnly,
                     onChecked = { on ->
-                        SettingsRepo.setWidgetStandardShowDate(context, on)
-                        standardDate = on
+                        SettingsRepo.setWidgetDateOnly(context, on)
+                        dateOnly = on
                         WidgetUpdater.refreshAsync(context)
                     }
                 )
