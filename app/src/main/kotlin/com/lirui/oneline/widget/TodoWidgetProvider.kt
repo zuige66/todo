@@ -212,10 +212,19 @@ object WidgetUpdater {
             }
 
             // 点头部（列表以外的空白也算）→ 打开 App。
+            // ★ 打开 App 的 Intent 必须显式带上「复用已有实例」的 flag。
+            //   小组件走的是 PendingIntent.getActivity，系统会补 FLAG_ACTIVITY_NEW_TASK，
+            //   但那只决定"用哪个 task"，不决定"要不要新压一个 MainActivity"——
+            //   standard 启动模式下每次点击都会再压一个实例，用户按返回会看到
+            //   "还有一个主页面"，要点两次才退到桌面。
             val openApp = PendingIntent.getActivity(
                 context,
                 appWidgetId,
-                Intent(context, MainActivity::class.java),
+                Intent(context, MainActivity::class.java).apply {
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                        Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                        Intent.FLAG_ACTIVITY_SINGLE_TOP
+                },
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
             rv.setOnClickPendingIntent(R.id.widget_header, openApp)
@@ -309,6 +318,11 @@ object WidgetUpdater {
         val open = Intent(context, MainActivity::class.java).apply {
             putExtra("todoId", todo.id)
             data = Uri.parse("todo://open/${todo.id}")
+            // 同 widget_header：不让每次点击都新压一个 MainActivity（见上面 openApp 的注释）。
+            // data 不同会让 Intent 视为不同，所以 flag 必须写在 Intent 自己身上。
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                Intent.FLAG_ACTIVITY_SINGLE_TOP
         }
         rv.setOnClickPendingIntent(
             R.id.widget_row,

@@ -39,9 +39,16 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.Oneline">
 
+        <!-- ★ MainActivity 用 singleTask：全系统只保留一个实例。
+             原来（默认 standard）从小组件点进来时，PendingIntent.getActivity 会带
+             FLAG_ACTIVITY_NEW_TASK，同 affinity 的 task 被复用后仍然会**再压一个
+             MainActivity 实例**堆在旧的上面 —— 用户按返回看到的是下面那个实例，
+             也就是"返回后还有一个主页面"，要点两次才能真正退出。
+             配 singleTask 后任何入口（小组件 / 通知 / 桌面图标）都复用同一个实例。 -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:launchMode="singleTask"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

@@ -18,9 +18,10 @@ import androidx.room.PrimaryKey
  *   1 = daily, 7 = weekly, 30 = monthly (approx). On completion such a todo rolls forward
  *   to its next occurrence instead of being archived.
  * - [archived]: completed tasks are archived (hidden from the active list).
- * - [deletedAt]: 删除是**软删除** —— 落一个时间戳进回收站，而不是从表里抹掉。
- *   null = 没删。所有列表查询都必须带 `deletedAt IS NULL`，否则回收站里的东西会
- *   重新出现在活跃列表里（见 [com.lirui.oneline.data.TodoDao]）。
+ * - [deletedAt]: **目前未使用**。0.9.3 一度把删除做成"回收站"（软删除 + 30 天保留），
+ *   zuige 拍板不要——删除只要一次二次确认就够了。列和 DB 版本号保留在这里，
+ *   是为了避免已经装过那一版 0.9.3 的设备发生**数据库降级**（Room 会直接抛异常）。
+ *   代码里没有任何地方写它，恒为 null。
  */
 @Entity(tableName = "todos")
 data class Todo(
@@ -40,6 +41,6 @@ data class Todo(
     @ColumnInfo(defaultValue = "0") val archived: Boolean = false,
     @ColumnInfo(defaultValue = "0") val createdAt: Long = System.currentTimeMillis(),
     @ColumnInfo(defaultValue = "0") val completedAt: Long? = null,
-    /** 进回收站的时间戳；null = 不在回收站。 */
+    /** 见类注释：未使用的历史列，只为保住 DB 版本号。 */
     @ColumnInfo(defaultValue = "NULL") val deletedAt: Long? = null
 )

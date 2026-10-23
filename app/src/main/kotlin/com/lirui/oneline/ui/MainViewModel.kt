@@ -32,9 +32,7 @@ const val CIRCLE_FILL_MILLIS = 650L
 
 data class UiState(
     val active: List<Todo> = emptyList(),
-    val archived: List<Todo> = emptyList(),
-    /** 回收站（软删除，[TodoRepository.TRASH_RETENTION_DAYS] 天内可恢复）。 */
-    val trash: List<Todo> = emptyList()
+    val archived: List<Todo> = emptyList()
 )
 
 class MainViewModel(app: Application) : AndroidViewModel(app) {
@@ -43,8 +41,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val parser = Parser()
 
     val state: StateFlow<UiState> =
-        combine(repo.active, repo.archived, repo.trash) { act, arch, trash ->
-            UiState(active = act, archived = arch, trash = trash)
+        combine(repo.active, repo.archived) { act, arch ->
+            UiState(active = act, archived = arch)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), UiState())
 
     /** Latest parse result for the add sheet preview/error. */
@@ -210,25 +208,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         _pendingArchive.update { it - id }
         viewModelScope.launch {
             repo.delete(id)
-            // 删除现在是"移进回收站"，必须给一句回执 —— 否则行消失了、库没少东西，
-            // 用户不知道是被删了还是被藏了，也不敢去回收站确认。
-            _messages.tryEmit("已移到回收站，${TodoRepository.TRASH_RETENTION_DAYS} 天内可恢复")
-            WidgetUpdater.refreshAsync(getApplication())
-        }
-    }
-
-    /** 回收站 → 恢复。 */
-    fun restoreFromTrash(id: Long) {
-        viewModelScope.launch {
-            repo.restore(id)
-            WidgetUpdater.refreshAsync(getApplication())
-        }
-    }
-
-    /** 回收站 → 彻底删除（不可恢复）。 */
-    fun purgeFromTrash(id: Long) {
-        viewModelScope.launch {
-            repo.purge(id)
+            // 行直接消失，给一句回执 —— 否则用户不确定是删掉了还是被藏起来了。
+            _messages.tryEmit("已删除")
             WidgetUpdater.refreshAsync(getApplication())
         }
     }

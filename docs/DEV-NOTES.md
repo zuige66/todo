@@ -557,6 +557,13 @@ graphicsLayer 必须是链条上最靠左的那个绘制类修饰符。
 ★ 删除走 `delete()`，**立刻**撤，不等 10 秒：删除没有反悔窗口（回收站是另一回事）。
 
 ### ② 归档页「删除」→ 回收站（DB v5）
+> ⚠️ **这条已撤销（同版本内）**：zuige 决定不要回收站，"删除就多一个确认"就够了。
+> 现在归档页点「删除」弹确认对话框，确认后**硬删除**（`dao.deleteById`）。
+> **DB 版本号仍是 v5、`deletedAt` 列保留但不使用** —— 已经装过那一版 0.9.3 的设备
+> 如果能看到 v4 schema 会直接抛降级异常，不值得为删一列冒这个险。代码里没有任何地方
+> 写它，恒为 null。
+> 下面是当初的设计记录，留作参考。
+
 原来 `onDelete` 直接 `dao.deleteById(id)`，没有确认也没有撤销。而归档页每一条都是
 "已经完成过"的待办，用户容易把"清掉一条旧的"和"彻底销毁"混为一谈。
 
@@ -594,3 +601,34 @@ graphicsLayer 必须是链条上最靠左的那个绘制类修饰符。
   - 原本是单日（`start == null`）→ 这一点是**起点**，终点沿用原来那天，成区间；
   - 原本是区间 → 用户其实只想要一天，退回单日。
   混在一起会导致"从单日点一下反而把日期改掉了"。
+
+## 0.9.3 追加：撤掉回收站 + 修「返回两次主页面」（不升版本）
+
+### 删除只要一次二次确认
+zuige：不需要回收站，删除时多一个确认就行。改动：
+
+- 归档页「删除」→ 弹 `AlertDialog`「删除待办？」「「xxx」将被永久删除，无法恢复。」
+  → 确认后硬删除。恢复（`unarchive`）不弹确认 —— 它是可逆的，加确认只是拖慢。
+- 回收站相关的一整套（`trashPane` 状态、`TrashList`、`TrashEntryRow`、`restore`/`purge`、
+  `purgeExpiredTrash`、`trash` flow）全部删除。
+- **`deletedAt` 列和 DB v5 保留**：已经装过上一版 0.9.3 的设备，如果代码里 schema
+  退回 v4，Room 会判定为降级并抛异常。为删一个没人用的列冒这个险不值得。
+  `TodoDao` 里的查询也不再带 `deletedAt IS NULL`（没有地方写它，条件恒真，去掉更干净）。
+
+### 从小组件点进 App，返回时出现两份主页面
+小组件用的是 `PendingIntent.getActivity(context, requestCode, Intent(context, MainActivity::class.java), ...)`，
+**Intent 上一个 flag 都没带**。系统对 `PendingIntent.getActivity` 会补 `FLAG_ACTIVITY_NEW_TASK`，
+但那只是"用哪个 task"，不决定"要不要新压一个实例"—— MainActivity 当时是默认的
+`standard` 启动模式，于是每次点击都会在同一个 task 里**再压一个 MainActivity 实例**。
+用户按返回，看到的是下面那个实例，也就是"还有一个主页面"，要点两次才退到桌面。
+
+修法（两道都上，互为保险）：
+1. `AndroidManifest` 里 MainActivity 改 `android:launchMode="singleTask"` —— 全系统唯一实例；
+2. 所有"打开 App"的 Intent 显式带 `NEW_TASK | CLEAR_TOP | SINGLE_TOP`：
+   - 小组件的 `widget_header` / `widget_empty` / 每行 `widget_row`
+   - 通知的 `openAppIntent`
+
+★ 注意 `widget_row` 的 Intent 带 `data = todo://open/<id>`，不同行是不同 Intent，
+  flag 必须写在 Intent **自己**身上，不能只依赖外面统一的那个。
+★ `singleTask` 生效后，已有的 `onNewIntent` 不会被调用（MainActivity 本来就没重写），
+  行为不受影响；`todoId` extra 目前没有任何地方消费，属于另一个待补的缺口。

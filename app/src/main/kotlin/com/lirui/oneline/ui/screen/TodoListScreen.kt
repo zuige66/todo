@@ -10,7 +10,6 @@ import android.Manifest
 import android.os.Build
 import android.widget.Toast
 
-import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
@@ -132,7 +131,6 @@ import androidx.compose.ui.zIndex
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import com.lirui.oneline.data.TodoRepository
 import com.lirui.oneline.data.model.Todo
 import com.lirui.oneline.keepalive.DeviceCompat
 import com.lirui.oneline.keepalive.KeepAlive
@@ -229,7 +227,6 @@ fun TodoApp(
     TodoAppContent(
         active = uiState.active,
         archived = uiState.archived,
-        trash = uiState.trash,
         vm = vm,
         onExactAlarmSettings = onExactAlarmSettings,
         themeMode = themeMode,
@@ -267,7 +264,6 @@ fun TodoApp(
 private fun TodoAppContent(
     active: List<Todo>,
     archived: List<Todo>,
-    trash: List<Todo>,
     vm: MainViewModel,
     onExactAlarmSettings: () -> Unit,
     themeMode: Int,
@@ -302,8 +298,6 @@ private fun TodoAppContent(
     var editTarget by remember { mutableStateOf<Todo?>(null) }
     var justCompleted by remember { mutableStateOf<Todo?>(null) }
     var tab by remember { mutableStateOf(TAB_TODO) }
-    // 归档页内部的两个视图：归档列表 / 回收站。不占 Tab，只在归档页里切换。
-    var trashPane by remember { mutableStateOf(false) }
     val context = androidx.compose.ui.platform.LocalContext.current
     // 归档中的 id 集合由 ViewModel 持有，行被回收也不会丢 —— 见 MainViewModel.requestArchive。
     val pendingArchive by vm.pendingArchive.collectAsState()
@@ -337,13 +331,11 @@ private fun TodoAppContent(
     // ── 四个列表各自的滚动状态（提升到这里，用来驱动顶栏）──
     val todoListState = rememberLazyListState()
     val archivedListState = rememberLazyListState()
-    val trashListState = rememberLazyListState()
     val settingsListState = rememberLazyListState()
     val aboutListState = rememberLazyListState()
     val activeListState = when (tab) {
         TAB_TODO -> todoListState
-        // 归档页有两层：回收到回收站时，顶栏要跟着回收站那个列表滚，而不是归档列表。
-        TAB_ARCHIVED -> if (trashPane) trashListState else archivedListState
+        TAB_ARCHIVED -> archivedListState
         TAB_SETTINGS -> settingsListState
         else -> aboutListState
     }
@@ -391,15 +383,10 @@ private fun TodoAppContent(
 
     val title = when (tab) {
         TAB_TODO -> "Todo"
-        // 回收站是归档页的第二层，顶栏跟着变 —— 否则用户在回收站里看到的标题还是"归档"，
-        // 会以为自己在同一个列表里删东西。
-        TAB_ARCHIVED -> if (trashPane) "回收站" else "归档"
+        TAB_ARCHIVED -> "归档"
         TAB_SETTINGS -> "设置"
         else -> "关于"
     }
-
-    // 回收站里点系统返回 = 回归档页，而不是直接退出 App。
-    BackHandler(enabled = tab == TAB_ARCHIVED && trashPane) { trashPane = false }
 
     Box(Modifier.fillMaxSize()) {
         Scaffold(
@@ -476,26 +463,13 @@ private fun TodoAppContent(
                         },
                         listState = todoListState
                     )
-                    TAB_ARCHIVED -> if (trashPane) {
-                        TrashList(
-                            trash,
-                            onRestore = { vm.restoreFromTrash(it) },
-                            onPurge = { vm.purgeFromTrash(it) },
-                            onBack = { trashPane = false },
-                            listState = trashListState,
-                            topInset = statusBarDp
-                        )
-                    } else {
-                        ArchivedList(
-                            archived,
-                            trashCount = trash.size,
-                            onOpenTrash = { trashPane = true },
-                            onRestore = { vm.unarchive(it) },
-                            onDelete = { vm.delete(it) },
-                            listState = archivedListState,
-                            topInset = statusBarDp
-                        )
-                    }
+                    TAB_ARCHIVED -> ArchivedList(
+                        archived,
+                        onRestore = { vm.unarchive(it) },
+                        onDelete = { vm.delete(it) },
+                        listState = archivedListState,
+                        topInset = statusBarDp
+                    )
                     TAB_SETTINGS -> SettingsScreen(
                         themeMode = themeMode,
                         onSetThemeMode = onSetThemeMode,
@@ -1011,13 +985,26 @@ private fun BucketHeader(bucket: HomeBucket, modifier: Modifier = Modifier) {
 @Composable
 private fun ArchivedList(
     archived: List<Todo>,
-    trashCount: Int,
-    onOpenTrash: () -> Unit,
     onRestore: (Long) -> Unit,
     onDelete: (Long) -> Unit,
     listState: LazyListState,
     topInset: Dp = 0.dp
 ) {
+    // 待确认删除的那一条。删除是**硬删除、不可恢复**，所以必须先问一次 ——
+    // 归档页每一条都已经完成过，用户很容易把"清掉一条旧记录"和"就这么留着"看混。
+    var deleteTarget by remember { mutableStateOf<Todo?>(null) }
+    val empty = archived.isEmpty()
+
+    AnimatedVisibility(
+        visible = empty,
+        enter = fadeIn(tween(240)),
+        exit = fadeOut(tween(120)),
+        modifier = Modifier.fillMaxSize()
+    ) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text("还没有已归档的待办", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
     LazyColumn(
         state = listState,
         modifier = Modifier.fillMaxSize(),
@@ -1026,15 +1013,6 @@ private fun ArchivedList(
             bottom = 8.dp
         )
     ) {
-        // ★ 回收站入口是列表的**第一项**，不是"归档为空时才浮出来的按钮"。
-        //   归档一旦清空，浮层式入口就没了，用户再也进不去回收站 —— 而"刚清空归档想反悔"
-        //   恰恰是最需要回收站的时候。
-        item(key = "trash-entry") {
-            TrashEntryRow(count = trashCount, onClick = onOpenTrash)
-        }
-        if (archived.isEmpty()) {
-            item(key = "empty") { EmptyHint("还没有已归档的待办") }
-        }
         items(archived, key = { it.id }) { todo ->
             // Same tinted card as an active todo, so the two lists look consistent.
             Row(
@@ -1082,173 +1060,31 @@ private fun ArchivedList(
                         .padding(horizontal = 8.dp, vertical = 4.dp)
                 )
                 Text(
-                    // 文案从「删除」改成「移除」：这一步只是移进回收站，不是销毁。
-                    // 叫「删除」会让人以为已经没了，也就不敢点。
-                    "移除",
+                    "删除",
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.error,
                     modifier = Modifier
-                        .clickable { onDelete(todo.id) }
+                        // 只记下"待确认的那一条"，真正删除在对话框的确认按钮里。
+                        .clickable { deleteTarget = todo }
                         .padding(horizontal = 8.dp, vertical = 4.dp)
                 )
             }
         }
     }
-}
 
-/** 归档页第一项：进回收站。数量为 0 时也保留，只是右侧显示「空」。 */
-@Composable
-private fun TrashEntryRow(count: Int, onClick: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 3.dp)
-            .clip(RoundedCornerShape(20.dp))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(
-            "回收站",
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurface
-        )
-        Text(
-            if (count > 0) "$count 条" else "空",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.outline,
-            modifier = Modifier.padding(start = 8.dp)
-        )
-        Spacer(Modifier.weight(1f))
-        Text(
-            "›",
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.outline
-        )
-    }
-}
-
-/** 列表内空态。装进 LazyColumn 当一项，而不是盖在整个列表上 —— 上面还有「回收站」入口要留住。 */
-@Composable
-private fun EmptyHint(text: String) {
-    Box(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 40.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(text, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-}
-
-/**
- * 回收站列表。
- *
- * 「彻底删除」要二次确认：这一层已经是"删过一遍"的地方，用户走到这里通常是来找回东西的，
- * 误触的代价是永久丢失。恢复则不需要确认 —— 它是可逆的，加确认只会拖慢。
- */
-@Composable
-private fun TrashList(
-    trash: List<Todo>,
-    onRestore: (Long) -> Unit,
-    onPurge: (Long) -> Unit,
-    onBack: () -> Unit,
-    listState: LazyListState,
-    topInset: Dp = 0.dp
-) {
-    var purgeTarget by remember { mutableStateOf<Todo?>(null) }
-
-    LazyColumn(
-        state = listState,
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(
-            top = topInset + TOP_BAR_BODY_HEIGHT + 8.dp,
-            bottom = 8.dp
-        )
-    ) {
-        item(key = "back") {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 3.dp)
-                    .clip(RoundedCornerShape(20.dp))
-                    .clickable(onClick = onBack)
-                    .padding(horizontal = 14.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    "‹ 归档",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.primary
-                )
-                Spacer(Modifier.weight(1f))
-                Text(
-                    "保留 ${TodoRepository.TRASH_RETENTION_DAYS} 天",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.outline
-                )
-            }
-        }
-        if (trash.isEmpty()) {
-            item(key = "empty") { EmptyHint("回收站是空的") }
-        }
-        items(trash, key = { it.id }) { todo ->
-            Row(
-                modifier = Modifier
-                    .animateItem()
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 3.dp)
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(MaterialTheme.colorScheme.cardBackground)
-                    .padding(horizontal = 14.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        todo.title,
-                        style = MaterialTheme.typography.bodyLarge,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        // 删除时间比待办本身的日期更有用：回收站里找的是"我什么时候删的"。
-                        "删除于 " + todo.deletedAt?.let { Format.monthDay(Format.dueAtMillis(it)) }.orEmpty(),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.outline
-                    )
-                }
-                Text(
-                    "恢复",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier
-                        .clickable { onRestore(todo.id) }
-                        .padding(horizontal = 8.dp, vertical = 4.dp)
-                )
-                Text(
-                    "彻底删除",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier
-                        .clickable { purgeTarget = todo }
-                        .padding(start = 8.dp, end = 4.dp, top = 4.dp, bottom = 4.dp)
-                )
-            }
-        }
-    }
-
-    purgeTarget?.let { target ->
+    deleteTarget?.let { target ->
         AlertDialog(
-            onDismissRequest = { purgeTarget = null },
-            title = { Text("彻底删除？") },
-            text = { Text("「${target.title}」将从回收站永久移除，无法恢复。") },
+            onDismissRequest = { deleteTarget = null },
+            title = { Text("删除待办？") },
+            text = { Text("「${target.title}」将被永久删除，无法恢复。") },
             confirmButton = {
                 TextButton(onClick = {
-                    onPurge(target.id)
-                    purgeTarget = null
+                    onDelete(target.id)
+                    deleteTarget = null
                 }) { Text("删除") }
             },
             dismissButton = {
-                TextButton(onClick = { purgeTarget = null }) { Text("取消") }
+                TextButton(onClick = { deleteTarget = null }) { Text("取消") }
             }
         )
     }

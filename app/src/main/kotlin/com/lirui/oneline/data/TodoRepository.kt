@@ -21,16 +21,8 @@ class TodoRepository(private val context: Context) {
 
     private val dao = AppDatabase.get(context).todoDao()
 
-    companion object {
-        /** 回收站保留天数 —— 超过这个天数的软删除记录在冷启动时被真正清掉。 */
-        const val TRASH_RETENTION_DAYS = 30L
-    }
-
     val active: Flow<List<Todo>> = dao.observeActive()
     val archived: Flow<List<Todo>> = dao.observeArchived()
-
-    /** 回收站内容（软删除的待办）。 */
-    val trash: Flow<List<Todo>> = dao.observeTrash()
 
     suspend fun addFromParsed(parsed: ParsedTodo): Long {
         val due = parsedToDue(parsed)
@@ -168,13 +160,12 @@ class TodoRepository(private val context: Context) {
     }
 
     /**
-     * 移入回收站（软删除）。
+     * 删除（硬删除，不可恢复）。
      *
-     * 为什么不是 `DELETE FROM`：删除入口在归档页，那里每条都是**已经完成过的**待办，
-     * 用户容易把"清掉一条旧的"和"彻底销毁"混为一谈，点错就再也找不回来。
-     * 现在落一个 `deletedAt` 时间戳，[TRASH_RETENTION_DAYS] 天内可以恢复。
+     * 入口在归档页，点「删除」会先弹确认对话框 —— 确认只有一道，但必须有：
+     * 这条待办已经完成过，用户很容易把"清掉一条旧记录"和"就这么留着"看混。
      *
-     * 闹钟和通知要**立刻**撤：待办已经不在任何列表里，留着闹钟只会在几分钟后弹出一条
+     * 闹钟和通知要**立刻**撤：待办已经从表里消失，留着闹钟只会在几分钟后弹出一条
      * 点进去找不到东西的提醒。延时撤通知那套（[NotificationDismissScheduler]）是给
      * "完成"用的 —— 删除没有反悔窗口，不需要留。
      */
@@ -182,35 +173,7 @@ class TodoRepository(private val context: Context) {
         NotificationDismissScheduler.cancelScheduled(id)
         NotificationHelper.cancelReminder(context, id)
         ReminderScheduler.cancelForId(context, id)
-        dao.softDeleteById(id, System.currentTimeMillis())
-    }
-
-    /** 从回收站恢复；原本是活跃待办的话，把提醒重新排上。 */
-    suspend fun restore(id: Long) {
-        dao.restoreById(id)
-        val todo = dao.getById(id) ?: return
-        if (!todo.archived) {
-            todo.dueAtMillis?.let { due ->
-                ReminderScheduler.scheduleFor(context, id, due, todo.hasExactTime, todo.startAtMillis)
-            }
-        }
-    }
-
-    /** 彻底删除（不可恢复）。 */
-    suspend fun purge(id: Long) {
-        NotificationDismissScheduler.cancelScheduled(id)
-        NotificationHelper.cancelReminder(context, id)
-        ReminderScheduler.cancelForId(context, id)
         dao.deleteById(id)
-    }
-
-    /**
-     * 清理超过保留期的回收站条目。
-     *
-     * 由 [OnelineApp] 在冷启动时调用（不需要精确的时间点，差一天没人会发现）。
-     */
-    suspend fun purgeExpiredTrash(nowMillis: Long = System.currentTimeMillis()) {
-        dao.purgeDeletedBefore(nowMillis - TRASH_RETENTION_DAYS * 24L * 60 * 60 * 1000)
     }
 
     /** Replace a todo's content (title / due / exact / repeat) from a fresh parse. */

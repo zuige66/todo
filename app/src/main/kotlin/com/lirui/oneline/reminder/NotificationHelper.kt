@@ -250,7 +250,13 @@ object NotificationHelper {
     private fun openAppIntent(context: Context, todoId: Long, done: Boolean): PendingIntent {
         val intent = Intent(context, MainActivity::class.java).apply {
             action = "com.lirui.oneline.OPEN_TODO"
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            // CLEAR_TOP 把已有实例上面的东西清掉；SINGLE_TOP 让"已经在栈顶"时**复用**
+            // 而不是销毁重建（只给 CLEAR_TOP 的话，standard 模式下会重建一个新实例，
+            // 视觉上闪一下、并且丢失当前会话状态）。MainActivity 现为 singleTask，
+            // 这两个 flag 是双保险。
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                Intent.FLAG_ACTIVITY_SINGLE_TOP
             putExtra(EXTRA_TODO_ID, todoId)
         }
         return PendingIntent.getActivity(
