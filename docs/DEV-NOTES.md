@@ -672,3 +672,50 @@ db.execSQL("ALTER TABLE todos ADD COLUMN deletedAt INTEGER")
   这次全套静态检查 + 248 条单测全绿，照样一装就崩。
 - 想彻底避开这类问题：**不要给没人用的字段加 `defaultValue`**。这次那个列本来就是
   留占位用的，如果写成 `@ColumnInfo` 什么都不填，migration 里那句反而是对的。
+
+## 0.9.3 补丁二：通知文案收口 + 小组件完成漏接的通知 + 撤回不回退开始日
+
+### 1. kind → 通知状态语：只允许有一个出处（P1-2）
+
+`Reminder` 曾经自带 `message` 字段，`ReminderReceiver` 投递时又自己 `when` 了一遍 ——
+两处各写一遍，必然漂：
+
+- START：engine 写「今天开始」，receiver 的 when 没有 START 分支、落到 `else`，
+  用户看到的是「出差 **提醒**」；
+- DUE 早就漂了没人发现：engine 写「到时间了：10月25日」，通知上显示的其实是用户在
+  设置里改的词 —— 因为 engine 的 message 在生产环境**零消费**。
+
+改法（用户拍板 B 方案）：
+
+- **删掉** `Reminder.message` 字段，`Reminder` 只留 `fireAtMillis + kind`；
+- `ReminderEngine.messageFor(kind, dueWord)` 成为唯一出处，在**读得到用户设置**的那
+  一侧（receiver）生成；`kind = null`（新版排的闹钟被旧版收到）返回「提醒」兜底；
+- 单测补两条：全 kind 断言 + 「每个 kind 文案不重复」（新增 kind 忘加分支会红）。
+
+教训和 `ALTER TABLE` 那次同构：**同一个事实存在两份定义，静态检查和单测都抓不到 drift**，
+因为两份各自看都是"对的"。消歧的唯一办法是让另一份不存在。
+
+### 2. 归档后撤通知：收口到 repository（P1-1）
+
+1896f53 把「10 秒后撤通知」接在了 `MainViewModel.requestArchive` 一处，漏了小组件那条路
+（`TodoWidgetActionReceiver.archiveWithTick` 直调 `repo.archive`）：
+
+- 普通待办：归档了通知还挂着，点通知「完成」因 `todo.archived` 静默失败；
+- 重复待办：顺延后通知还挂着且「完成」仍有效 → 再点一次**二次顺延，跳过一个周期**。
+
+改法：`scheduleCancel` 下沉进 `TodoRepository.archive()`，三个入口共用；
+通知栏「完成」那条路刻意不撤（done 态常驻才能随时撤回），由
+`completeFromNotification` 重发 done 后 `cancelScheduled` 把自己摘出来。
+`unarchive` 对称地补上 `cancelScheduled`（重复任务的撤回不走 unarchive，
+那条路由 NotificationActionReceiver 自己摘）。
+
+### 3. 撤回重复+时间段待办：开始日要同步回退（P2-1）
+
+`rollForward` 顺延时开始日平移了 `nextEpoch - due`，`undoFromNotification` 却只回退
+due，`startAtMillis` 原样留着 → `start > due`：列表显示「10月27日–26日」倒挂文案，
+`isInProgress` 恒 false，START 提醒也不再排。
+
+触发路径很窄但 0.9.3 刚打通：解析器一句里不支持重复+区间（`Parser.stripRange` 有拦截），
+但「编辑一条重复待办 + 预览卡『+ 时间段』chip」可以造出来。
+
+单测 248 → 250 全绿。P2-2（无日期待办设时间被静默丢弃）未动，等产品预期。

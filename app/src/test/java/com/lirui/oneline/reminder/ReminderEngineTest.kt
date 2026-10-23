@@ -190,7 +190,9 @@ class ReminderEngineTest {
         val r = computeRange(startAt = due(2026, 10, 25, 0, 0), dueAt = due(2026, 11, 1))
         val start = r.single { it.kind == ReminderEngine.Reminder.Kind.START }
         assertEquals(due(2026, 10, 25, 9, 0), start.fireAtMillis)
-        assertEquals("今天开始", start.message)
+        // 通知上的状态语在 messageFor（投递时才读得到用户改的 DUE 文案），
+        // Reminder 不再自带 message —— 两处各写一遍正是 0.9.3「出差 提醒」的根因。
+        assertEquals("今天开始", ReminderEngine.messageFor(start.kind))
     }
 
     @Test fun range_startReminder_isSortedBeforeDue() {
@@ -221,5 +223,42 @@ class ReminderEngineTest {
     @Test fun singleDay_hasNoStartReminder() {
         val r = computeRange(startAt = 0L, dueAt = due(2026, 10, 25))
         assertTrue(r.none { it.kind == ReminderEngine.Reminder.Kind.START })
+    }
+
+    // --- kind → 通知状态语（唯一出处，ReminderReceiver 投递时调用）---
+
+    @Test fun messageFor_覆盖每个_kind() {
+        // 0.9.3 的回归测试：START 曾经在 receiver 的 when 里没有分支，落到 else，
+        // 用户看到的是「出差 提醒」而不是「出差 今天开始」。
+        assertEquals("提前提醒", ReminderEngine.messageFor(ReminderEngine.Reminder.Kind.GRADED))
+        assertEquals("1小时后到期", ReminderEngine.messageFor(ReminderEngine.Reminder.Kind.EXACT_PREP))
+        assertEquals(
+            "该办了",
+            ReminderEngine.messageFor(ReminderEngine.Reminder.Kind.DUE)
+        )
+        // 只有 DUE 读用户设的词，其余 kind 是固定语义（dueWord 传了也不该变）。
+        assertEquals(
+            "用户自己改的词",
+            ReminderEngine.messageFor(ReminderEngine.Reminder.Kind.DUE, "用户自己改的词")
+        )
+        assertEquals(
+            "提前提醒",
+            ReminderEngine.messageFor(ReminderEngine.Reminder.Kind.GRADED, "用户自己改的词")
+        )
+        assertEquals(
+            "还没完成，别忘了哦",
+            ReminderEngine.messageFor(ReminderEngine.Reminder.Kind.OVERDUE)
+        )
+        assertEquals("今天开始", ReminderEngine.messageFor(ReminderEngine.Reminder.Kind.START))
+        // 跨版本遗留闹钟：此版本不认识的 ordinal，返回最通用的一句而不是崩。
+        assertEquals("提醒", ReminderEngine.messageFor(null))
+    }
+
+    @Test fun messageFor_每个_kind_都有专属文案() {
+        // 防回归：新增 kind 时如果忘了加分支，两个 kind 会共用同一句文案。
+        val words = ReminderEngine.Reminder.Kind.values()
+            .map { ReminderEngine.messageFor(it) }
+            .toSet()
+        assertEquals(ReminderEngine.Reminder.Kind.values().size, words.size)
     }
 }

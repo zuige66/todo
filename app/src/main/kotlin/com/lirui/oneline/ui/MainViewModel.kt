@@ -172,12 +172,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 // ★ 动画期间被撤销（CompletedBar 的「撤销」）：pending 已被 unarchive 清掉，
                 // 这里必须收手，否则 650ms 一到照样写库，撤销就成了假动作。
                 if (id !in _pendingArchive.value) return@launch
-                if (repo.archive(id)) {
-                    // ★ 不立刻撤通知：通知上带着「撤回」，立即撤掉等于把反悔的入口砍了。
-                    //   延迟 10 秒再撤，期间任何一次 unarchive 都会取消这个定时器
-                    //   （见 NotificationDismissScheduler 的类注释）。
-                    NotificationDismissScheduler.scheduleCancel(getApplication(), id)
-                } else {
+                // 「10 秒后撤通知」排在 archive 内部（见 TodoRepository.archive）——
+                // 三个入口共用一套。0.9.3 只在这里显式调过一次，小组件那条路漏接，
+                // 通知永不撤；现在收口到 repository，新增入口不会再漏。
+                if (!repo.archive(id)) {
                     _messages.tryEmit("这条待办已经不在了")
                 }
                 WidgetUpdater.refreshAsync(getApplication())

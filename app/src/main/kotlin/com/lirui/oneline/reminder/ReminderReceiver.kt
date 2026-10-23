@@ -33,18 +33,15 @@ class ReminderReceiver : BroadcastReceiver() {
                 val todo = dao.getById(todoId)
                 if (todo != null && !todo.archived) {
                     // DUE 的状态语「该办了」允许用户在设置页改；
-                    // 其余三种是固定语义（提前提醒 / 1小时后到期 / 还没完成），不开放自定义。
+                    // 其余是固定语义（提前提醒 / 1小时后到期 / 还没完成 / 今天开始）。
+                    // ★ 映射只在 engine 里有一份（messageFor）。0.9.3 曾在这里另写一个
+                    //   when，漏了 START 分支 → 时间段开始日那天用户看到的是「出差 提醒」。
                     val dueWord = SettingsRepo.notificationStyle(appContext).dueWord
-                    val message = when (ReminderEngine.Reminder.Kind.entries.getOrNull(kind)) {
-                        ReminderEngine.Reminder.Kind.GRADED -> "提前提醒"
-                        ReminderEngine.Reminder.Kind.EXACT_PREP -> "1小时后到期"
-                        ReminderEngine.Reminder.Kind.DUE -> dueWord
-                        ReminderEngine.Reminder.Kind.OVERDUE -> "还没完成，别忘了哦"
-                        else -> "提醒"
-                    }
+                    val reminderKind = ReminderEngine.Reminder.Kind.entries.getOrNull(kind)
+                    val message = ReminderEngine.messageFor(reminderKind, dueWord)
                     NotificationHelper.postReminder(appContext, todo.id, todo.title, message)
                     // OVERDUE: reschedule the next nag so a still-unfinished todo keeps nagging.
-                    if (ReminderEngine.Reminder.Kind.entries.getOrNull(kind) == ReminderEngine.Reminder.Kind.OVERDUE) {
+                    if (reminderKind == ReminderEngine.Reminder.Kind.OVERDUE) {
                         if (ReminderScheduler.overdueNagActive(appContext)) {
                             ReminderScheduler.reScheduleOverdue(appContext, todo)
                         }

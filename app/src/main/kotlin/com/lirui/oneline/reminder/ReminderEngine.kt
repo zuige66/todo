@@ -28,14 +28,39 @@ object ReminderEngine {
     /** One reminder point: a concrete wall-clock instant to fire a notification at. */
     data class Reminder(
         val fireAtMillis: Long,
-        val kind: Kind,
-        val message: String
+        val kind: Kind
     ) {
         /**
          * ★ 新增 kind 只能往后追加。ordinal 就是 PendingIntent 的 requestCode 尾数
          *   （`todoId*10 + ordinal`），插在中间会让已有闹钟整体错位、cancel 不掉。
          */
         enum class Kind { GRADED, EXACT_PREP, DUE, OVERDUE, START }
+    }
+
+    /** DUE 的默认状态语。设置页可改（[com.lirui.oneline.util.SettingsRepo.notificationStyle]）。 */
+    const val DEFAULT_DUE_WORD = "该办了"
+
+    /**
+     * kind → 通知状态语。**全 App 唯一出处**，投递时（[ReminderReceiver]）调用。
+     *
+     * ★ 为什么值得单独立一个函数：0.9.3 的 bug 就是"两处各写一遍"——[Reminder] 曾经
+     *   自带 message 字段，receiver 又自己 when 了一遍。engine 给 START 写了「今天开始」，
+     *   receiver 的 when 没有 START 分支、落到 else，用户看到的是「出差 提醒」。
+     *   而 DUE 早就漂了没人发现：engine 写「到时间了：10月25日」，通知上显示的
+     *   其实是用户在设置里改的词——因为 engine 的 message 在生产环境零消费。
+     *   文案只允许有一个出处，且必须在**读得到用户设置**的那一侧生成。
+     *
+     * @param dueWord 只有 [Reminder.Kind.DUE] 用它（设置页可改）；其余 kind 是固定语义。
+     * @param kind null = 闹钟里躺着此版本不认识的 ordinal（新版排的闹钟被旧版收到），
+     *   返回最通用的「提醒」而不是崩。
+     */
+    fun messageFor(kind: Reminder.Kind?, dueWord: String = DEFAULT_DUE_WORD): String = when (kind) {
+        Reminder.Kind.GRADED -> "提前提醒"
+        Reminder.Kind.EXACT_PREP -> "1小时后到期"
+        Reminder.Kind.DUE -> dueWord
+        Reminder.Kind.OVERDUE -> "还没完成，别忘了哦"
+        Reminder.Kind.START -> "今天开始"
+        null -> "提醒"
     }
 
     /**
@@ -88,11 +113,7 @@ object ReminderEngine {
         // 这修复了"当天到期却没有提醒"的问题（此前只有提前提醒，当天到期可能一条都不发）。
         val dueMs = due.toInstant().toEpochMilli()
         if (dueMs >= now.toInstant().toEpochMilli()) {
-            val dueReminder = Reminder(
-                dueMs,
-                Reminder.Kind.DUE,
-                "到时间了：${due.toLocalDate()}"
-            )
+            val dueReminder = Reminder(dueMs, Reminder.Kind.DUE)
             // 不与同刻的其它提醒重复（如也是正点到期的 exact prep）。
             if (reminders.none { it.fireAtMillis == dueMs }) {
                 reminders += dueReminder
@@ -128,11 +149,7 @@ object ReminderEngine {
         val stepMs = hours * 3600_000L
         val firstNagMs = dueAtMillis + stepMs
         val steps = if (firstNagMs >= nowMillis) 0L else ((nowMillis - firstNagMs) / stepMs) + 1L
-        return Reminder(
-            firstNagMs + steps * stepMs,
-            Reminder.Kind.OVERDUE,
-            "未完成：已逾期，记得处理"
-        )
+        return Reminder(firstNagMs + steps * stepMs, Reminder.Kind.OVERDUE)
     }
 
     /**
@@ -163,8 +180,9 @@ object ReminderEngine {
      *   但解析器/老数据可能出现，防御性跳过，否则会跟 DUE 同一天响两次）
      * - 开始日已经在过去 → 不补发（用户是在看一条历史区间，不是刚新建）
      *
-     * 文案故意只说「今天开始」，不带日期：通知标题会拼成「出差 今天开始」，
-     * 那一天的语境已经由"今天"承担，再塞一个日期是多余的。
+     * 通知上的状态语是「今天开始」，不带日期 —— 那一天的时间语境已经由"今天"承担。
+     * 文案在 [messageFor] 里，不在这里：0.9.3 曾在这里写一句、receiver 再写一遍，
+     * 两边漂过（见 [messageFor] 的注释）。
      */
     private fun startReminder(
         startAtMillis: Long?,
@@ -186,7 +204,7 @@ object ReminderEngine {
         ).toInstant().toEpochMilli()
         if (fireMs < now.toInstant().toEpochMilli()) return null
 
-        return Reminder(fireMs, Reminder.Kind.START, "今天开始")
+        return Reminder(fireMs, Reminder.Kind.START)
     }
 
     private fun gradedReminder(
@@ -196,14 +214,10 @@ object ReminderEngine {
         zone: ZoneId
     ): Reminder? {
         return when {
-            days >= 30 -> atDayTime(due.minusDays(7), 21, 0, now, zone,
-                Reminder.Kind.GRADED, "提前一周提醒：${due.toLocalDate()}")
-            days >= 7 -> atDayTime(due.minusDays(3), 21, 0, now, zone,
-                Reminder.Kind.GRADED, "提前3天提醒：${due.toLocalDate()}")
-            days >= 2 -> atDayTime(due.minusDays(1), 21, 0, now, zone,
-                Reminder.Kind.GRADED, "明天到期")
-            days == 1L -> atDayTime(due.minusDays(1), 12, 0, now, zone,
-                Reminder.Kind.GRADED, "明天到期，别忘了")
+            days >= 30 -> atDayTime(due.minusDays(7), 21, 0, now, zone, Reminder.Kind.GRADED)
+            days >= 7 -> atDayTime(due.minusDays(3), 21, 0, now, zone, Reminder.Kind.GRADED)
+            days >= 2 -> atDayTime(due.minusDays(1), 21, 0, now, zone, Reminder.Kind.GRADED)
+            days == 1L -> atDayTime(due.minusDays(1), 12, 0, now, zone, Reminder.Kind.GRADED)
             days == 0L -> null // today: handled immediately by caller
             else -> null // overdue
         }
@@ -215,8 +229,7 @@ object ReminderEngine {
         minute: Int,
         now: ZonedDateTime,
         zone: ZoneId,
-        kind: Reminder.Kind,
-        message: String
+        kind: Reminder.Kind
     ): Reminder? {
         val fire = ZonedDateTime.of(
             target.toLocalDate().atTime(hour, minute), zone
@@ -224,7 +237,7 @@ object ReminderEngine {
         val fireMs = fire.toInstant().toEpochMilli()
         // Only now-or-future points fire (>= so an exact-now target isn't dropped).
         return if (fireMs >= now.toInstant().toEpochMilli()) {
-            Reminder(fireMs, kind, message)
+            Reminder(fireMs, kind)
         } else null
     }
 
@@ -236,7 +249,7 @@ object ReminderEngine {
         val fire = due.minusHours(1)
         val fireMs = fire.toInstant().toEpochMilli()
         return if (fireMs >= now.toInstant().toEpochMilli()) {
-            Reminder(fireMs, Reminder.Kind.EXACT_PREP, "1小时后到期：${due.toLocalDate()}")
+            Reminder(fireMs, Reminder.Kind.EXACT_PREP)
         } else null
     }
 }

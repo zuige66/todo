@@ -106,10 +106,19 @@ class TodoRepository(private val context: Context) {
         // A repeating todo rolls to its next occurrence instead of being archived.
         if (todo.repeatDays > 0 && SettingsRepo.autoRepeatEnabled(context)) {
             rollForward(todo)
-            return true
+        } else {
+            dao.update(todo.copy(archived = true, completedAt = System.currentTimeMillis()))
+            ReminderScheduler.cancelForId(context, id)
         }
-        dao.update(todo.copy(archived = true, completedAt = System.currentTimeMillis()))
-        ReminderScheduler.cancelForId(context, id)
+        // ★ 归档后排一个「10 秒后撤通知」，**三个入口共用这一处**：
+        //   通知上带着「撤回」，是反悔的第二条路（应用内撤销条只活 3 秒），不能立刻撤；
+        //   但也不能永不撤——待办已归档，通知还挂着「该办了」，点「完成」还会静默失败。
+        //   - 应用内点圆圈 / 右滑、小组件圆圈：10 秒内反悔（unarchive）会取消这个定时器；
+        //   - 小组件那条路 0.9.3 漏接过：通知永不撤，且重复待办再点一次通知「完成」
+        //     会二次顺延、直接跳过一个周期（窗口从"永远"缩到 10 秒）；
+        //   - 通知栏「完成」刻意**不撤**（done 态常驻才能随时撤回），由
+        //     [completeFromNotification] 重发 done 后调 cancelScheduled 把自己摘出来。
+        NotificationDismissScheduler.scheduleCancel(context, id)
         return true
     }
 
@@ -151,6 +160,11 @@ class TodoRepository(private val context: Context) {
     }
 
     suspend fun unarchive(id: Long) {
+        // 待办回到活跃状态：撤掉归档时排的「10 秒后撤通知」（[archive] 里那一个）。
+        // 收在 repository 里，和 archive 成对 —— 调用方（应用内撤销条 / 归档页恢复 /
+        // 通知栏撤回）不用各自记得 cancel。重复任务的撤回不走这里（见
+        // [undoFromNotification]），那条路由 NotificationActionReceiver 自己摘定时器。
+        NotificationDismissScheduler.cancelScheduled(id)
         dao.getById(id)?.let {
             dao.update(it.copy(archived = false, completedAt = null))
             it.dueAtMillis?.let { due ->
@@ -211,6 +225,10 @@ class TodoRepository(private val context: Context) {
      */
     suspend fun completeFromNotification(id: Long) {
         archive(id)
+        // 通知栏「完成」刻意**不**撤通知：done 态带着「撤回」按钮，是这条路自己的反悔入口
+        // （与应用内的 10 秒窗口不同，这里要能随时撤回）。把 archive 里排的延时撤通知
+        // 摘掉，否则 10 秒后这条 done 通知会被自己人撤掉。
+        NotificationDismissScheduler.cancelScheduled(id)
     }
     /**
      * Notification 「撤回」action — the inverse of [completeFromNotification].
@@ -225,19 +243,28 @@ class TodoRepository(private val context: Context) {
     suspend fun undoFromNotification(id: Long): Todo? {
         val todo = dao.getById(id) ?: return null
         if (todo.repeatDays > 0 && SettingsRepo.autoRepeatEnabled(context)) {
-            val prev = ReminderEngine.previousOccurrence(todo.dueAtMillis, todo.repeatDays)
-            if (prev != null) {
+            val cur = todo.dueAtMillis
+            val prev = ReminderEngine.previousOccurrence(cur, todo.repeatDays)
+            if (prev != null && cur != null) {
+                // 开始日必须跟 due 回退**同样的幅度**——rollForward 顺延时平移的就是
+                // `nextEpoch - due`（见 [rollForward]）。只回退 due 的话，重复+时间段
+                // 的待办撤回后会留下 start > due：列表显示「10月27日–26日」这种倒挂文案，
+                // isInProgress 恒 false，START 提醒也不再排（start >= due 被跳过）。
+                // 重复+区间只能从「编辑一条重复待办 + 预览卡『+ 时间段』」造出来——
+                // 解析器一句里不支持（Parser.stripRange 有拦截），所以这条路径很窄，
+                // 但一旦踩到就是坏数据。
+                val prevStart = todo.startAtMillis?.let { it - (cur - prev) }
                 dao.updateContent(
                     id = todo.id,
                     title = todo.title,
                     detail = todo.detail,
                     dueAtMillis = prev,
-                    startAtMillis = todo.startAtMillis,
+                    startAtMillis = prevStart,
                     hasExactTime = todo.hasExactTime,
                     repeatDays = todo.repeatDays
                 )
                 ReminderScheduler.scheduleBlocking(
-                    context, todo.id, prev, todo.hasExactTime, todo.startAtMillis
+                    context, todo.id, prev, todo.hasExactTime, prevStart
                 )
             }
             // No-date repeat: there is no period to roll back, nothing to do.
