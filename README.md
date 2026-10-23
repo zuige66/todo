@@ -33,8 +33,31 @@
 
 ---
 
+## 界面截图
+
+<p align="center">
+  <img src="docs/screenshots/home.jpg" width="230" alt="首页" />
+  &nbsp;&nbsp;
+  <img src="docs/screenshots/add.jpg" width="230" alt="添加待办" />
+  &nbsp;&nbsp;
+  <img src="docs/screenshots/widget.jpg" width="230" alt="桌面小组件" />
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/settings.jpg" width="230" alt="设置" />
+  &nbsp;&nbsp;
+  <img src="docs/screenshots/archive.jpg" width="230" alt="归档" />
+</p>
+
+左起：**首页**（逾期 / 无期 / 今天 / 本周 / 更晚按板块分组）、**一句话添加**
+（"周五下午开会。"自动解析出日期与时间）、**桌面小组件**（点行首圆圈直接完成）、
+**设置**、**归档**（恢复 / 删除，删除需二次确认）。
+
+---
+
 ## 目录
 
+- [界面截图](#界面截图)
 - [为什么是"一句话"](#为什么是一句话)
 - [一句话输入](#一句话输入)
 - [首页](#首页)
@@ -444,6 +467,7 @@ adb install -r app/build/outputs/apk/release/app-release.apk
 | 文件 | 内容 |
 |---|---|
 | [DESIGN.md](DESIGN.md) | 设计决策、解析语义、踩过的坑与源码级结论 |
+| [COPY.md](docs/COPY.md) | 对外分享文案：小红书短文案 + 酷安首发长文案 |
 | [QUOTES.md](QUOTES.md) | 通知文案池 |
 | [SMOKE-REPORT.md](SMOKE-REPORT.md) | 真机冒烟验证记录 |
 
