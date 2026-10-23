@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  小组件的底板：圆角实色。
+
+  为什么不用纯色 `@color/widget_bg` 当背景：
+  纯色 drawable 是**直角矩形**，铺到桌面上就是一个方块。澎湃 3 / HyperOS 上
+  桌面上所有组件都是圆角，只有我们这个是直角的，看起来像贴了一张截图（zuige 2026-10-23 反馈）。
+
+  ★ 系统**不会**帮自定义背景裁圆角：Android 12 只是提供了
+    `@android:dimen/system_app_widget_background_radius` 这个"建议半径"给开发者用，
+    它不会自动套到你的 background 上。所以得自己画。
+
+  ★ 半径走 `@dimen/widget_corner_radius`：Android 12+ 直接跟随系统值
+    （values-v31 里指向 system_app_widget_background_radius），
+    低版本回落到 values/dimens.xml 的 20dp，跟澎湃/ColorOS 观感接近。
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/widget_bg" />
+    <corners android:radius="@dimen/widget_corner_radius" />
+</shape>

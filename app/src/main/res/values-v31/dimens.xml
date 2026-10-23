@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 12+ 直接用系统的小组件圆角半径，和桌面上的其他组件保持一致。
+  这是系统给出的"建议值"，各家 ROM 会调成自己的风格值（澎湃 / ColorOS / Pixel 都不同），
+  比自己写死 20dp 更贴近当前桌面。
+-->
+<resources>
+    <dimen name="widget_corner_radius">@android:dimen/system_app_widget_background_radius</dimen>
+</resources>

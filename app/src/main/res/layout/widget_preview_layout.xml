@@ -5,17 +5,28 @@
   为什么还要一张：v0.8.0 只给了 previewImage（layer-list 画的位图替代），
   MIUI/HyperOS 的组件列表对 previewImage 支持很差 —— 用户装完在澎湃 OS 3 上
   根本搜不到这个组件。previewLayout 是 Android 12 起的标准做法，Launcher 直接
-   inflate 这张 XML，显示效果和真实组件一致。
+  inflate 这张 XML，显示效果和真实组件一致。
 
   ★ 不能用 widget_todo_list 本身：里面有 ListView，preview 阶段没有 adapter，
-   会渲染成空白。所以这里写死四行静态示意（结构与紧凑行保持一致）。
+    会渲染成空白。所以这里写死四行静态示意（结构与紧凑行保持一致）。
+
+  ★★ 这里**刻意不用 `<include>`**（v0.9.2）：previewLayout 最终也走 RemoteViews
+     那套解析，而 RemoteViews 支持的标签是白名单的，`<include>` 不在其中 ——
+     有的 Launcher（OPPO ColorOS 反馈）解析失败就把**整个组件**从列表里丢掉，
+     表现就是"这台手机上根本找不到这个组件"。展开成 4 段内联布局，谁都能解析。
+
+  ★ 高度按 2×2 的实际内容算过：padding 8 + 头部约 20 + 4×30 + 8 ≈ 156dp ≤ 160dp。
+    之前是 4×36 + 26 + 20 = 190dp，底部那行一直是超出被裁掉的。
+
+  ★ clipToOutline：圆角底板不会自动裁子视图，按下态的行底色会从圆角外露出来。
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="160dp"
     android:layout_height="160dp"
-    android:background="@color/widget_bg"
+    android:background="@drawable/widget_bg_rounded"
+    android:clipToOutline="true"
     android:orientation="vertical"
-    android:padding="10dp">
+    android:padding="8dp">
 
     <TextView
         android:layout_width="match_parent"
@@ -25,8 +36,145 @@
         android:textSize="13sp"
         android:textStyle="bold" />
 
-    <include layout="@layout/widget_preview_row" />
-    <include layout="@layout/widget_preview_row" />
-    <include layout="@layout/widget_preview_row" />
-    <include layout="@layout/widget_preview_row" />
+    <!-- ↓ 四行示意：结构对齐 widget_item_todo_event（标题 wrap + 日期吃剩余）。 -->
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="30dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <ImageView
+            android:layout_width="16dp"
+            android:layout_height="16dp"
+            android:contentDescription="@null"
+            android:src="@drawable/widget_circle" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:paddingStart="8dp"
+            android:text="周五 下午3点 交周报"
+            android:textColor="@color/widget_text"
+            android:textSize="13sp" />
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:ellipsize="end"
+            android:gravity="end"
+            android:maxLines="1"
+            android:paddingStart="8dp"
+            android:text="周五 15:00"
+            android:textColor="@color/widget_text_secondary"
+            android:textSize="11sp" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="30dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <ImageView
+            android:layout_width="16dp"
+            android:layout_height="16dp"
+            android:contentDescription="@null"
+            android:src="@drawable/widget_circle" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:paddingStart="8dp"
+            android:text="买牛奶"
+            android:textColor="@color/widget_text"
+            android:textSize="13sp" />
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:ellipsize="end"
+            android:gravity="end"
+            android:maxLines="1"
+            android:paddingStart="8dp"
+            android:text="明天"
+            android:textColor="@color/widget_text_secondary"
+            android:textSize="11sp" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="30dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <ImageView
+            android:layout_width="16dp"
+            android:layout_height="16dp"
+            android:contentDescription="@null"
+            android:src="@drawable/widget_circle" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:paddingStart="8dp"
+            android:text="整理季度总结"
+            android:textColor="@color/widget_text"
+            android:textSize="13sp" />
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:ellipsize="end"
+            android:gravity="end"
+            android:maxLines="1"
+            android:paddingStart="8dp"
+            android:text="10月25日"
+            android:textColor="@color/widget_text_secondary"
+            android:textSize="11sp" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="30dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <ImageView
+            android:layout_width="16dp"
+            android:layout_height="16dp"
+            android:contentDescription="@null"
+            android:src="@drawable/widget_circle" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:paddingStart="8dp"
+            android:text="给妈妈打电话"
+            android:textColor="@color/widget_text"
+            android:textSize="13sp" />
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:ellipsize="end"
+            android:gravity="end"
+            android:maxLines="1"
+            android:paddingStart="8dp"
+            android:text="周日"
+            android:textColor="@color/widget_text_secondary"
+            android:textSize="11sp" />
+    </LinearLayout>
 </LinearLayout>

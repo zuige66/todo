@@ -19,7 +19,8 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/widget_bg"
+    android:background="@drawable/widget_bg_rounded"
+    android:clipToOutline="true"
     android:orientation="vertical">
 
     <!-- 头部：标题 + 条数。点头部（列表以外的空白）= 打开 App。 -->

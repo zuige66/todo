@@ -494,3 +494,42 @@ graphicsLayer 必须是链条上最靠左的那个绘制类修饰符。
 ★ 代价：事件优先下标题是 `wrap_content`，极长时会被父容器裁掉（LinearLayout 不压缩非
   weight 子项）。实际标题极少长到那个程度，比"永远提前省略"可接受。
 ★ 新增设置键 `widget_event_priority`（默认 true），加在「小组件 → 日期位置」下面。
+
+## 小组件：圆角底板 + previewLayout 不能用 include（0.9.2）
+
+### 澎湃 3 上组件是直角方块
+根布局背景原来是 `@color/widget_bg` —— **纯色 drawable 没有圆角**，铺到桌面上就是一个方块。
+
+★ **系统不会帮自定义背景裁圆角**。Android 12 只是提供了
+`@android:dimen/system_app_widget_background_radius` 这个"建议半径"给开发者用，
+不会自动套到你的 background 上。所以必须自己画 `<shape>`。
+
+现在：`@drawable/widget_bg_rounded`，半径走 `@dimen/widget_corner_radius`
+- `values/dimens.xml` = 20dp（Android 11 及以下）
+- `values-v31/dimens.xml` = `@android:dimen/system_app_widget_background_radius`
+  （12+ 直接跟随当前桌面的风格值，比自己写死更贴近系统组件）
+
+★ 同时给根布局加 `android:clipToOutline="true"`：圆角背景**不会**自动裁子视图，
+行按下态的深色块会从圆角外面露出来。
+
+### previewLayout 里的 `<include>` 会让某些桌面把组件整个丢掉
+`widget_preview_layout.xml` 原来用 4 个 `<include layout="@layout/widget_preview_row"/>`。
+`previewLayout` 最终也走 **RemoteViews** 那套解析，而 RemoteViews 支持的标签是**白名单**的，
+`<include>` 不在其中。部分 Launcher（OPPO ColorOS 反馈的"找不到组件"）解析失败后
+不会报错，直接把整个组件从列表里跳过。
+
+现在把 4 行**内联展开**（`widget_preview_row.xml` 已删除）。顺带修了两处：
+- 预览高度原来溢出：4×36 + 头部 26 + padding 20 = 190dp > 160dp，第 4 行一直被裁。
+  现在 4×30 + 头部约 20 + padding 16 ≈ 156dp。
+- 预览的行结构对齐 `widget_item_todo_event`（标题 wrap + 日期吃剩余），和真实观感一致。
+
+★ 以后改 previewLayout：**只用 LinearLayout / FrameLayout / RelativeLayout / GridLayout /
+  TextView / ImageView / Button / ProgressBar 这些 RemoteViews 白名单标签**，
+  不要 include、不要 ConstraintLayout、不要 ViewStub。
+
+### OPPO 找不到组件——排查顺序
+1. 先确认装的版本：`0.8.0/0.8.1` 的 `meta-data android:name` 写成了 action 名，
+   系统扫描时**静默跳过**（61 个组件里永远没有我们），必须 ≥ 0.8.2。
+2. 组件 label 现在是「Todo 待办」，ColorOS 组件列表的搜索框搜 "Todo" 或 "待办" 都能命中。
+3. 装完新版本后长按桌面 → 组件，若还没有，重启一次桌面（ColorOS 会缓存组件列表）。
+4. 以上都做了还没有，再怀疑 `previewLayout` 解析（见上一节，0.9.2 已规避）。

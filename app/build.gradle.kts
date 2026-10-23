@@ -133,8 +133,17 @@ android {
         //            列表与待办 → 测试；「添加小组件」指引从外观移回小组件节。
         //         ④ 所有档位选择统一成下拉（单选 SettingsDropdown / 多选 SettingsMultiDropdown），
         //            chip 行退役；多选下拉点选不关菜单。
-        versionCode = 29
-        versionName = "0.9.1"
+        // 0.9.2 = 小组件在真机上的两件事：
+        //         ① 澎湃 3 上组件是**直角方块** —— 底板用的是纯色 @color/widget_bg，纯色没有圆角。
+        //            改 @drawable/widget_bg_rounded，半径走 @dimen/widget_corner_radius
+        //            （Android 12+ 指向系统的 system_app_widget_background_radius）；
+        //            根布局加 clipToOutline，行按下态底色不会从圆角外露。
+        //         ② previewLayout 里的 <include> 全部展开成内联布局 —— RemoteViews 支持的标签
+        //            是白名单，include 不在其中；部分 Launcher（OPPO ColorOS）解析失败会把
+        //            整个组件从列表里丢掉，表现就是"这台手机上找不到组件"。
+        //            顺带把预览高度从 190dp 收到 156dp（原来第 4 行一直被裁掉）。
+        versionCode = 30
+        versionName = "0.9.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
