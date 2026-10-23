@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/zuige66/todo/releases"><img src="https://img.shields.io/badge/release-v0.7.2-3F3F46?style=flat-square" alt="release" /></a>
+  <a href="https://github.com/zuige66/todo/releases"><img src="https://img.shields.io/badge/release-v0.9.3-3F3F46?style=flat-square" alt="release" /></a>
   <img src="https://img.shields.io/badge/platform-Android-3DDC84?style=flat-square" alt="platform" />
   <img src="https://img.shields.io/badge/build-Kotlin%20%2B%20Compose-7F52FF?style=flat-square" alt="build" />
   <img src="https://img.shields.io/badge/storage-Room-4479A1?style=flat-square" alt="storage" />
@@ -20,7 +20,7 @@
 <p align="center">
   <a href="https://github.com/zuige66/todo/releases/latest"><b>下载 APK（GitHub）</b></a>
   &nbsp;·&nbsp;
-  <a href="https://blog.zuiges.com/downloads/oneline/todo-0.7.2.apk"><b>下载 APK（博客源）</b></a>
+  <a href="https://blog.zuiges.com/downloads/oneline/todo-0.9.3.apk"><b>下载 APK（博客源）</b></a>
   &nbsp;·&nbsp;
   <a href="DESIGN.md">设计文档</a>
   &nbsp;·&nbsp;
@@ -114,6 +114,7 @@
 | 下周 | 下周四、下个星期四、下礼拜四、**下下周四**（+2 周） |
 | 月日 | 1月2日、一月二日、12月三十一号 |
 | 纯日号 | 5号、十五号、二号 |
+| 时间段 | `25号到1号`、`10月24日到26日`、`10月28日到11月3日`（跨月自动补上月份；开始日==结束日按单日算） |
 | 数字短日期 | `1.2` / `26.1.2` / `2026.1.2`（分隔符支持 `.` `-` `/`，两位年份按 20yy） |
 | 年份词 | 今年、明年、下一年 |
 | 月份词 | 本月、这个月、下个月（可再接 `X月` / `X日`） |
@@ -181,6 +182,8 @@
 
 列表每一行右侧是 `[重复徽章] 日期`，第二行是周几与时间。逾期用醒目的颜色标记，且**每 20 秒刷新一次**——界面会自己从「今天」翻成「已逾期」，不需要退出重进。
 
+时间段的行右侧显示的是区间（如 `10月27日–29日`）而不是单个日期；进行中的区间不标红，因为逾期只看结束日。
+
 ---
 
 ## 提醒
@@ -195,6 +198,7 @@
 | 提前 3 天 | 提前 3 天提醒 |
 | 提前 1 天 | 明天到期 |
 | 提前 1 小时 | 1小时后到期（仅当写了精确时刻） |
+| 开始日当天 | 今天开始（仅时间段；时刻取「只写日期时的默认提醒时刻」，默认 09:00） |
 | 到点 | 该办了 |
 | 逾期后 | 还没完成，别忘了哦（按间隔反复，默认每天） |
 
@@ -319,12 +323,12 @@
 |---|---|
 | 语言 | Kotlin |
 | UI | Jetpack Compose + Material 3 Expressive |
-| 存储 | Room（schema v3）+ SharedPreferences |
+| 存储 | Room（schema v5）+ SharedPreferences |
 | 提醒 | AlarmManager 精确闹钟 + BroadcastReceiver |
 | 导航 | 单 Activity，Compose 内部状态切换（4 个 tab） |
 | 最低版本 | Android 8.0（API 26） |
 | 编译 / 目标 | API 36 |
-| 版本 | 0.4.2（versionCode 6） |
+| 版本 | 0.9.3（versionCode 32） |
 | 包名 | `com.lirui.oneline` |
 | 网络 | 仅 `INTERNET` + `ACCESS_NETWORK_STATE`，只用于检查更新与下载 APK |
 
@@ -337,6 +341,7 @@ data class Todo(
     val title: String,        // 事件标题
     val detail: String,       // 详情
     val dueAtMillis: Long?,   // 到期时刻；null = 无日期
+    val startAtMillis: Long?, // 时间段开始日；null = 单日
     val hasExactTime: Boolean,// 是否给了精确时刻，决定是否发 T-1h 提醒
     val repeatDays: Int,      // 重复步长：1 每天 / 7 每周 / 30 每月
     val archived: Boolean,
@@ -361,14 +366,17 @@ NotificationActionReceiver  「完成」/「撤回」→ 复用同一个归档�
 
 ### 测试
 
-163 条单元测试，覆盖解析器、提醒引擎、格式化与首页分组：
+250 条单元测试，覆盖解析器、提醒引擎、通知标题、版本比较、格式化、时间与首页分组：
 
 ```
 Compose 之外的逻辑全部是纯函数，可以直接测
-ParserTest          113 条
-HomeGroupingTest     21 条
-ReminderEngineTest   18 条
-FormatTest           11 条
+ParserTest            147 条
+FormatTest             29 条
+HomeGroupingTest       28 条
+ReminderEngineTest     26 条
+NotificationTitleTest   9 条
+VersionTest             8 条
+AppTimeTest             3 条
 ```
 
 ---
@@ -393,7 +401,15 @@ app/src/main/kotlin/com/lirui/oneline/
 │   ├── ReminderReceiver.kt      闹钟回调 → 发通知
 │   ├── NotificationHelper.kt    通知构建与标题拼装
 │   ├── NotificationActionReceiver.kt  完成 / 撤回
+│   ├── NotificationDismissScheduler.kt  归档后延迟撤通知
+│   ├── ReminderWatchdog.kt      每 12h 兜底重排 + 补发
 │   └── BootReceiver.kt          重启后重建闹钟
+├── keepalive/
+│   ├── KeepAliveService.kt      后台常驻通知
+│   └── DeviceCompat.kt          各 ROM 自启动 / 电池优化兼容
+├── widget/
+│   ├── TodoWidgetProvider.kt    桌面小组件
+│   └── TodoWidgetActionReceiver.kt  组件行首圆圈 → 直接完成
 ├── ui/
 │   ├── MainViewModel.kt         状态与归档状态机（pendingArchive）
 │   ├── screen/
@@ -420,7 +436,7 @@ app/src/test/java/com/lirui/oneline/
 ├── parser/ParserTest.kt
 ├── reminder/{ReminderEngineTest,NotificationTitleTest}.kt
 ├── update/VersionTest.kt
-└── util/{FormatTest,HomeGroupingTest}.kt
+└── util/{FormatTest,HomeGroupingTest,AppTimeTest}.kt
 ```
 
 ---
@@ -457,6 +473,7 @@ adb install -r app/build/outputs/apk/release/app-release.apk
 
 - **写了精确时刻** → 当前时间超过该时刻，就算逾期
 - **只写了日期** → 过了那一天才算逾期
+- **时间段（有开始日的区间）** → 同样只看结束日：结束日没到就不算逾期，进行中的区间不标红
 
 第二条尤其重要：只写"3号"的任务，不能在 3 号早上 9:01 就被标红。默认时刻（09:00）是用来排提醒的，不是用来判逾期的。列表里的分组与标红共用同一套判定，口径必须一致。
 
