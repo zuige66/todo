@@ -146,6 +146,12 @@ class HomeGroupingTest {
         assertEquals(HomeBucket.LATER, HomeGrouping.bucketOfRange(null, null, today))
     }
 
+    // 只有开始日的脏数据也必须落到某个桶里，否则那条待办会在列表上彻底消失。
+    @Test fun rangeBucket_startOnly_usesStart() {
+        assertEquals(HomeBucket.TODAY, HomeGrouping.bucketOfRange(at(2026, 10, 21), null, today))
+        assertEquals(HomeBucket.TOMORROW, HomeGrouping.bucketOfRange(at(2026, 10, 22), null, today))
+    }
+
     // --- merge rule ---
 
     @Test fun resolve_allEnabled_keepsOriginal() {

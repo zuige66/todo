@@ -115,7 +115,9 @@ object HomeGrouping {
         today: LocalDate = AppTime.today()
     ): HomeBucket {
         if (start == null || end == null) {
-            return if (end != null) bucketOf(end, today) else HomeBucket.LATER
+            // 只有一端时按那一端归档：只有开始日的脏数据也必须有归属，不能返回"无桶"。
+            val only = end ?: start ?: return HomeBucket.LATER
+            return bucketOf(only, today)
         }
         val s = Format.dueAtMillis(start)
         val e = Format.dueAtMillis(end)

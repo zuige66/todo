@@ -90,8 +90,14 @@ android {
         //         ② 「下周一 到周三」里「到」开区间锚点取了 today，把前面的 10/26 覆盖成今天
         //            —— 改为取本句已解析到的日期，且右半是周几且落在开始日之前时顺延一周；
         //         ③ APK 下载默认走 blog 静态源，GitHub 资产 CDN 改为兜底。
-        versionCode = 23
-        versionName = "0.8.5"
+        // 0.8.6 = 0.8.5 未发布（只装了内部验证），直接并入本版：
+        //         ④ 时间段右侧不再显示「未开始」（未开始就该安静待在 明天/本周 里）；
+        //         ⑤ 修「编辑只写日期的待办会把默认 9 点当成用户设的时刻」——
+        //            保存后 hasExactTime 变 true，「最后一天结束才算逾期」退化成 9 点逾期；
+        //         ⑥ 开始日 == 结束日 不再落成退化区间（避免一直挂着「最后一天」）；
+        //            只有开始日没有结束日的脏数据也不会从列表消失。
+        versionCode = 24
+        versionName = "0.8.6"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

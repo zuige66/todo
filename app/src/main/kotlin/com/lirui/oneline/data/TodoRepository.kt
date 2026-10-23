@@ -56,6 +56,9 @@ class TodoRepository(private val context: Context) {
      */
     private fun parsedToStart(parsed: ParsedTodo): Long? {
         val date = parsed.startDate ?: return null
+        // 开始日 == 结束日（"周一到周一"/"24日到24日"）就是单日待办，不要落成退化区间，
+        // 否则列表会一直挂着「最后一天」。
+        if (parsed.dueDate == null || parsed.dueDate == date) return null
         return date.atStartOfDay(AppTime.ZONE).toInstant().toEpochMilli()
     }
 

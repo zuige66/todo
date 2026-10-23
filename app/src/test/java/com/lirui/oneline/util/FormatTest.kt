@@ -157,9 +157,9 @@ class FormatTest {
         assertEquals("10月23日", Format.monthDayRange(epoch(2026, 10, 23), epoch(2026, 10, 23)))
     }
 
-    @Test fun rangeStatus_notStarted() {
-        assertEquals(
-            "未开始",
+    // 还没开始的时间段不挂任何状态（曾经显示「未开始」，纯噪音，已按要求删掉）。
+    @Test fun rangeStatus_notStarted_isSilent() {
+        assertNull(
             Format.rangeStatus(epoch(2026, 10, 22), epoch(2026, 10, 25), today, epoch(2026, 10, 21, 12))
         )
     }
@@ -216,6 +216,29 @@ class FormatTest {
         )
         // 单日退回 monthDay（不带星期，避免「周一」被解析成本周一）
         assertEquals("10月24日", Format.rangeSentence(epoch(2026, 10, 24), epoch(2026, 10, 24)))
+    }
+
+    // 只写日期的待办回填时**不能带默认时刻**，否则保存后 hasExactTime 被改成 true，
+    // 「最后一天结束才算逾期」会退化成「最后一天 9 点就变红」。
+    @Test fun editSentence_dateOnly_hasNoTime() {
+        assertEquals(
+            "出差 10月24日到26日",
+            Format.editSentence(
+                "出差", "", epoch(2026, 10, 24), epoch(2026, 10, 26),
+                hasExactTime = false, today = today
+            )
+        )
+        assertEquals(
+            "开会 10月26日",
+            Format.editSentence("开会", "", null, epoch(2026, 10, 26), hasExactTime = false, today = today)
+        )
+    }
+
+    @Test fun editSentence_exactTime_keepsTime() {
+        assertEquals(
+            "开会 10月26日 9点",
+            Format.editSentence("开会", "", null, epoch(2026, 10, 26), hasExactTime = true, today = today)
+        )
     }
 
     companion object {

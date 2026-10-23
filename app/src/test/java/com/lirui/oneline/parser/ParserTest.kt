@@ -981,7 +981,9 @@ class ParserTest {
     @Test fun editSentence_singleDay_roundTrips() {
         val due = java.time.ZonedDateTime.of(2026, 10, 26, 9, 0, 0, 0, java.time.ZoneId.of("Asia/Shanghai"))
             .toInstant().toEpochMilli()
-        val sentence = com.lirui.oneline.util.Format.editSentence("开会", "带电脑", null, due, today)
+        val sentence = com.lirui.oneline.util.Format.editSentence(
+            "开会", "带电脑", null, due, hasExactTime = true, today = today
+        )
         assertEquals("开会 带电脑 10月26日 9点", sentence)
         val list = parser().parseAll(sentence)
         assertEquals(1, list.size)
@@ -996,12 +998,32 @@ class ParserTest {
         val zone = java.time.ZoneId.of("Asia/Shanghai")
         val start = java.time.LocalDate.of(2026, 10, 24).atStartOfDay(zone).toInstant().toEpochMilli()
         val due = java.time.ZonedDateTime.of(2026, 10, 26, 9, 0, 0, 0, zone).toInstant().toEpochMilli()
-        val sentence = com.lirui.oneline.util.Format.editSentence("出差", "", start, due, today)
+        val sentence = com.lirui.oneline.util.Format.editSentence(
+            "出差", "", start, due, hasExactTime = true, today = today
+        )
         assertEquals("出差 10月24日到26日 9点", sentence)
         val list = parser().parseAll(sentence)
         assertEquals(1, list.size)
         assertEquals(LocalDate.of(2026, 10, 24), list[0].startDate)
         assertEquals(LocalDate.of(2026, 10, 26), list[0].dueDate)
         assertEquals(LocalTime.of(9, 0), list[0].dueTime)
+    }
+
+    // 只写日期的时间段：回填句子不带时刻，解析回来 dueTime 仍为 null ——
+    // 这条守的是「最后一天结束才算逾期」，一旦回填带上默认 9 点就会退化成 9 点逾期。
+    @Test fun editSentence_dateOnlyRange_roundTripsWithoutExactTime() {
+        val zone = java.time.ZoneId.of("Asia/Shanghai")
+        val start = java.time.LocalDate.of(2026, 10, 24).atStartOfDay(zone).toInstant().toEpochMilli()
+        val due = java.time.ZonedDateTime.of(2026, 10, 26, 9, 0, 0, 0, zone).toInstant().toEpochMilli()
+        val sentence = com.lirui.oneline.util.Format.editSentence(
+            "出差", "", start, due, hasExactTime = false, today = today
+        )
+        assertEquals("出差 10月24日到26日", sentence)
+        val list = parser().parseAll(sentence)
+        assertEquals(1, list.size)
+        assertNull(list[0].dueTime)
+        assertFalse(list[0].hasExactTime)
+        assertEquals(LocalDate.of(2026, 10, 24), list[0].startDate)
+        assertEquals(LocalDate.of(2026, 10, 26), list[0].dueDate)
     }
 }

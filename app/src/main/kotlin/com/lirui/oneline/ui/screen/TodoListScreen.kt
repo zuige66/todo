@@ -651,8 +651,10 @@ private fun TodoAppContent(
     if (showAdd) {
         AddSheet(
             initialText = editTarget?.let {
-                // 回填句子的规则（含"为什么不能拼星期"）见 Format.editSentence 的注释。
-                Format.editSentence(it.title, it.detail, it.startAtMillis, it.dueAtMillis)
+                // 回填句子的规则（含"为什么不能拼星期""为什么不能带默认时刻"）见 Format.editSentence。
+                Format.editSentence(
+                    it.title, it.detail, it.startAtMillis, it.dueAtMillis, it.hasExactTime
+                )
             } ?: "",
             onDismiss = {
                 showAdd = false
@@ -858,9 +860,11 @@ private fun TodoList(
                 // Resolve each todo onto a rendered bucket, keeping bucket declaration order.
                 val grouped = HashMap<HomeBucket, MutableList<Todo>>()
                 for (todo in boardItems) {
-                    if (todo.dueAtMillis == null) continue
+                    // 时间段的"结束日"就是 dueAtMillis；只有开始日的脏数据按开始日归档，
+                    // 绝不能 continue —— 那样这条待办会从列表里彻底消失。
+                    val end = todo.dueAtMillis ?: todo.startAtMillis ?: continue
                     // 时间段：进行中归「今日」，未开始按开始日分桶（见 bucketOfRange）。
-                    val natural = HomeGrouping.bucketOfRange(todo.startAtMillis, todo.dueAtMillis, today)
+                    val natural = HomeGrouping.bucketOfRange(todo.startAtMillis, end, today)
                     val target = HomeGrouping.resolveBucket(natural, enabledBuckets) ?: continue
                     grouped.getOrPut(target) { mutableListOf() } += todo
                 }

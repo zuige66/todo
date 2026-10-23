@@ -68,7 +68,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val parsed = ParsedTodo(
             title = todo.title,
             dueDate = zoned?.toLocalDate(),
-            dueTime = zoned?.toLocalTime(),
+            // ★ 只写日期的待办（hasExactTime=false）不能把默认 09:00 当成"用户设的时刻"带进
+            //   编辑流程：ParsedTodo.hasExactTime 由 dueTime 推导，带进去就变成精确时刻，
+            //   保存后「当天整天有效」被改成「9 点就逾期」——时间段更是直接破功。
+            dueTime = if (todo.hasExactTime) zoned?.toLocalTime() else null,
             repeatDays = todo.repeatDays,
             detail = todo.detail.ifBlank { null },
             startDate = start

@@ -183,6 +183,7 @@ object Format {
         detail: String,
         start: Long?,
         due: Long?,
+        hasExactTime: Boolean = true,
         today: LocalDate = AppTime.today()
     ): String = buildString {
         append(title)
@@ -198,6 +199,9 @@ object Format {
             val d = dueAtMillis(due)
             append(if (d == today) "今天" else monthDay(d))
         }
+        // ★ 只写日期的待办**不能**回填时刻：句子里的「9点」会被解析成 hasExactTime=true，
+        //   于是「最后一天结束才算逾期」被悄悄改成「最后一天 9 点就变红」。
+        if (!hasExactTime) return@buildString
         // Pinned zone —— 回填的句子必须和创建时读到的墙钟一致，不受设备时区影响。
         val t = java.time.Instant.ofEpochMilli(due).atZone(AppTime.ZONE).toLocalTime()
         append(" ")
@@ -217,8 +221,10 @@ object Format {
     }
 
     /**
-     * 时间段的状态短语：`未开始` / `最后一天` / `还剩N天` / `进行中` / `逾期`。
-     * 单日（start == null）返回 null —— 单日不需要这层状态。
+     * 时间段的状态短语：`逾期` / `最后一天` / `还剩N天`；单日（start == null）返回 null。
+     *
+     * 没有「未开始」：还没开始的时间段本来就该安静地待在「明天/本周」里，
+     * 再挂一个"未开始"只是噪音（zuige 2026-10-23 明确要求去掉）。
      */
     fun rangeStatus(
         start: Long?,
@@ -229,10 +235,9 @@ object Format {
     ): String? {
         if (start == null) return null
         if (isOverdue(end, today, nowMillis, hasExactTime)) return "逾期"
-        val s = dueAtMillis(start)
-        if (today.isBefore(s)) return "未开始"
+        if (today.isBefore(dueAtMillis(start))) return null
         if (today == dueAtMillis(end)) return "最后一天"
         val left = daysLeft(end, today)
-        return if (left > 0) "还剩${left}天" else "进行中"
+        return if (left > 0) "还剩${left}天" else null
     }
 }

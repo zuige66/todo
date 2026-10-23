@@ -123,6 +123,9 @@ fun AddSheet(
         if (start != null && end != null && start.isAfter(end)) {
             val t = start; start = end; end = t
         }
+        // 只有开始日没有结束日的"区间"没有意义（而且会因为 dueAtMillis 为空在列表里消失），
+        // 用户在结束日上选了「无日期」= 整条都不要日期，开始日一并清掉。
+        if (end == null) start = null
         if (end == null && time == null && start == null &&
             !dateOverrides.containsKey(index) && !startDateOverrides.containsKey(index) &&
             !titleOverrides.containsKey(index) && !detailOverrides.containsKey(index)
