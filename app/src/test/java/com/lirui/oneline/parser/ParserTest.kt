@@ -1076,4 +1076,42 @@ class ParserTest {
         assertEquals(LocalDate.of(2026, 10, 24), list[0].startDate)
         assertEquals(LocalDate.of(2026, 10, 26), list[0].dueDate)
     }
+
+    // ---- 回归：日期写在文字**后面**（真机反馈「出差25号到1号」没识别出日期）----
+
+    // 「25号到1号出差」一直是对的，因为日期在 token 开头；反过来就整段进标题。
+    // 现在先把「出差」剥成标题，剩下的「25号到1号」照常走时间段解析。
+    @Test fun range_titlePrefixBeforeStartDate() {
+        val r = Parser(LocalDate.of(2026, 10, 23)).parse("出差25号到1号")
+        assertEquals("出差", r.title)
+        assertEquals(LocalDate.of(2026, 10, 25), r.startDate)
+        assertEquals(LocalDate.of(2026, 11, 1), r.dueDate)
+    }
+
+    @Test fun range_titlePrefixBeforeMonthDayRange() {
+        val r = Parser(LocalDate.of(2026, 10, 23)).parse("出差10月25日到26日")
+        assertEquals("出差", r.title)
+        assertEquals(LocalDate.of(2026, 10, 25), r.startDate)
+        assertEquals(LocalDate.of(2026, 10, 26), r.dueDate)
+    }
+
+    @Test fun singleDate_titlePrefixBeforeDate() {
+        val r = Parser(LocalDate.of(2026, 10, 23)).parse("出差25号")
+        assertEquals("出差", r.title)
+        assertEquals(LocalDate.of(2026, 10, 25), r.dueDate)
+        assertNull(r.startDate)
+    }
+
+    // 前缀扫描不能把「N号楼」「N号线」当日期（followedByUnit 的老保护要继续生效）。
+    @Test fun titlePrefixScan_numberedUnitIsNotADate() {
+        val r = parser().parse("开会3号楼")
+        assertNull(r.dueDate)
+        assertEquals("开会3号楼", r.title)
+    }
+
+    @Test fun titlePrefixScan_numberedLineIsNotADate() {
+        val r = parser().parse("坐1号线")
+        assertNull(r.dueDate)
+        assertEquals("坐1号线", r.title)
+    }
 }

@@ -181,9 +181,21 @@ class Parser(
         refreshClock()
 
         val acc = Acc()
-        for (token in splitTokens(normalize(input))) {
+        for (rawToken in splitTokens(normalize(input))) {
+            // 「出差25号到1号」= 日期前面还有文字：先把文字记成标题，尾巴照常解析。
+            // ★ 必须先按原样试一次时间段/时长：`到周三`（开区间）、`从24日起3天内`（时长）
+            //   都是"前缀像文字、其实是语法"的写法，一上来就剥会把「到」「从」剥进标题。
+            var token = rawToken
+            var handled = stripRange(token, acc) ?: stripDuration(token, acc)
+            if (handled == null) {
+                peelTitlePrefix(token)?.let { (prefix, tail) ->
+                    acc.title += prefix
+                    token = tail
+                    handled = stripRange(token, acc) ?: stripDuration(token, acc)
+                }
+            }
             // 时间段优先于单日期：命中后 token 已被消费成「开始/结束 + 剩余标题」。
-            var rest = stripRange(token, acc) ?: stripDuration(token, acc) ?: token
+            var rest = handled ?: token
             rest = stripLeadingDate(rest, acc)
             rest = stripLeadingTime(rest, acc)
             if (rest.isNotBlank()) acc.title += rest
@@ -245,7 +257,13 @@ class Parser(
 
         val dates = LinkedHashSet<LocalDate>()
         val acc = Acc()
-        for (token in splitTokens(normalize(input))) {
+        for (rawToken in splitTokens(normalize(input))) {
+            // 同 parse()：「开会25号 26号」里两条日期的前缀文字也要剥出来当标题。
+            var token = rawToken
+            peelTitlePrefix(rawToken)?.let { (prefix, tail) ->
+                acc.title += prefix
+                token = tail
+            }
             var rest = token
             if (repeatDays(token) != null) {
                 // A repeat word ("每天/每周一") is a step, not a second due date.
@@ -465,6 +483,12 @@ class Parser(
     private val rangeConnectors = listOf("一直到", "到", "至", "~", "～", "—", "–")
 
     /**
+     * 前缀里出现这些词，说明 token 是**语法写法**而不是"文字 + 日期"，[peelTitlePrefix] 必须放过：
+     * 「到下周三」是开区间、「从24日起3天内」是时长 —— 剥掉前缀会把「到」「从」变成标题文字。
+     */
+    private val peelBlockedPrefix = rangeConnectors + listOf("从")
+
+    /**
      * 左半只写了「X月X日」/「X日」（没给年份）时，整段需要**整体**前移的周期。
      * 见 [resolveRangeLeft] 与 [stripRange] 末尾的前移循环。
      */
@@ -603,8 +627,41 @@ class Parser(
         return rightRest
     }
 
-    /** [s] 是否以「周X / 下周X / 本周X / 星期X / 礼拜X」开头（用于判断相对还是绝对日期）。 */
-    private fun startsWithWeekday(s: String): Boolean =
+    /**
+     * 「出差25号到1号」这类把日期写在文字**后面**的写法：把日期前的文字剥出来当标题，
+     * 剩下的尾巴还给调用方，继续走 stripRange / stripLeadingDate。
+     *
+     * 为什么需要：所有日期规则都是「从开头剥」（[stripLeadingDate] 全是 `lookingAt()`），
+     * 所以 token 一旦以文字开头，整段日期就被当标题吃掉了 —— 「出差25号到1号」得到的是
+     * "没有日期"的结果，而「25号到1号出差」却是对的（真机反馈）。
+     *
+     * 保守处（都返回 null，即"不剥"）：
+     * - token 开头本来就能解析出东西（标准写法 / 重复词 / 时长），交给原流程；
+     * - 前缀里含数字 —— 说明切点落在「2026年」这类数字中间，不能切；
+     * - 扫不到任何能解析出日期（`probe.date != null`）的位置。
+     *
+     * 命中返回 (标题前缀, 从日期开始的尾巴)。
+     */
+    private fun peelTitlePrefix(token: String): Pair<String, String>? {
+        if (token.length < 2) return null
+        // 开头能剥 → 本来就是标准写法，不动。
+        if (stripLeadingDate(token, Acc()).length < token.length) return null
+        for (i in 1 until token.length) {
+            val tail = token.substring(i)
+            val probe = Acc()
+            if (stripLeadingDate(tail, probe).length >= tail.length) continue
+            if (probe.date == null) continue
+            val prefix = token.substring(0, i)
+            if (prefix.any { it.isDigit() }) return null
+            // 前缀里带连接词/起始词，说明这个 token 属于「到周三」「从24日起3天内」这类
+            // 语法写法，前缀不是标题 —— 不能剥（剥了会把「到」「从」变成标题文字）。
+            if (peelBlockedPrefix.any { prefix.contains(it) }) return null
+            return prefix to tail
+        }
+        return null
+    }
+
+    /** [s] 是否以「周X / 下周X / 本周X / 星期X / 礼拜X」开头（用于判断相对还是绝对日期）。 */    private fun startsWithWeekday(s: String): Boolean =
         nextWeekPrefixes.any { s.startsWith(it) } ||
             thisWeekPrefixes.any { s.startsWith(it) } ||
             weekdayLiterals.any { s.startsWith(it.first) }

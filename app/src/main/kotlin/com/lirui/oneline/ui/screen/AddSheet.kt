@@ -383,6 +383,26 @@ fun AddSheet(
                 DateRangePicker(
                     state = rangeState,
                     colors = pickerColors,
+                    // ★ 默认 headline 是「2026年10月25日 - 2026年10月31日」一整行，
+                    //   在手机上被挤成一列竖排（「202」/「6年」/「10」/「月」…，一个字一行）。
+                    //   自己给一个**两行**的 headline：上行开始日、下行「至 结束日」，
+                    //   每行只有 6~9 个字，槽再窄也不会竖向折行。
+                    headline = {
+                        val s = rangeState.selectedStartDateMillis?.let { AppTime.pickerDate(it) }
+                        val e = rangeState.selectedEndDateMillis?.let { AppTime.pickerDate(it) }
+                        Column {
+                            Text(
+                                s?.let { pickerDayLabel(it) } ?: "选择开始日期",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                e?.let { "至 ${pickerDayLabel(it)}" } ?: "至 选择结束日期",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    },
                     modifier = Modifier.weight(1f)
                 )
             }
@@ -688,6 +708,14 @@ private fun InfoChip(
         )
     }
 }
+
+/**
+ * 区间日历 headline 里的一天：「10月25日」，不是今年才带年份。
+ * 不用 `Format.dateShort`（带周几，太长，正是它把 headline 挤成竖排的）。
+ */
+private fun pickerDayLabel(d: java.time.LocalDate): String =
+    if (d.year == AppTime.today().year) Format.monthDay(d)
+    else "${d.year}年${Format.monthDay(d)}"
 
 /**
  * 时间段 chip 的文案：「10月21日 – 10月26日」，跨年才补年份。
