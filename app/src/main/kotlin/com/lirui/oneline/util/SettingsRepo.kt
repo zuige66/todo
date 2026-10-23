@@ -26,6 +26,7 @@ object SettingsRepo {
     private const val KEY_AUTO_REPEAT = "auto_repeat"
     private const val KEY_PALETTE = "palette_id"
     private const val KEY_DARK_CARD = "dark_card_style"
+    private const val KEY_IMMERSIVE_TOPBAR = "immersive_topbar"
     private const val KEY_HOME_BOARD_ORDER = "home_board_order"
     private const val KEY_HOME_BOARD_HIDDEN = "home_board_hidden"
     private const val KEY_HOME_BUCKETS = "home_buckets"
@@ -65,11 +66,14 @@ object SettingsRepo {
     }
 
     /**
-     * Dark-mode card tint style (see `ui.theme.DarkCardStyle`). Default 0 = 标准暗色,
-     * which is the "clear colour, not muddied into black" look.
+     * 深色模式下的卡片底色档位（见 `ui.theme.DarkCardStyle`）。
+     * 默认 **2 = 不染色**（纯灰底，靠圆角区分层次）。
+     *
+     * ★ id 不是按明度排的：NEUTRAL=2 / SOFT=1 / STANDARD=0 / RICH=3。
+     *   看到"2"别以为是深彩 —— 深彩是 3。这里填错就是整页底色变样。
      */
     fun darkCardStyleId(context: Context): Int =
-        context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE).getInt(KEY_DARK_CARD, 0)
+        context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE).getInt(KEY_DARK_CARD, 2)
 
     fun setDarkCardStyleId(context: Context, id: Int) {
         context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
@@ -154,10 +158,23 @@ object SettingsRepo {
             .edit().putBoolean(KEY_AUTO_REPEAT, enabled).apply()
     }
 
-    // ---------- 沉浸式顶栏（已退役，v0.6）----------
+    // ---------- 沉浸式顶栏 (immersive top bar) ----------
     //
-    // 浮层顶栏成为固定行为后这个开关没有意义；KEY_IMMERSIVE_TOPBAR 留在老用户的
-    // SharedPreferences 里不再读取，与「overdue_pin」同一处理方式（保留脏键、永不读取）。
+    // 开 = 列表上滑时顶栏跟着收起，内容能滚到状态栏底下（浮层顶栏）；
+    // 关 = 顶栏固定不动，永远是「顶部标题栏」的老样子。
+    //
+    // ★ 默认**关**（zuige 2026-10-23 定：首装默认不开启沉浸式）。
+    //   这个键在 v0.6 曾被退役过（浮层收起一度成为固定行为），现在重新接回来 ——
+    //   老用户 prefs 里残留的 immersive_topbar 值会被重新读到，这正是我们要的
+    //   （他们当初关掉过，就该保持关掉）。
+    fun immersiveTopBar(context: Context): Boolean =
+        context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            .getBoolean(KEY_IMMERSIVE_TOPBAR, false)
+
+    fun setImmersiveTopBar(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            .edit().putBoolean(KEY_IMMERSIVE_TOPBAR, enabled).apply()
+    }
 
     // ---------- 后台常驻 (keep-alive FGS) ----------
     //
@@ -165,10 +182,16 @@ object SettingsRepo {
     // 真实状态以 `KeepAlive.isRunning`（进程内标志）+ 系统服务列表为准 ——
     // 把两者混成一个键，就会出现"设置里是开的、服务其实没起来"的假象。
 
-    /** 用户是否打开了「后台常驻」。默认关：它会挂一条常驻通知，不该默认替用户决定。 */
+    /**
+     * 用户是否打开了「后台常驻」。默认**开**（zuige 2026-10-23 定：首装即常驻）。
+     *
+     * ★ 这里只记录"用户想要什么"，不记录服务在不在跑（见上面那段说明）。
+     *   默认开意味着首装会挂一条常驻通知 —— 这是有意为之：提醒可靠性优先，
+     *   用户可以在设置里关掉。
+     */
     fun keepAliveEnabled(context: Context): Boolean =
         context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
-            .getBoolean(KEY_KEEP_ALIVE, false)
+            .getBoolean(KEY_KEEP_ALIVE, true)
 
     fun setKeepAliveEnabled(context: Context, enabled: Boolean) {
         context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
@@ -181,8 +204,10 @@ object SettingsRepo {
     // "升级后通知文案突然变了"。空串是合法值：用户清空标题时用应用名兜底
     // （通知标题为空会被系统折叠成包名，反而难看）。
 
-    const val DEFAULT_KEEPALIVE_TITLE = "提醒服务运行中"
-    const val DEFAULT_KEEPALIVE_TEXT = "点击查看待办 · 可在设置里关闭"
+    // 默认值 = zuige 当前在用的那套（2026-10-23 定为首装默认）。
+    // 正文默认空串是**有意**的：只留标题一行，不重复说"点击查看待办"。
+    const val DEFAULT_KEEPALIVE_TITLE = "常驻服务进行中"
+    const val DEFAULT_KEEPALIVE_TEXT = ""
 
     fun keepAliveNotifStyle(context: Context): KeepAliveNotifStyle {
         val p = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
@@ -225,11 +250,13 @@ object SettingsRepo {
 
     /**
      * 日期放哪：true = 标题下方（事件占满整行宽度，**事件优先**）；
-     * false = 标题右侧（日期完整显示、事件太长才省略，**日期优先**）。默认下方。
+     * false = 标题右侧（日期完整显示、事件太长才省略，**日期优先**）。
+     *
+     * 默认 **false（右侧）** —— zuige 2026-10-23 定：首装默认日期靠右。
      */
     fun widgetDateBelow(context: Context): Boolean =
         context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
-            .getBoolean(KEY_WIDGET_DATE_BELOW, true)
+            .getBoolean(KEY_WIDGET_DATE_BELOW, false)
 
     fun setWidgetDateBelow(context: Context, value: Boolean) {
         context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
@@ -246,10 +273,10 @@ object SettingsRepo {
             .edit().putBoolean(KEY_WIDGET_DATE_ONLY, value).apply()
     }
 
-    /** 是否隐藏组件头部（「待办」标题 + 条数）。默认显示。 */
+    /** 是否隐藏组件头部（「待办」标题 + 条数）。默认**隐藏**（zuige 当前配置）。 */
     fun widgetHideHeader(context: Context): Boolean =
         context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
-            .getBoolean(KEY_WIDGET_HIDE_HEADER, false)
+            .getBoolean(KEY_WIDGET_HIDE_HEADER, true)
 
     fun setWidgetHideHeader(context: Context, value: Boolean) {
         context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
@@ -364,10 +391,13 @@ object SettingsRepo {
     /** 模板里的状态语占位符。改这个常量等于破坏已存数据，别动。 */
     const val NOTIF_REMINDER_TOKEN = "{提醒}"
 
+    // 默认值 = zuige 当前在用的那套（2026-10-23 定为首装默认）：
+    //   模板「  🚀🚀{提醒}🚀🚀」、完成后缀「  🎉🎉」、DUE 状态语「该办了」。
+    // 注意 LEAD/TAIL 只影响**老用户迁移**（模板键不存在时才拼），改它们不会动已有用户。
     const val DEFAULT_NOTIF_DUE_WORD = "该办了"
-    const val DEFAULT_NOTIF_LEAD = "🚀🚀"
-    const val DEFAULT_NOTIF_TAIL = "⏳⏳"
-    const val DEFAULT_NOTIF_DONE = "🎉🎉"
+    const val DEFAULT_NOTIF_LEAD = "  🚀🚀"
+    const val DEFAULT_NOTIF_TAIL = "🚀🚀"
+    const val DEFAULT_NOTIF_DONE = "  🎉🎉"
 
     /** 模板 + 完成后缀的默认值（与迁移结果一致）。 */
     const val DEFAULT_NOTIF_TEMPLATE = DEFAULT_NOTIF_LEAD + NOTIF_REMINDER_TOKEN + DEFAULT_NOTIF_TAIL

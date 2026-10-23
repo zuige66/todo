@@ -322,6 +322,12 @@ private fun TodoAppContent(
     val maxCollapsePx = with(density) { topBarHeight.toPx() }
     val topBarCollapse = remember { TopBarCollapseState() }
 
+    // ── 沉浸式顶栏（设置 → 外观）──
+    // 开 = 列表上滑时顶栏跟着收起，内容能滚到状态栏底下；
+    // 关 = 顶栏固定不动，就是最普通的标题栏。
+    // ★ 默认**关**（SettingsRepo.immersiveTopBar 的默认值），用户想沉浸自己打开。
+    var immersive by remember { mutableStateOf(SettingsRepo.immersiveTopBar(context)) }
+
     // ── 四个列表各自的滚动状态（提升到这里，用来驱动顶栏）──
     val todoListState = rememberLazyListState()
     val archivedListState = rememberLazyListState()
@@ -339,8 +345,15 @@ private fun TodoAppContent(
     //   这是"滑动速度不变"的关键（M3 的 scrollBehavior 会消费滚动 + 改 contentPadding，
     //   两者叠加让用户觉得"滑得特别快"）。
     // ★ 直接读 listState 而不是 nestedScroll：派发链路实测不可靠（顶栏纹丝不动）。
-    //   v0.6：原「沉浸式顶栏」开关随设置页重排退役，浮层收起成为固定行为。
-    LaunchedEffect(activeListState) {
+    // ★ v0.6 曾把「沉浸式顶栏」开关退役、收起成为固定行为；2026-10-23 重新接回开关，
+    //   默认关 —— 关掉时位移恒为 0，顶栏固定在原位。
+    LaunchedEffect(activeListState, immersive) {
+        if (!immersive) {
+            // 切 tab 时也要清掉上一个列表残留的位移：否则从"已经滚下去"的首页切到设置页，
+            // 顶栏会先卡在收起位置，等设置页第一次滚动才回弹。
+            topBarCollapse.offset.floatValue = 0f
+            return@LaunchedEffect
+        }
         snapshotFlow {
             // 第一项都滚出视口了，说明至少滚过一个 item，肯定超过 64dp。
             if (activeListState.firstVisibleItemIndex > 0) {
@@ -459,6 +472,8 @@ private fun TodoAppContent(
                     TAB_SETTINGS -> SettingsScreen(
                         themeMode = themeMode,
                         onSetThemeMode = onSetThemeMode,
+                        immersive = immersive,
+                        onSetImmersive = { immersive = it },
                         paletteId = paletteId,
                         onSetPalette = onSetPalette,
                         darkCardStyleId = darkCardStyleId,
@@ -1019,6 +1034,8 @@ private fun ArchivedList(
 private fun SettingsScreen(
     themeMode: Int,
     onSetThemeMode: (Int) -> Unit,
+    immersive: Boolean,
+    onSetImmersive: (Boolean) -> Unit,
     paletteId: Int,
     onSetPalette: (Int) -> Unit,
     darkCardStyleId: Int,
@@ -1256,6 +1273,18 @@ private fun SettingsScreen(
             SettingsCard {
                 ThemeDropdown(themeMode, onSetThemeMode)
                 ItemDivider()
+                // 沉浸式顶栏：v0.6 曾随设置页重排退役，2026-10-23 按 zuige 要求接回，
+                // 默认关（首装就是固定顶栏）。开 = 上滑时顶栏跟着收起。
+                ToggleItem(
+                    "沉浸式顶栏",
+                    "开：上滑时顶栏跟着收起，内容能滚到状态栏下；关：顶栏固定",
+                    immersive,
+                    onChecked = { on ->
+                        SettingsRepo.setImmersiveTopBar(context, on)
+                        onSetImmersive(on)
+                    }
+                )
+                ItemDivider()
                 // 换配色要顺手刷新组件：圆圈描边取的是当前配色的主色，
                 // 不刷新的话桌面上那个圈还是旧颜色。
                 PaletteDropdown(paletteId) { id ->
@@ -1331,8 +1360,8 @@ private fun SettingsScreen(
                 // 一个旋钮同时决定"放哪"和"谁让位"——这两件事本来就是同一件事：
                 // 2×2 只有约 132dp 宽，右侧放日期就必然挤事件，没有第三种可能。
                 ChoiceItem(
-                    "优先显示",
-                    listOf(0 to "事件优先", 1 to "日期优先"),
+                    "日期位置",
+                    listOf(0 to "标题下方", 1 to "标题右侧"),
                     if (dateBelow) 0 else 1,
                     onSelect = { value ->
                         val below = value == 0
@@ -1340,6 +1369,14 @@ private fun SettingsScreen(
                         dateBelow = below
                         WidgetUpdater.refreshAsync(context)
                     }
+                )
+                // 选项名只写位置，容易看不出"谁让位"；这里补一句当前档位的实际效果。
+                Text(
+                    if (dateBelow) "事件优先：标题占满整行，日期换到下面"
+                    else "日期优先：日期靠右完整显示，标题太长才省略",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp)
                 )
                 ItemDivider()
                 ToggleItem(

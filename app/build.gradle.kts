@@ -73,8 +73,13 @@ android {
         // 0.8.1 = 澎湃3/vivo 组件列表搜不到组件（Launcher 缓存 + previewImage 支持差）→
         //         补 previewLayout（API 31+ 静态布局，Launcher 直接 inflate）+
         //         设置→外观→「添加小组件到桌面」（requestPinAppWidget 一键钉桌面，不走列表）。
-        versionCode = 19
-        versionName = "0.8.1"
+        // 0.8.2 = 小组件重做：不再按尺寸分档（vivo 报的尺寸恒为 152px，2×2/2×4 一样），
+        //         日期显示交给四个开关（显示日期 / 日期位置 / 只显示日期 / 隐藏头部）；
+        //         圆圈跟随主题色、点击直接归档（两帧反馈：勾亮起 → 行消失）；
+        //         首页归档补齐"打勾"（原来只在进度 100% 时画，与行移除同帧，肉眼看不到）；
+        //         恢复「沉浸式顶栏」开关（默认关）；首装默认配置按 zuige 当前习惯设定。
+        versionCode = 20
+        versionName = "0.8.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

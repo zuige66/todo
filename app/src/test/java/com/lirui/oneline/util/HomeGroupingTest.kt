@@ -100,7 +100,9 @@ class HomeGroupingTest {
     // --- merge rule ---
 
     @Test fun resolve_allEnabled_keepsOriginal() {
-        val all = HomeBucket.defaultEnabled
+        // 用 all 而不是 defaultEnabled：默认档位从 2026-10-23 起只勾 今日/本周/更晚，
+        // 本用例测的是"全勾时不发生合并"，与默认值无关。
+        val all = HomeBucket.all.toSet()
         for (b in HomeBucket.all) assertEquals(b, HomeGrouping.resolveBucket(b, all))
     }
 

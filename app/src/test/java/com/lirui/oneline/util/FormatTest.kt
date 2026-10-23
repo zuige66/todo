@@ -24,15 +24,15 @@ class FormatTest {
         ZonedDateTime.of(y, mo, d, h, mi, 0, 0, zone).toInstant().toEpochMilli()
 
     @Test fun dueLine_sameYear_orders_month_day_weekday_time() {
-        assertEquals("10月21日 周三 9点", Format.dueLine(epoch(2026, 10, 21), today))
+        assertEquals("10月21日 周三 9点", Format.dueLine(epoch(2026, 10, 21), today = today))
     }
 
     @Test fun dueLine_sameYear_withMinutes() {
-        assertEquals("10月21日 周三 15:30", Format.dueLine(epoch(2026, 10, 21, 15, 30), today))
+        assertEquals("10月21日 周三 15:30", Format.dueLine(epoch(2026, 10, 21, 15, 30), today = today))
     }
 
     @Test fun dueLine_otherYear_puts_year_first() {
-        assertEquals("2027年 1月15日 周五 15点", Format.dueLine(epoch(2027, 1, 15, 15), today))
+        assertEquals("2027年 1月15日 周五 15点", Format.dueLine(epoch(2027, 1, 15, 15), today = today))
     }
 
     // ---- 添加弹层预览的日期 chip：跨年必须显示年份 ----

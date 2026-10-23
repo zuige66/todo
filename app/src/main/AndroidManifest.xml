@@ -122,7 +122,6 @@
             android:name=".widget.TodoWidgetActionReceiver"
             android:exported="false" />
 
-
         <!-- 把内部存储里的 update/ 目录以 content:// 交给系统安装器。
              authority 必须与 UpdateDownloadService 里 "$packageName.fileprovider" 一致。 -->
         <provider

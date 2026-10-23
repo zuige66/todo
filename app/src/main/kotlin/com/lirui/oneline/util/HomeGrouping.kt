@@ -18,8 +18,12 @@ enum class HomeBoard(val id: String, val label: String) {
     companion object {
         val all: List<HomeBoard> = entries
 
-        /** Default = the pre-2.1 layout: overdue on top, dated in the middle, undated last. */
-        val defaultOrder: List<HomeBoard> = listOf(OVERDUE, DATED, UNDATED)
+        /**
+         * 默认顺序 = 逾期 → 无期 → 有日期（zuige 2026-10-23 定为首装默认）。
+         *
+         * 逾期置顶：该处理的先看见；有日期垫底，因为它们自己带时间、有单独的档位分组。
+         */
+        val defaultOrder: List<HomeBoard> = listOf(OVERDUE, UNDATED, DATED)
 
         fun byId(id: String): HomeBoard? = entries.firstOrNull { it.id == id }
     }
@@ -43,8 +47,13 @@ enum class HomeBucket(val id: String, val label: String) {
     companion object {
         val all: List<HomeBucket> = entries
 
-        /** Default = every bucket on, i.e. exactly the pre-2.1 grouping. */
-        val defaultEnabled: Set<HomeBucket> = all.toSet()
+        /**
+         * 默认只勾 今日 / 本周 / 更晚（zuige 2026-10-23 定为首装默认）。
+         *
+         * 明天 / 后天 / 下周不单独成组，按 [HomeGrouping.resolveBucket] 并入下一个勾中的档位
+         * （明天、后天并入「本周」，下周并入「更晚」），所以首页不会漏掉任何一天。
+         */
+        val defaultEnabled: Set<HomeBucket> = setOf(TODAY, THIS_WEEK, LATER)
 
         fun byId(id: String): HomeBucket? = entries.firstOrNull { it.id == id }
     }
