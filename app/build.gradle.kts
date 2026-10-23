@@ -96,8 +96,13 @@ android {
         //            保存后 hasExactTime 变 true，「最后一天结束才算逾期」退化成 9 点逾期；
         //         ⑥ 开始日 == 结束日 不再落成退化区间（避免一直挂着「最后一天」）；
         //            只有开始日没有结束日的脏数据也不会从列表消失。
-        versionCode = 24
-        versionName = "0.8.6"
+        // 0.8.7 = 修「点编辑时日期选择器显示的日期比实际小 1 天」：DatePicker 的
+        //         initialSelectedDateMillis / selectedDateMillis 是「UTC 当日 00:00」，
+        //         初始值却传了本地午夜（北京 00:00 = UTC 前一天 16:00）→ 被读成前一天，
+        //         且点「确定」会把日期真的存成前一天。出入两端统一走
+        //         AppTime.pickerMillis / pickerDate（结束日、开始日两个选择器都修）。
+        versionCode = 25
+        versionName = "0.8.7"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

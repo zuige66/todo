@@ -287,8 +287,9 @@ fun AddSheet(
         if (showDatePicker && pickingIndex in parses.indices) {
             val current = dateOverrides[pickingIndex] ?: parses[pickingIndex].dueDate
             val pickerState = rememberDatePickerState(
-                initialSelectedDateMillis = (current ?: AppTime.today())
-                    .atStartOfDay(AppTime.ZONE).toInstant().toEpochMilli(),
+                // ★ 必须是「UTC 当日 00:00」（见 AppTime.pickerMillis 的说明）。
+                //   以前传本地午夜，日历按 UTC 读出前一天 → 用户看到"日期比实际小 1"。
+                initialSelectedDateMillis = AppTime.pickerMillis(current ?: AppTime.today()),
                 // 不能选过去的日期：提醒排在过去的时刻没有意义。
                 selectableDates = TodayOrLater
             )
@@ -306,10 +307,8 @@ fun AddSheet(
                         }
                         TextButton(onClick = {
                             pickerState.selectedDateMillis?.let { millis ->
-                                // DatePicker 给的是 UTC 当天 00:00，转回本应用时区才是用户选的那天。
-                                val picked = java.time.Instant.ofEpochMilli(millis)
-                                    .atZone(java.time.ZoneOffset.UTC).toLocalDate()
-                                dateOverrides = dateOverrides + (pickingIndex to picked)
+                                // DatePicker 给的是 UTC 当天 00:00，按 UTC 解回用户选的那天。
+                                dateOverrides = dateOverrides + (pickingIndex to AppTime.pickerDate(millis))
                             }
                             showDatePicker = false
                         }) { Text("确定") }
@@ -325,8 +324,8 @@ fun AddSheet(
         if (showStartPicker && pickingIndex in parses.indices) {
             val current = startDateOverrides[pickingIndex] ?: parses[pickingIndex].startDate
             val pickerState = rememberDatePickerState(
-                initialSelectedDateMillis = (current ?: AppTime.today())
-                    .atStartOfDay(AppTime.ZONE).toInstant().toEpochMilli(),
+                // 同结束日：UTC 当日 00:00，否则开始日也少一天。
+                initialSelectedDateMillis = AppTime.pickerMillis(current ?: AppTime.today()),
                 selectableDates = TodayOrLater
             )
             DatePickerDialog(
@@ -341,9 +340,8 @@ fun AddSheet(
                         }
                         TextButton(onClick = {
                             pickerState.selectedDateMillis?.let { millis ->
-                                val picked = java.time.Instant.ofEpochMilli(millis)
-                                    .atZone(java.time.ZoneOffset.UTC).toLocalDate()
-                                startDateOverrides = startDateOverrides + (pickingIndex to picked)
+                                startDateOverrides =
+                                    startDateOverrides + (pickingIndex to AppTime.pickerDate(millis))
                             }
                             showStartPicker = false
                         }) { Text("确定") }
@@ -446,13 +444,10 @@ fun AddSheet(
     }
 }
 
-/** 日期选择器的可选范围：今天起（UTC 毫秒转应用时区后比较，避免 UTC 边界差一天）。 */
+/** 日期选择器的可选范围：今天起（毫秒按 UTC 口径解回日期，避免 UTC 边界差一天）。 */
 private val TodayOrLater = object : SelectableDates {
-    override fun isSelectableDate(utcTimeMillis: Long): Boolean {
-        val picked = java.time.Instant.ofEpochMilli(utcTimeMillis)
-            .atZone(AppTime.ZONE).toLocalDate()
-        return !picked.isBefore(AppTime.today())
-    }
+    override fun isSelectableDate(utcTimeMillis: Long): Boolean =
+        !AppTime.pickerDate(utcTimeMillis).isBefore(AppTime.today())
 }
 
 @Composable

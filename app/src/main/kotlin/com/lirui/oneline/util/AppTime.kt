@@ -25,4 +25,20 @@ object AppTime {
     fun now(): LocalTime = LocalTime.now(ZONE)
 
     fun nowMillis(): Long = System.currentTimeMillis()
+
+    // ---------- Material3 DatePicker 的毫秒口径 ----------
+    //
+    // `rememberDatePickerState(initialSelectedDateMillis = …)` 与 `selectedDateMillis` 的契约都是
+    // **UTC 当日 00:00**，不是本地午夜。把 `atStartOfDay(AppTime.ZONE)` 塞进去早了 8 小时，
+    // 日历按 UTC 解读就成了**前一天** —— 用户点编辑时看到「日期比实际小 1 天」。
+    // 出入两端都走这两个函数，别再各自做时区换算。
+
+    private const val MILLIS_PER_DAY = 86_400_000L
+
+    /** [date] → DatePicker 要的「UTC 当日 00:00」毫秒。 */
+    fun pickerMillis(date: LocalDate): Long = date.toEpochDay() * MILLIS_PER_DAY
+
+    /** DatePicker 给的毫秒 → 用户选的那一天（按 UTC 解析，不做本地时区换算）。 */
+    fun pickerDate(millis: Long): LocalDate =
+        LocalDate.ofEpochDay(Math.floorDiv(millis, MILLIS_PER_DAY))
 }
