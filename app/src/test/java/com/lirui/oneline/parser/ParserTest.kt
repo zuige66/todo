@@ -946,6 +946,56 @@ class ParserTest {
         assertEquals(LocalDate.of(2026, 10, 28), r.dueDate)
     }
 
+    // ---- 回归（v0.8.8）：时间段的年份必须"整段一起定" ----
+    //
+    // 用户真机现象：编辑一条**进行中**的时间段，整条日期跳到明年。
+    // 根因：左半单独走 nextMonthDay（过去的月日顺延一年），右半再以左半为基准，
+    //       于是两端一起 +1 年。这类用例必须换一个"参考日之后"的 today 才暴露得出来
+    //       （本测试类的 today 固定 10/21，恰好不会触发顺延）。
+    private fun parseOn(day: LocalDate, s: String) = Parser(day).parse(s)
+
+    private val friday = LocalDate.of(2026, 10, 23) // 周五，落在 10/21 之后
+
+    @Test fun range_inProgress_doesNotJumpToNextYear() {
+        val r = parseOn(friday, "10月21日到26日 交材料")
+        assertEquals("交材料", r.title)
+        assertEquals(LocalDate.of(2026, 10, 21), r.startDate)
+        assertEquals(LocalDate.of(2026, 10, 26), r.dueDate)
+        assertFalse(r.dateError) // 开始日已过 ≠ 逾期/报错
+    }
+
+    // 任务本身已经过了截止日，之前也是一样（10月1日到5日 在 10/23 说 = 明年那段）。
+    @Test fun range_fullyPast_movesWholeRangeToOneYearLater() {
+        val r = parseOn(friday, "10月1日到5日")
+        assertEquals(LocalDate.of(2027, 10, 1), r.startDate)
+        assertEquals(LocalDate.of(2027, 10, 5), r.dueDate)
+    }
+
+    // 左半只写月日时，右半的月日要**跟随开始日的年份**，不能一边今年一边明年。
+    @Test fun range_monthDayRight_followsStartYear() {
+        val r = parseOn(friday, "1月5日到1月10日")
+        assertEquals(LocalDate.of(2027, 1, 5), r.startDate)
+        assertEquals(LocalDate.of(2027, 1, 10), r.dueDate)
+    }
+
+    // 左半只写日号：按本月先落位（进行中不能被推到下个月）。
+    @Test fun range_dayOnlyLeft_inProgress() {
+        val r = parseOn(friday, "20日到25日")
+        assertEquals(LocalDate.of(2026, 10, 20), r.startDate)
+        assertEquals(LocalDate.of(2026, 10, 25), r.dueDate)
+    }
+
+    @Test fun range_dayOnlyLeft_fullyPast_movesWholeRangeToNextMonth() {
+        val r = parseOn(friday, "1日到5日")
+        assertEquals(LocalDate.of(2026, 11, 1), r.startDate)
+        assertEquals(LocalDate.of(2026, 11, 5), r.dueDate)
+    }
+
+    // 单日「没写年份」的顺延约定不变（编辑回填依赖它，不能顺手改）。
+    @Test fun singleDate_noYear_stillRollsForward() {
+        assertEquals(LocalDate.of(2027, 10, 22), parseOn(friday, "10月22日开会").dueDate)
+    }
+
     // 「10月26日 周一」里的「周一」是注解：不能拆成两条（编辑回填曾一点保存就多出 10/19）。
     @Test fun parseAll_weekdayAnnotation_isNotSecondDate() {
         val list = parser().parseAll("10月26日 周一 9点")

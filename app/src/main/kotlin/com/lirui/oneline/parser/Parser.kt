@@ -465,11 +465,66 @@ class Parser(
     private val rangeConnectors = listOf("一直到", "到", "至", "~", "～", "—", "–")
 
     /**
+     * 左半只写了「X月X日」/「X日」（没给年份）时，整段需要**整体**前移的周期。
+     * 见 [resolveRangeLeft] 与 [stripRange] 末尾的前移循环。
+     */
+    private enum class RangeShift { NONE, MONTH, YEAR }
+
+    /**
+     * 解析时间段的**左半**（开始日），返回「开始日 + 需要整体前移的周期」。
+     *
+     * ★ 为什么不能直接复用 [stripLeadingDate]：它把「没写年份的月日」当**单日**处理，
+     *   过去就顺延到明年（[nextMonthDay]）。于是今天 10/23 时「10月21日到26日」的左半
+     *   变成 2027/10/21，右半再跟着它 → 一条**进行中**的时间段一点编辑就整段跑到明年。
+     *   时间段的年份应该由「整段」决定：左半先落在今年/本月，整段都在今天之前才整体前移
+     *   （前移由 [stripRange] 末尾统一做）。
+     *
+     * @return null = 左半不是一个完整日期（交回普通单日期逻辑，「看到」「迟到」不受影响）。
+     */
+    private fun resolveRangeLeft(left: String): Pair<LocalDate, RangeShift>? {
+        // 带年份的写法（2026-10-24 / 2026年10月24日）必须最先判：年份是明确的，绝不前移。
+        if (absYearRe.matcher(left).lookingAt() || num3Re.matcher(left).lookingAt()) {
+            val acc = Acc()
+            val rest = stripLeadingDate(left, acc)
+            val date = acc.date ?: return null
+            if (rest.isNotBlank()) return null
+            return date to RangeShift.NONE
+        }
+        val dayOnly = dayOnlyRe.matcher(left)
+        if (dayOnly.lookingAt() && !followedByUnit(left, dayOnly.end())) {
+            val day = numOf(dayOnly.group(1)!!) ?: return null
+            if (left.substring(dayOnly.end()).isNotBlank()) return null
+            // 「20日到25日」按本月先落位：本月这一号已过，但整段可能还在进行中
+            // （今天 10/23 的 20–25 就是在进行中），所以不先顺延到下月。
+            val start = today.withDayOfMonth(day.coerceAtMost(today.lengthOfMonth()))
+            return start to RangeShift.MONTH
+        }
+        val monthDay = monthDayRe.matcher(left)
+        if (monthDay.lookingAt()) {
+            val month = numOf(monthDay.group(1)!!) ?: return null
+            val day = numOf(monthDay.group(2)!!) ?: return null
+            if (left.substring(monthDay.end()).isNotBlank()) return null
+            val start = safeDate(today.year, month, day) ?: return null
+            return start to RangeShift.YEAR
+        }
+        // 周几 / 明天… / 今年… 这类相对写法：沿用原解析（它们本来就不做"跨年顺延"）。
+        val acc = Acc()
+        val rest = stripLeadingDate(left, acc)
+        val date = acc.date ?: return null
+        if (rest.isNotBlank()) return null
+        return date to RangeShift.NONE
+    }
+
+    /**
      * 解析一个 token 里的时间段，如「周一到周三」「10月21日到23日」「到下周三」。
      *
      * 只在**同一个 token** 内识别：左半必须是一整个日期、右半必须能解析出日期，
      * 否则返回 null 交回普通单日期逻辑（这样「看到」「迟到」这类含「到」的词不会误伤）。
      * 命中时把 start 写进 [Acc.startDate]、end 写进 [Acc.date]，返回右半日期之后的剩余文本。
+     *
+     * 年份规则（v0.8.8 修正）：**整段一起定年**。左半只写月日/日号时先落今年/本月，
+     * 右半年份跟随左半，最后整段都在今天之前才整体前移一个周期 —— 逐半独立顺延会把
+     * 进行中的区间推成"今年左半 + 明年右半"或整段跳年。
      */
     private fun stripRange(token: String, acc: Acc): String? {
         val connector = rangeConnectors.firstOrNull { token.contains(it) } ?: return null
@@ -482,22 +537,22 @@ class Parser(
 
         // 左半为空 = 开区间（"到下周三"），起点取**本句已解析到的日期**，没有才退回今天。
         // 之前恒取 today，导致「下周一 到周三」里前一个 token 的 10/26 被"到"覆盖成今天。
-        val start: LocalDate
-        if (left.isEmpty()) {
-            start = acc.date ?: today
+        val (start, shift) = if (left.isEmpty()) {
+            (acc.date ?: today) to RangeShift.NONE
         } else {
             if (repeatDays(left) != null) return null // 重复 + 范围不支持
-            val leftAcc = Acc()
-            val leftRest = stripLeadingDate(left, leftAcc)
-            val leftDate = leftAcc.date ?: return null
-            if (leftRest.isNotBlank()) return null // 左边混了非日期内容，不是范围
-            start = leftDate
+            resolveRangeLeft(left) ?: return null
         }
 
-        // 右半：先试「只写日号」的同月形式（"10月21日到23日"），否则走普通日期解析。
+        // 右半：先试「只写日号」的同月形式（"10月21日到23日"）；再试「只写月日」——
+        // 它的年份**跟随开始日**，不能在今天上独立顺延（否则「1月5日到1月10日」今天是 10/23
+        // 会拼成"今年1/5 → 明年1/10"，一条跨一年的假区间）。
         val end: LocalDate
         val rightRest: String
         val dayOnly = dayOnlyRe.matcher(right)
+        val monthDay = monthDayRe.matcher(right)
+        val absoluteRight =
+            absYearRe.matcher(right).lookingAt() || num3Re.matcher(right).lookingAt()
         if (dayOnly.lookingAt()) {
             val day = numOf(dayOnly.group(1)!!) ?: return null
             var e = start.withDayOfMonth(day.coerceAtMost(start.lengthOfMonth()))
@@ -507,6 +562,13 @@ class Parser(
             }
             end = e
             rightRest = right.substring(dayOnly.end())
+        } else if (monthDay.lookingAt() && !absoluteRight) {
+            val month = numOf(monthDay.group(1)!!) ?: return null
+            val day = numOf(monthDay.group(2)!!) ?: return null
+            var e = safeDate(start.year, month, day) ?: return null
+            if (e.isBefore(start)) e = e.plusYears(1) // 跨年：「12月30日到1月2日」
+            end = e
+            rightRest = right.substring(monthDay.end())
         } else {
             val rightAcc = Acc()
             rightRest = stripLeadingDate(right, rightAcc)
@@ -515,8 +577,18 @@ class Parser(
 
         var s = start
         var e = end
-        // 左半没写年份被顺延到明年、右半还在今年时，把左半拉回右半的年份
-        // （"10月21日到10月23日" 在今天=10/23 时：左半会顺延到明年）。
+        // ★ 整段前移：左半没写年份，且整段都已经过去 → 一起挪一个周期。
+        //   必须两端一起挪：只挪左半（旧的 nextMonthDay 行为）会让右半跟着跑到明年，
+        //   今天 10/23 编辑「10月21日到26日」曾经得到 2027/10/21–2027/10/26。
+        //   进行中（e >= 今天）则原地不动 —— 这是时间段最常用的场景。
+        if (shift != RangeShift.NONE) {
+            var guard = 0
+            while (e.isBefore(today) && guard++ < 400) {
+                if (shift == RangeShift.MONTH) { s = s.plusMonths(1); e = e.plusMonths(1) }
+                else { s = s.plusYears(1); e = e.plusYears(1) }
+            }
+        }
+        // 左半没写年份被顺延到明年、右半还在今年时，把左半拉回右半的年份（防御性保留）。
         if (s.isAfter(e) && s.year > e.year) s = s.minusYears((s.year - e.year).toLong())
         // 右半是「周X」这类**相对**写法时，落在开始日之前就是「开始日所在周之后的那个周X」，
         // 顺延 7 天而不是对调：「下周一 到周三」= 10/26 → 10/28，不是 10/21 → 10/26。

@@ -151,9 +151,12 @@ fun AddSheet(
     // 标题被手动清空时不能提交（VM 会判 Blank，这里提前禁掉按钮并说明原因）。
     val anyTitleBlank = effectiveParses().none { it.cleanTitle.isNotBlank() }
 
-    // Re-parse on open so the shared ViewModel preview is never a stale result from the
-    // previously added todo (that caused a phantom "10月23日" chip on an empty field).
-    LaunchedEffect(initialText) { onPreview(initialText) }
+    // 添加模式开局必须重新解析一次：ViewModel 里的预览可能还是上一句话的结果
+    // （曾导致空输入框挂着一条「10月23日」的幽灵 chip）。
+    // **编辑模式不重新解析**：parses 已经由 vm.previewExisting(todo) 按库里的 epoch 精确反推好了。
+    // 再拿回填句子解析一遍是"二手换算"——句子不写年份，一条已经过去的时间段/单日会被顺延到
+    // 下一个周期，于是"点开编辑、什么都没改、点保存"就把日期改掉了。
+    LaunchedEffect(initialText) { if (!editing) onPreview(initialText) }
 
     val submit = { onAdd(effectiveParses(), if (editing) repeatOn else true) }
 

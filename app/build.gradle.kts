@@ -101,8 +101,13 @@ android {
         //         初始值却传了本地午夜（北京 00:00 = UTC 前一天 16:00）→ 被读成前一天，
         //         且点「确定」会把日期真的存成前一天。出入两端统一走
         //         AppTime.pickerMillis / pickerDate（结束日、开始日两个选择器都修）。
-        versionCode = 25
-        versionName = "0.8.7"
+        // 0.8.8 = 修「编辑进行中的时间段，整条日期跳到明年」：时间段的年份改为**整段一起定** ——
+        //         左半只写月日/日号时先落今年/本月（不再单独走 nextMonthDay 顺延一年），
+        //         右半的月日/日号跟随左半，整段都在今天之前才整体前移一个周期；
+        //         编辑模式打开时不再拿回填句子重新解析（值来自 previewExisting 的精确反推），
+        //         避免"点开编辑、什么都没改、一保存就把日期改掉"。
+        versionCode = 26
+        versionName = "0.8.8"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

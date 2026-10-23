@@ -86,6 +86,15 @@
   进（初始值）出（确定）两端统一走 `AppTime.pickerMillis(date)` / `AppTime.pickerDate(millis)`，
   `SelectableDates.isSelectableDate` 同样用 `pickerDate`。结束日、开始日两个选择器都要改，
   漏一个就只剩一个选择器是对的。
+- ★ **时间段的年份必须"整段一起定"**（0.8.8 修的真机 bug：编辑进行中的时间段，日期跳到明年）：
+  `stripRange` 的左半**不能**直接走 `stripLeadingDate`——那条路对「没写年份的月日」会
+  `nextMonthDay` 顺延到明年，右半再以左半为基准 → 两端一起 +1 年。
+  现在的规则：左半只写月日/日号时先落**今年/本月**（`resolveRangeLeft` 返回 `RangeShift`），
+  右半的月日/日号**跟随左半**（`start.year`），最后整段都在今天之前才整体前移一个周期。
+  ★ 单测 `today` 固定在 2026-10-21 时**测不出**这类 bug（10/21 恰好是当天），
+  新用例统一用 `Parser(2026-10-23)` 这类"参考日之后"的 today。
+- 编辑弹层打开时**不再重新解析**回填句子（`AddSheet` 的 `LaunchedEffect` 加 `if (!editing)`）：
+  值直接来自 `previewExisting` 的精确反推，避免"点开编辑、什么都没改、一保存日期就变"。
 - **逾期判定**：统一调 `Format.isOverdue(due, today, nowMillis, hasExactTime)`。
   有精确时刻 → `due <= now`；**只写日期 → 过了那天才算**（不能拿默认 09:00 兜底去判逾期）。
   分组 `Format.groupLabel` 内部也调它，两者口径必须一致；`overduePin` 只控制列表排序。
