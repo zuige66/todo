@@ -203,6 +203,21 @@ class FormatTest {
         assertNull(Format.rangeStatus(null, epoch(2026, 10, 23), today, epoch(2026, 10, 21, 12)))
     }
 
+    // 编辑待办回填输入框的句子：必须是解析器认识的形式（不能用 21–26日 那种紧凑写法）。
+    @Test fun rangeSentence_isParseableShape() {
+        assertEquals("10月24日到26日", Format.rangeSentence(epoch(2026, 10, 24), epoch(2026, 10, 26)))
+        assertEquals(
+            "10月28日到11月3日",
+            Format.rangeSentence(epoch(2026, 10, 28), epoch(2026, 11, 3))
+        )
+        assertEquals(
+            "2026年12月30日到2027年1月2日",
+            Format.rangeSentence(epoch(2026, 12, 30), epoch(2027, 1, 2))
+        )
+        // 单日退回 monthDay（不带星期，避免「周一」被解析成本周一）
+        assertEquals("10月24日", Format.rangeSentence(epoch(2026, 10, 24), epoch(2026, 10, 24)))
+    }
+
     companion object {
         init {
             System.setProperty("user.timezone", "Asia/Shanghai")

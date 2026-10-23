@@ -83,8 +83,15 @@ android {
         // 0.8.4 = 时间段待办：一条待办跨多天（「周一到周五出差」「10月21日到23日」「3天内交方案」），
         //         dueAtMillis 语义改为「最后一天」，因此逾期判定零改动 —— 最后一天过完才变红；
         //         新增 startAtMillis（Room v3→v4），列表按「进行中→今日」归档、显示 还剩N天/最后一天。
-        versionCode = 22
-        versionName = "0.8.4"
+        // 0.8.5 = 修 0.8.4 的三个真机问题：
+        //         ① 编辑待办回填句子带星期（「10月26日 周一」），被解析成两条（多出一条本周一 10/19）
+        //            —— 回填改成无星期、时间段回填成「10月24日到26日」，并在 stripLeadingDate 里
+        //            把「与已解析日期同一个星期几」的周几当注解，不再覆盖日期；
+        //         ② 「下周一 到周三」里「到」开区间锚点取了 today，把前面的 10/26 覆盖成今天
+        //            —— 改为取本句已解析到的日期，且右半是周几且落在开始日之前时顺延一周；
+        //         ③ APK 下载默认走 blog 静态源，GitHub 资产 CDN 改为兜底。
+        versionCode = 23
+        versionName = "0.8.5"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

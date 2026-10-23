@@ -927,4 +927,81 @@ class ParserTest {
         assertEquals(2, list.size)
         assertTrue(list.all { it.startDate == null })
     }
+
+    // ---- 回归：开区间锚点 / 周几顺延 / 星期注解 ----
+
+    // 「下周一 到周三」：前面已经解析出 10/26，后面的「到周三」必须接着它走，
+    // 不能再退回 today（曾经给出 10/21 → 10/21，用户看到的就是"下周一变成这周一"）。
+    @Test fun range_openStart_anchorsOnEarlierDateInSentence() {
+        val r = parse("下周一 到周三")
+        assertEquals(LocalDate.of(2026, 10, 26), r.startDate)
+        assertEquals(LocalDate.of(2026, 10, 28), r.dueDate) // 周三是开始日之后的那一个
+    }
+
+    // 右半是相对写法且落在开始日之前 -> 顺延一周，而不是把区间对调。
+    @Test fun range_weekdayEnd_rollsForward() {
+        val r = parse("下周一 到周三，测试长时间，详情1")
+        assertEquals("测试长时间", r.title)
+        assertEquals(LocalDate.of(2026, 10, 26), r.startDate)
+        assertEquals(LocalDate.of(2026, 10, 28), r.dueDate)
+    }
+
+    // 「10月26日 周一」里的「周一」是注解：不能拆成两条（编辑回填曾一点保存就多出 10/19）。
+    @Test fun parseAll_weekdayAnnotation_isNotSecondDate() {
+        val list = parser().parseAll("10月26日 周一 9点")
+        assertEquals(1, list.size)
+        assertEquals(LocalDate.of(2026, 10, 26), list[0].dueDate)
+        assertEquals(LocalTime.of(9, 0), list[0].dueTime)
+    }
+
+    @Test fun parseAll_editSentence_roundTripsToSingleTodo() {
+        val list = parser().parseAll("测试长时间 详情1 10月26日 周一 9点")
+        assertEquals(1, list.size)
+        assertEquals("测试长时间", list[0].title)
+        assertEquals("详情1", list[0].detail)
+        assertEquals(LocalDate.of(2026, 10, 26), list[0].dueDate)
+        assertFalse(list[0].dateError)
+    }
+
+    // 不同星期几仍然要拆成两条（注解规则不能误伤真正的多日期）。
+    @Test fun parseAll_differentWeekdays_stillSplit() {
+        assertEquals(2, parser().parseAll("周一 周三 开会").size)
+    }
+
+    // 编辑时间段待办回填的句子（10月24日到26日 9点）必须原样解析回同一条区间。
+    @Test fun parseAll_rangeSentence_roundTrips() {
+        val list = parser().parseAll("测试长时间 详情1 10月24日到26日 9点")
+        assertEquals(1, list.size)
+        assertEquals(LocalDate.of(2026, 10, 24), list[0].startDate)
+        assertEquals(LocalDate.of(2026, 10, 26), list[0].dueDate)
+        assertEquals(LocalTime.of(9, 0), list[0].dueTime)
+    }
+
+    // ---- 编辑往返：Format.editSentence 生成的句子必须解析回原待办（曾经多出一条 10/19）----
+    @Test fun editSentence_singleDay_roundTrips() {
+        val due = java.time.ZonedDateTime.of(2026, 10, 26, 9, 0, 0, 0, java.time.ZoneId.of("Asia/Shanghai"))
+            .toInstant().toEpochMilli()
+        val sentence = com.lirui.oneline.util.Format.editSentence("开会", "带电脑", null, due, today)
+        assertEquals("开会 带电脑 10月26日 9点", sentence)
+        val list = parser().parseAll(sentence)
+        assertEquals(1, list.size)
+        assertEquals("开会", list[0].title)
+        assertEquals("带电脑", list[0].detail)
+        assertNull(list[0].startDate)
+        assertEquals(LocalDate.of(2026, 10, 26), list[0].dueDate)
+        assertFalse(list[0].dateError)
+    }
+
+    @Test fun editSentence_range_roundTrips() {
+        val zone = java.time.ZoneId.of("Asia/Shanghai")
+        val start = java.time.LocalDate.of(2026, 10, 24).atStartOfDay(zone).toInstant().toEpochMilli()
+        val due = java.time.ZonedDateTime.of(2026, 10, 26, 9, 0, 0, 0, zone).toInstant().toEpochMilli()
+        val sentence = com.lirui.oneline.util.Format.editSentence("出差", "", start, due, today)
+        assertEquals("出差 10月24日到26日 9点", sentence)
+        val list = parser().parseAll(sentence)
+        assertEquals(1, list.size)
+        assertEquals(LocalDate.of(2026, 10, 24), list[0].startDate)
+        assertEquals(LocalDate.of(2026, 10, 26), list[0].dueDate)
+        assertEquals(LocalTime.of(9, 0), list[0].dueTime)
+    }
 }

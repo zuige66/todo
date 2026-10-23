@@ -150,8 +150,61 @@ object Format {
         }
     }
 
-    /** 右侧紧凑范围：`21–23日` / `10/21–11/3`；单日退回 [monthDay]。 */
-    fun monthDayRange(start: Long?, end: Long): String {
+    /**
+     * 能被解析器**原样读回去**的区间句子：`10月24日到26日` / `10月28日到11月3日` / 跨年带年份。
+     * 编辑待办时用它回填输入框 —— 不能用 [monthDayRange]（`21–26日` 解析器不认识）。
+     */
+    fun rangeSentence(start: Long, end: Long): String {
+        val s = dueAtMillis(start)
+        val e = dueAtMillis(end)
+        if (s == e) return monthDay(e)
+        return when {
+            s.year == e.year && s.monthValue == e.monthValue ->
+                "%d月%d日到%d日".format(Locale.CHINA, s.monthValue, s.dayOfMonth, e.dayOfMonth)
+            s.year == e.year ->
+                "%d月%d日到%d月%d日".format(
+                    Locale.CHINA, s.monthValue, s.dayOfMonth, e.monthValue, e.dayOfMonth
+                )
+            else ->
+                "%d年%d月%d日到%d年%d月%d日".format(
+                    Locale.CHINA, s.year, s.monthValue, s.dayOfMonth, e.year, e.monthValue, e.dayOfMonth
+                )
+        }
+    }
+
+    /**
+     * 编辑待办时回填输入框的句子。**必须能被 [com.lirui.oneline.parser.Parser] 原样读回成同一条待办**：
+     * - 时间段写成 [rangeSentence]（`10月24日到26日`），否则开始日会丢、区间退化成单日；
+     * - 单日只写日期，**不拼星期**。旧实现拼出「10月26日 周一」，而「周一」会被解析成
+     *   本周一（10/19），一点保存就多出一条已经过期的待办。
+     */
+    fun editSentence(
+        title: String,
+        detail: String,
+        start: Long?,
+        due: Long?,
+        today: LocalDate = AppTime.today()
+    ): String = buildString {
+        append(title)
+        if (detail.isNotBlank()) {
+            append(" ")
+            append(detail)
+        }
+        if (due == null) return@buildString
+        append(" ")
+        if (start != null) {
+            append(rangeSentence(start, due))
+        } else {
+            val d = dueAtMillis(due)
+            append(if (d == today) "今天" else monthDay(d))
+        }
+        // Pinned zone —— 回填的句子必须和创建时读到的墙钟一致，不受设备时区影响。
+        val t = java.time.Instant.ofEpochMilli(due).atZone(AppTime.ZONE).toLocalTime()
+        append(" ")
+        append(if (t.minute == 0) "${t.hour}点" else "${t.hour}点${t.minute}分")
+    }
+
+    /** 右侧紧凑范围：`21–23日` / `10/21–11/3`；单日退回 [monthDay]。 */    fun monthDayRange(start: Long?, end: Long): String {
         if (start == null) return monthDay(dueAtMillis(end))
         val s = dueAtMillis(start)
         val e = dueAtMillis(end)

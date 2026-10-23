@@ -386,7 +386,8 @@ class Parser(
             val after = rest.substring(twPrefix.length)
             val day = weekdayChar(after.firstOrNull() ?: ' ')
             if (day != null) {
-                acc.setDate(today.with(day), today)
+                // 「10月26日 本周一」里的星期几是**注解**，不能把日期改回本周那一天
+                if (acc.date?.dayOfWeek != day) acc.setDate(today.with(day), today)
                 return after.substring(1)
             }
         }
@@ -394,7 +395,10 @@ class Parser(
         // 3) current-week weekday literal
         for ((key, dow) in weekdayLiterals) {
             if (rest.startsWith(key)) {
-                acc.setDate(today.with(dow), today)
+                // ★ 「10月26日 周一」里的「周一」是注解，不是第二个日期：同一个星期几
+                //   就保持已解析的日期不变。否则会被改写成**本周**的周一（10/19），
+                //   编辑回填的句子「… 10月26日 周一 9点」一点保存就多出一条已过期的待办。
+                if (acc.date?.dayOfWeek != dow) acc.setDate(today.with(dow), today)
                 return rest.substring(key.length)
             }
         }
@@ -476,10 +480,11 @@ class Parser(
         if (right.isEmpty()) return null
         if (left.startsWith("从")) left = left.removePrefix("从").trim()
 
-        // 左半为空 = 开区间（"到下周三"），起点取今天。
+        // 左半为空 = 开区间（"到下周三"），起点取**本句已解析到的日期**，没有才退回今天。
+        // 之前恒取 today，导致「下周一 到周三」里前一个 token 的 10/26 被"到"覆盖成今天。
         val start: LocalDate
         if (left.isEmpty()) {
-            start = today
+            start = acc.date ?: today
         } else {
             if (repeatDays(left) != null) return null // 重复 + 范围不支持
             val leftAcc = Acc()
@@ -513,12 +518,24 @@ class Parser(
         // 左半没写年份被顺延到明年、右半还在今年时，把左半拉回右半的年份
         // （"10月21日到10月23日" 在今天=10/23 时：左半会顺延到明年）。
         if (s.isAfter(e) && s.year > e.year) s = s.minusYears((s.year - e.year).toLong())
+        // 右半是「周X」这类**相对**写法时，落在开始日之前就是「开始日所在周之后的那个周X」，
+        // 顺延 7 天而不是对调：「下周一 到周三」= 10/26 → 10/28，不是 10/21 → 10/26。
+        // 绝对日期（10月21日到10月23日）仍走下面的对调，那是用户真的写反了。
+        if (e.isBefore(s) && startsWithWeekday(right)) {
+            while (e.isBefore(s)) e = e.plusDays(7)
+        }
         if (s.isAfter(e)) { val t = s; s = e; e = t }
 
         acc.startDate = s
         acc.setDate(e, today)
         return rightRest
     }
+
+    /** [s] 是否以「周X / 下周X / 本周X / 星期X / 礼拜X」开头（用于判断相对还是绝对日期）。 */
+    private fun startsWithWeekday(s: String): Boolean =
+        nextWeekPrefixes.any { s.startsWith(it) } ||
+            thisWeekPrefixes.any { s.startsWith(it) } ||
+            weekdayLiterals.any { s.startsWith(it.first) }
 
     /** 时长写法：`从X起N天` / `N天内`（必须带「内」，避免把「3天后」误判成范围）。 */
     private fun stripDuration(token: String, acc: Acc): String? {

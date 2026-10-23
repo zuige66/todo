@@ -50,8 +50,8 @@ sealed interface UpdateCheck {
  * - **兜底源 blog**：部署在 `blog.zuiges.com`（GitHub Pages 自定义域名，国内通常可直连），
  *   仅当主源「网络不可达」（DNS 污染 / 超时 / TLS 拦截）或「被限流」（403/429）时回退，
  *   取 `latest.json` 的 `versionName` + `apkUrl`（APK 同站托管，国内可直连）；
- * - **下载兜底**：`UpdateDownloadService` 在主源 APK（GitHub 资产 CDN）下载失败时，
- *   会再向 blog 源要一次镜像直链重试（`blogFallbackApkUrl()`）。
+ * - **下载**：`UpdateDownloadService` **默认走 blog 源的 APK 直链**（国内可直连、快且稳），
+ *   只有取不到地址或下载抛异常时，才退回 GitHub 资产 CDN（`blogApkUrl()`）。
  *
  * 只比 versionName 一条线（release 的 asset 直接覆盖安装，versionCode 由构建脚本保证单调）。
  * 失败分类刻意做细：DNS 污染 / 超时 / TLS / HTTP 状态码是四种不同的病，
@@ -193,10 +193,10 @@ object UpdateService {
     }
 
     /**
-     * 下载兜底：取出 blog 源里挂的 APK 直链（国内可直连），供 [UpdateDownloadService]
-     * 在主源（GitHub 资产 CDN）下载失败时重试一次。任何异常 / 非 200 都返回空串。
+     * 取出 blog 源里挂的 APK 直链（国内可直连）。[UpdateDownloadService] **默认走它下载**，
+     * GitHub 资产 CDN 只在它拿不到或下载失败时兜底。任何异常 / 非 200 都返回空串。
      */
-    fun blogFallbackApkUrl(): String {
+    fun blogApkUrl(): String {
         return try {
             val r = fetch(BLOG_LATEST_URL)
             if (r.code !in 200..299) return ""
