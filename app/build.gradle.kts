@@ -192,7 +192,14 @@ android {
             isMinifyEnabled = false
         }
         release {
-            isMinifyEnabled = false
+            // ★ R8 全开：minify（删死代码 + 混淆）+ shrinkResources（删没用到的资源）。
+            //   之前 isMinifyEnabled = false，release 包 9.2M —— 拆开看 classes.dex 15M +
+            //   classes2.dex 11M 全是未裁剪的 Compose/Room/lifecycle 类，而 res+lib 才 280K。
+            //   本应用没有反射序列化（无 Gson/Moshi），Room 实体已在 proguard-rules.pro 里
+            //   keep，manifest 里的组件（Activity/Receiver/Worker）由 AGP 自动保留，
+            //   Compose / coroutines / WorkManager 各自带 consumer rules，开 R8 是安全的。
+            isMinifyEnabled = true
+            isShrinkResources = true
             signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
