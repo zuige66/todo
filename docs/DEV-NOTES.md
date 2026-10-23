@@ -329,3 +329,49 @@ TopAppBar 的 modifier 上、链里没有底色。
 
 **判据（写代码前先想）**：要让"底色 + 内容"作为一个整体做绘制期变换，
 graphicsLayer 必须是链条上最靠左的那个绘制类修饰符。
+
+## 设置页结构 / 列表手势 / 小组件名（v0.9.1）
+
+### 小组件在桌面搜不到「Todo」—— label 是唯一被搜索的字段
+系统「小组件」列表的搜索**只匹配组件自己的 label**（`<receiver android:label>`），
+完全不看 `app_name`。所以 `widget_label=待办` 时，搜「Todo」永远空。
+
+★ 但 `widget_label` 同时被**桌面组件自己的头部标题**引用（`widget_todo_list.xml` /
+`widget_preview_layout.xml` 里的 TextView），改长会把桌面上的标题一起改掉。
+已拆成两个字符串，**不能混用**：
+
+| 字符串 | 用途 |
+|---|---|
+| `widget_label` = 「Todo 待办」 | 只给系统（选择器显示名 + 搜索） |
+| `widget_header` = 「待办」 | 只给两个布局的头部标题 |
+
+以后新增 layout 里的小组件标题一律用 `@string/widget_header`。
+
+### 列表手势是开关，不是硬编码
+三个动作（`SettingsRepo` 三个键，默认**全开**）：右滑归档 `gesture_swipe_archive`、
+长按编辑 `gesture_long_press_edit`、双击编辑 `gesture_double_tap_edit`。
+- 关掉的手势**连 `pointerInput` 都不挂**（`if (checked || !gestures.swipeArchive) return@pointerInput`），
+  不参与事件分发，不是"接住了再判断"。
+- `Gestures` 在 `TodoList` 里用 `rememberGestures()` 读**一次**往下传，不在每行各读一遍 SP。
+  切到设置页改完再回来，`TAB_TODO` 那个分支的 group 会被销毁重建 → 自动重读。
+- ★ **双击不要另起 `detectTapGestures(onDoubleTap=…)`**：它和行上的 `combinedClickable`
+  是两个检测器，会抢同一次抬手，实测可能两边都不触发。现在的做法是在 `onClick` 里
+  数时间差（阈值取 `LocalViewConfiguration.doubleTapTimeoutMillis`），只有一个检测器，
+  涟漪反馈也还在。
+- 长按关掉时给 `combinedClickable(onLongClick = null)`，而不是在回调里 return。
+
+### 档位选择统一用下拉
+- 单选：`SettingsDropdown(label, options, selectedValue, onSelect, valueText = null)`，
+  `valueText` 默认取 options 里选中项的 label。
+- 多选：`SettingsMultiDropdown(label, options, selected, onToggle)`，**点选不关菜单**
+  （多选要连着勾，每点一次就收起来会逼用户反复展开）。
+- 原来的 `ChoiceItem` / `BucketChips` / `SettingsFilterChip` 三个 chip 控件已删除。
+  它们的问题是 3~4 个选项要铺两行，而档位"设一次就不动"，下拉一行更省空间。
+
+### 分节顺序（8 节）
+1 提醒·可靠性（带状态徽章，与 2 共用同一节标题）→ 2 提醒·行为 → 3 通知 → 4 外观 →
+5 操作（三个手势 + 沉浸式顶栏）→ 6 小组件（含「添加小组件到桌面」指引）→
+7 列表与待办 → 8 测试。
+
+为什么沉浸式顶栏在「操作」而不是「外观」：它和手势是同一类东西（"我怎么操作这个列表"），
+不是配色/字号那种外观。

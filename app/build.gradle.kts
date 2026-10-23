@@ -122,8 +122,19 @@ android {
         //            所有日期规则都只从 token **开头**剥，日期写在文字后面就整段进了标题。
         //            新增 peelTitlePrefix：原样解析（时间段/时长）失败后，把日期前面的文字剥成标题；
         //            前缀含数字或连接词（到/至/从/~）时不剥，保住「到周三」「从24日起3天内」。
-        versionCode = 28
-        versionName = "0.9.0"
+        // 0.9.1 = 小组件搜索 + 设置页重构：
+        //         ① 桌面搜「Todo」搜不到组件（只能搜「待办」）—— 系统组件列表只匹配组件自己的
+        //            label，不认 App 名。widget_label 改成「Todo 待办」，同时拆出 widget_header
+        //            给布局用（桌面组件头部标题不能跟着变长）。
+        //         ② 设置页新增「操作」节：右滑归档 / 长按编辑 / 双击编辑 三个开关 + 沉浸式顶栏
+        //            （从「外观」移入）。关掉的手势连 pointerInput 都不挂，不参与事件竞争；
+        //            双击用「两次 onClick 的间隔」判定（不另起 detectTapGestures，避免两个检测器抢事件）。
+        //         ③ 设置页重排成 8 节：提醒(可靠性+行为合并) → 通知 → 外观 → 操作 → 小组件 →
+        //            列表与待办 → 测试；「添加小组件」指引从外观移回小组件节。
+        //         ④ 所有档位选择统一成下拉（单选 SettingsDropdown / 多选 SettingsMultiDropdown），
+        //            chip 行退役；多选下拉点选不关菜单。
+        versionCode = 29
+        versionName = "0.9.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

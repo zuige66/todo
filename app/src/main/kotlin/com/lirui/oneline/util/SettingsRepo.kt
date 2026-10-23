@@ -27,6 +27,11 @@ object SettingsRepo {
     private const val KEY_PALETTE = "palette_id"
     private const val KEY_DARK_CARD = "dark_card_style"
     private const val KEY_IMMERSIVE_TOPBAR = "immersive_topbar"
+    // 列表手势开关（设置 → 操作）。三个都是"用户可以关掉"的动作，
+    // 关掉后对应手势完全不参与事件竞争（不是"接住了再判断"）。
+    private const val KEY_GESTURE_SWIPE_ARCHIVE = "gesture_swipe_archive"
+    private const val KEY_GESTURE_LONG_PRESS_EDIT = "gesture_long_press_edit"
+    private const val KEY_GESTURE_DOUBLE_TAP_EDIT = "gesture_double_tap_edit"
     private const val KEY_HOME_BOARD_ORDER = "home_board_order"
     private const val KEY_HOME_BOARD_HIDDEN = "home_board_hidden"
     private const val KEY_HOME_BUCKETS = "home_buckets"
@@ -174,6 +179,42 @@ object SettingsRepo {
     fun setImmersiveTopBar(context: Context, enabled: Boolean) {
         context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
             .edit().putBoolean(KEY_IMMERSIVE_TOPBAR, enabled).apply()
+    }
+
+    // ---------- 列表手势（v0.9.1）----------
+    //
+    // 三个动作互相独立，默认**全开**（老用户的行为保持不变；双击是新增的，
+    // 单击本来就没有动作，所以不存在"抢点击"的问题）。
+    // 关掉的手势在 TodoRow 里连 pointerInput 都不挂 —— 不占事件分发的竞争。
+
+    /** 右滑归档。默认开。 */
+    fun gestureSwipeArchive(context: Context): Boolean =
+        context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            .getBoolean(KEY_GESTURE_SWIPE_ARCHIVE, true)
+
+    fun setGestureSwipeArchive(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            .edit().putBoolean(KEY_GESTURE_SWIPE_ARCHIVE, enabled).apply()
+    }
+
+    /** 长按编辑。默认开。 */
+    fun gestureLongPressEdit(context: Context): Boolean =
+        context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            .getBoolean(KEY_GESTURE_LONG_PRESS_EDIT, true)
+
+    fun setGestureLongPressEdit(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            .edit().putBoolean(KEY_GESTURE_LONG_PRESS_EDIT, enabled).apply()
+    }
+
+    /** 双击编辑。默认开。 */
+    fun gestureDoubleTapEdit(context: Context): Boolean =
+        context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            .getBoolean(KEY_GESTURE_DOUBLE_TAP_EDIT, true)
+
+    fun setGestureDoubleTapEdit(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            .edit().putBoolean(KEY_GESTURE_DOUBLE_TAP_EDIT, enabled).apply()
     }
 
     // ---------- 后台常驻 (keep-alive FGS) ----------

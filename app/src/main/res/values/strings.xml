@@ -24,7 +24,15 @@
     <string name="task_completed">已完成「%1$s」</string>
 
     <!-- Home screen widget -->
-    <string name="widget_label">待办</string>
+    <!--
+      widget_label 是**给系统的组件名**：桌面「小组件」列表里显示的名字，也是搜索时唯一匹配的字段。
+      ★ 2026-10-23 真机反馈：搜「Todo」搜不到组件，只能搜「待办」—— 因为系统只匹配这个 label，
+        不认 App 名（app_name=Todo）。所以 label 里必须同时有 Todo 和 待办。
+      ★ 但桌面组件自己的头部标题也在用这个字符串（widget_todo_list / widget_preview_layout），
+        label 改长会把标题一起改掉 —— 所以拆出 widget_header 给布局，两者不能混用。
+    -->
+    <string name="widget_label">Todo 待办</string>
+    <string name="widget_header">待办</string>
     <string name="widget_description">显示最近的待办，点行首圆圈直接完成</string>
     <string name="widget_empty">暂无待办，点 + 添加</string>
     <string name="widget_header_count">%1$d 条</string>

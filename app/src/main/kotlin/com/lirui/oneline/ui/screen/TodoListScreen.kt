@@ -43,7 +43,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
@@ -74,8 +73,6 @@ import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -101,6 +98,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -123,6 +121,7 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -437,6 +436,7 @@ private fun TodoAppContent(
                         hiddenBoards,
                         homeBuckets,
                         pendingArchive = pendingArchive,
+                        gestures = rememberGestures(),
                         topInset = statusBarDp,
                         onCircleTap = { todo ->
                             // 点圆圈：先播 650ms 填充动画，动画走完再写库。计时器在 ViewModel 里，
@@ -772,6 +772,31 @@ private fun CompletedBar(title: String, onUndo: () -> Unit, onDismiss: () -> Uni
     }
 }
 
+/**
+ * 列表手势开关（设置 → 操作）。
+ *
+ * 在读列表的地方**读一次**、往下传，而不是每一行各读一遍 SharedPreferences
+ * （LazyColumn 一轮组合会建十来行，每行读一次是没必要的 IO）。
+ */
+private data class Gestures(
+    val swipeArchive: Boolean = true,
+    val longPressEdit: Boolean = true,
+    val doubleTapEdit: Boolean = true
+)
+
+@Composable
+private fun rememberGestures(): Gestures {
+    val context = LocalContext.current
+    // 空 key 的 remember：切到「设置」改完开关再切回来，TodoList 整棵子树会重建 → 重新读。
+    return remember {
+        Gestures(
+            swipeArchive = SettingsRepo.gestureSwipeArchive(context),
+            longPressEdit = SettingsRepo.gestureLongPressEdit(context),
+            doubleTapEdit = SettingsRepo.gestureDoubleTapEdit(context)
+        )
+    }
+}
+
 @Composable
 private fun TodoList(
     todos: List<Todo>,
@@ -779,6 +804,7 @@ private fun TodoList(
     hiddenBoards: Set<HomeBoard>,
     enabledBuckets: Set<HomeBucket>,
     pendingArchive: Set<Long>,
+    gestures: Gestures,
     onCircleTap: (Todo) -> Unit,
     onSwipeArchive: (Todo) -> Unit,
     onTodoEdit: (Todo) -> Unit,
@@ -849,7 +875,7 @@ private fun TodoList(
                 if (board != HomeBoard.DATED || enabledBuckets.isEmpty()) {
                     items(boardItems, key = { it.id }) { todo ->
                         TodoListRow(
-                            todo, today, now, todo.id in pendingArchive,
+                            todo, today, now, todo.id in pendingArchive, gestures,
                             onCircleTap, onSwipeArchive, onTodoEdit,
                             Modifier.animateItem()
                         )
@@ -873,7 +899,7 @@ private fun TodoList(
                     item(key = "bucket_${bucket.id}") { BucketHeader(bucket, Modifier.animateItem()) }
                     items(list, key = { it.id }) { todo ->
                         TodoListRow(
-                            todo, today, now, todo.id in pendingArchive,
+                            todo, today, now, todo.id in pendingArchive, gestures,
                             onCircleTap, onSwipeArchive, onTodoEdit,
                             Modifier.animateItem()
                         )
@@ -891,6 +917,7 @@ private fun TodoListRow(
     today: java.time.LocalDate,
     now: Long,
     checked: Boolean,
+    gestures: Gestures,
     onCircleTap: (Todo) -> Unit,
     onSwipeArchive: (Todo) -> Unit,
     onTodoEdit: (Todo) -> Unit,
@@ -904,6 +931,7 @@ private fun TodoListRow(
         today = today,
         now = now,
         checked = checked,
+        gestures = gestures,
         onCircleTap = { onCircleTap(todo) },
         onSwipeArchive = { onSwipeArchive(todo) },
         onTodoEdit = { onTodoEdit(todo) },
@@ -1114,7 +1142,7 @@ private fun SettingsScreen(
             bottom = 8.dp
         )
     ) {
-        // ═══ 1. 提醒可靠性（v0.6 置顶）═══
+        // ═══ 1. 提醒 · 可靠性（v0.6 置顶；v0.9.1 与「提醒行为」合并成一节）═══
         // zuige 拍板：这一节决定"提醒到底响不响"，是整个 App 最重要的设置，必须放第一且强调。
         // 强调方式：标题恒定显示状态徽章 —— 有未放行项时整行转红并写明后果，全齐时显示"已就绪"。
         // 合并「后台常驻」：它和可靠性是同一件事的两半（系统放不放行 / 用户愿不愿意付常驻通知的代价），
@@ -1123,7 +1151,7 @@ private fun SettingsScreen(
             val pending = listOf(notificationsOk, exactOk).count { !it }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    "提醒可靠性",
+                    "提醒",
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold,
                     color = if (pending > 0) MaterialTheme.colorScheme.error
@@ -1158,8 +1186,10 @@ private fun SettingsScreen(
             }
         }
 
-        // ═══ 2. 提醒行为 ═══
-        item { SectionHeader("提醒") }
+        // ═══ 2. 提醒 · 行为 ═══
+        // 原来「提醒可靠性」和「提醒」是两个并排的节标题，读起来像两件事；
+        // 其实前者决定"响不响"、后者决定"什么时候响"，是同一件事的两半。
+        // 标题沿用上面那个带状态徽章的行，这里不再重复出标题。
         item {
             SettingsCard {
                 ToggleItem("开启提醒", "全部提醒的总开关", remindersEnabled, onSetRemindersEnabled)
@@ -1179,20 +1209,23 @@ private fun SettingsScreen(
                 ) {
                     Column {
                         ItemDivider()
-                        ChoiceItem(
-                            "提醒间隔",
-                            listOf(6 to "6小时", 12 to "12小时", 24 to "1天", 48 to "2天"),
-                            overdueInterval,
-                            onSetOverdueInterval
+                        SettingsDropdown(
+                            label = "提醒间隔",
+                            options = listOf(6 to "6小时", 12 to "12小时", 24 to "1天", 48 to "2天"),
+                            selectedValue = overdueInterval,
+                            onSelect = onSetOverdueInterval
                         )
                     }
                 }
                 ItemDivider()
-                ChoiceItem(
-                    "默认提醒时刻",
-                    listOf(9 * 60 to "9:00", 12 * 60 to "12:00", 18 * 60 to "18:00", 21 * 60 to "21:00"),
-                    defaultMinuteOfDay,
-                    onSetDefaultMinuteOfDay
+                SettingsDropdown(
+                    label = "默认提醒时刻",
+                    options = listOf(
+                        9 * 60 to "9:00", 12 * 60 to "12:00",
+                        18 * 60 to "18:00", 21 * 60 to "21:00"
+                    ),
+                    selectedValue = defaultMinuteOfDay,
+                    onSelect = onSetDefaultMinuteOfDay
                 )
                 Text(
                     "只写日期、不写时间的待办，到这个时刻提醒。",
@@ -1203,7 +1236,6 @@ private fun SettingsScreen(
             }
         }
 
-        // ═══ 3. 通知样式 ═══
         // ═══ 3. 通知 ═══
         // 三个**并列**的折叠项（zuige 纠正：通知模板只含标题模板+完成后缀+预览，
         // 与提醒文案、常驻通知文案是并列关系，不是包含关系）。
@@ -1262,10 +1294,82 @@ private fun SettingsScreen(
         // （v0.6：「提醒可靠性」「后台常驻」已上移为第一节 —— 它们是本页最重要的设置。）
         // （v0.6.2：「测试」下移到全页最后 —— 低频排障项不该夹在日常设置中间。）
 
+        // ═══ 4. 外观 ═══
         item { SectionHeader("外观") }
         item {
             SettingsCard {
                 ThemeDropdown(themeMode, onSetThemeMode)
+                ItemDivider()
+                // 换配色要顺手刷新组件：圆圈描边取的是当前配色的主色，
+                // 不刷新的话桌面上那个圈还是旧颜色。
+                PaletteDropdown(paletteId) { id ->
+                    onSetPalette(id)
+                    WidgetUpdater.refreshAsync(context)
+                }
+                ItemDivider()
+                // 深色模式下的卡片底色。v0.9.1 起档位选择一律走下拉（全页只用一种选择控件）。
+                SettingsDropdown(
+                    label = "深色卡片底色",
+                    valueText = DarkCardStyle.byId(darkCardStyleId).label,
+                    options = DarkCardStyle.all.map { it.id to it.label },
+                    selectedValue = darkCardStyleId,
+                    onSelect = onSetDarkCardStyle
+                )
+                Text(
+                    DarkCardStyle.byId(darkCardStyleId).sub,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp)
+                )
+            }
+        }
+
+        // ═══ 5. 操作（v0.9.1）═══
+        // zuige 拍板：手势不再硬编码，统一收到这一节；沉浸式顶栏也从「外观」移进来 ——
+        // 它和手势是同一类东西（"我怎么操作这个列表"），不是配色/字号那种外观。
+        item { SectionHeader("操作") }
+        item {
+            SettingsCard {
+                // 同「小组件」节的局部状态模式：直接读写 SettingsRepo，不走 VM 参数链。
+                // 列表页读的是同一份 SP（TodoList 的 rememberGestures），切回列表即生效。
+                var swipeArchive by remember {
+                    mutableStateOf(SettingsRepo.gestureSwipeArchive(context))
+                }
+                var longPressEdit by remember {
+                    mutableStateOf(SettingsRepo.gestureLongPressEdit(context))
+                }
+                var doubleTapEdit by remember {
+                    mutableStateOf(SettingsRepo.gestureDoubleTapEdit(context))
+                }
+                ToggleItem(
+                    "右滑归档",
+                    "待办行向右滑过一定距离就归档",
+                    swipeArchive,
+                    onChecked = { on ->
+                        SettingsRepo.setGestureSwipeArchive(context, on)
+                        swipeArchive = on
+                    }
+                )
+                ItemDivider()
+                ToggleItem(
+                    "长按编辑",
+                    "按住待办行打开编辑",
+                    longPressEdit,
+                    onChecked = { on ->
+                        SettingsRepo.setGestureLongPressEdit(context, on)
+                        longPressEdit = on
+                    }
+                )
+                ItemDivider()
+                ToggleItem(
+                    "双击编辑",
+                    "连点两下打开编辑（单击本来没有动作，不会抢）",
+                    doubleTapEdit,
+                    onChecked = { on ->
+                        SettingsRepo.setGestureDoubleTapEdit(context, on)
+                        doubleTapEdit = on
+                    }
+                )
                 ItemDivider()
                 // 沉浸式顶栏：v0.6 曾随设置页重排退役，2026-10-23 按 zuige 要求接回，
                 // 默认关（首装就是固定顶栏）。开 = 上滑时顶栏跟着收起。
@@ -1278,47 +1382,10 @@ private fun SettingsScreen(
                         onSetImmersive(on)
                     }
                 )
-                ItemDivider()
-                // 换配色要顺手刷新组件：圆圈描边取的是当前配色的主色，
-                // 不刷新的话桌面上那个圈还是旧颜色。
-                PaletteDropdown(paletteId) { id ->
-                    onSetPalette(id)
-                    WidgetUpdater.refreshAsync(context)
-                }
-                ItemDivider()
-                // 深色模式下的卡片底色：不再用"种子色叠近黑"，而是三档明度可选。
-                ChoiceItem(
-                    "深色卡片底色",
-                    DarkCardStyle.all.map { it.id to it.label },
-                    darkCardStyleId,
-                    onSetDarkCardStyle
-                )
-                Text(
-                    DarkCardStyle.byId(darkCardStyleId).sub,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp)
-                )
-                ItemDivider()
-                // v0.8.1：一键添加改为**手动指引** —— requestPinAppWidget 在澎湃/vivo 上
-                // 要么静默失败要么无响应（zuige 实测），与其依赖不可控的系统弹窗，
-                // 不如把路径说清楚：长按桌面 → 小组件 → 搜「Todo」。
-                ListItem(
-                    headlineContent = { Text("添加小组件到桌面") },
-                    supportingContent = { Text("长按桌面空白处 → 小组件 → 搜「Todo」") },
-                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                    modifier = Modifier.clickable {
-                        Toast.makeText(
-                            context,
-                            "长按桌面空白处 → 小组件 → 搜「Todo」",
-                            Toast.LENGTH_LONG
-                        ).show()
-                    }
-                )
             }
         }
 
-        // ═══ 小组件 ═══
+        // ═══ 6. 小组件 ═══
         // 四个开关，直接读写 SettingsRepo + 立即刷新组件
         // （同 KeepAliveNotifEditor 的局部状态模式，不走 VM 参数链）。
         // ★ 2026-10-23：不再按组件尺寸分档 —— vivo 桌面报的尺寸恒为 152px，
@@ -1353,10 +1420,10 @@ private fun SettingsScreen(
                 // 日期优先 = 日期放右侧、永远完整，标题太长才省略。
                 // 一个旋钮同时决定"放哪"和"谁让位"——这两件事本来就是同一件事：
                 // 2×2 只有约 132dp 宽，右侧放日期就必然挤事件，没有第三种可能。
-                ChoiceItem(
-                    "日期位置",
-                    listOf(0 to "标题下方", 1 to "标题右侧"),
-                    if (dateBelow) 0 else 1,
+                SettingsDropdown(
+                    label = "日期位置",
+                    options = listOf(0 to "标题下方", 1 to "标题右侧"),
+                    selectedValue = if (dateBelow) 0 else 1,
                     onSelect = { value ->
                         val below = value == 0
                         SettingsRepo.setWidgetDateBelow(context, below)
@@ -1394,10 +1461,26 @@ private fun SettingsScreen(
                         WidgetUpdater.refreshAsync(context)
                     }
                 )
+                ItemDivider()
+                // v0.8.1：一键添加改为**手动指引** —— requestPinAppWidget 在澎湃/vivo 上
+                // 要么静默失败要么无响应（zuige 实测），与其依赖不可控的系统弹窗，
+                // 不如把路径说清楚。v0.9.1 起组件 label 同时含「Todo」和「待办」，两个词都能搜到。
+                ListItem(
+                    headlineContent = { Text("添加小组件到桌面") },
+                    supportingContent = { Text("长按桌面空白处 → 小组件 → 搜「Todo」或「待办」") },
+                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                    modifier = Modifier.clickable {
+                        Toast.makeText(
+                            context,
+                            "长按桌面空白处 → 小组件 → 搜「Todo」或「待办」",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+                )
             }
         }
 
-        // ═══ 5. 列表与待办 ═══
+        // ═══ 7. 列表与待办 ═══
         item { SectionHeader("列表与待办") }
         item {
             SettingsCard {
@@ -1427,14 +1510,16 @@ private fun SettingsScreen(
                     }
                 )
                 ItemDivider()
-                Text(
-                    "「有日期」板块内的分组",
-                    style = MaterialTheme.typography.bodyLarge,
-                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 4.dp)
+                // 「有日期」板块内的分组（多选）。v0.9.1：从 chip 行改成多选下拉 ——
+                // 5 个分组铺成两行 chip 会把卡片撑得很高，而这里平时几乎不用改。
+                SettingsMultiDropdown(
+                    label = "「有日期」板块内的分组",
+                    options = HomeBucket.all.map { it to it.label },
+                    selected = homeBuckets,
+                    onToggle = { bucket, on ->
+                        onSetHomeBuckets(if (on) homeBuckets + bucket else homeBuckets - bucket)
+                    }
                 )
-                BucketChips(homeBuckets) { bucket, on ->
-                    onSetHomeBuckets(if (on) homeBuckets + bucket else homeBuckets - bucket)
-                }
                 Text(
                     "没勾的并入下一档；全不勾则平铺",
                     style = MaterialTheme.typography.bodySmall,
@@ -1448,7 +1533,7 @@ private fun SettingsScreen(
             }
         }
 
-        // ═══ 6. 测试（全页最后）═══
+        // ═══ 8. 测试（全页最后）═══
         item { SectionHeader("测试") }
         item {
             SettingsCard {
@@ -2221,26 +2306,6 @@ private fun BoardRowContent(
     }
 }
 
-/** Multi-select chips for the buckets inside 有日期. */
-@Composable
-private fun BucketChips(enabled: Set<HomeBucket>, onToggle: (HomeBucket, Boolean) -> Unit) {
-    FlowRow(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        for (bucket in HomeBucket.all) {
-            val on = bucket in enabled
-            SettingsFilterChip(
-                selected = on,
-                onClick = { onToggle(bucket, !on) },
-                label = bucket.label,
-                leadingCheck = true
-            )
-        }
-    }
-}
-
 @Composable
 private fun ToggleItem(
     label: String,
@@ -2370,74 +2435,91 @@ private fun PaletteItem(
         } else null
     )
 }
-/** A labelled set of M3E filter chips (single choice). */
 /**
- * 设置页里所有 chip（深色卡片底色、提醒间隔、默认时刻、首页档位）共用的选中样式。
+ * 设置页的**单选下拉**（v0.9.1 起所有档位选择都用它）。
  *
- * ★ 为什么要显式指定：`FilterChip` 不传 colors 时用主题默认的 secondaryContainer，
- *   在几套深色配色下它和卡片底色几乎一样 —— 用户反馈"选了哪个根本看不出来"。
- *   现在选中态是**主色实底 + 反色文字 + 主色粗边**，未选是透明底 + 弱文字 + 浅边，
- *   对比度足够，且不依赖具体配色。
+ * 为什么从 chip 行换成下拉：3~4 个选项铺成 chip 要占两行，而档位是"设一次就不动"的东西，
+ * 下拉收成一行的信息密度更高，也和「外观」「配色」两个已有的下拉统一成一种控件。
  */
 @Composable
-private fun SettingsFilterChip(
-    selected: Boolean,
-    onClick: () -> Unit,
-    label: String,
-    leadingCheck: Boolean = false
-) {
-    val cs = MaterialTheme.colorScheme
-    FilterChip(
-        selected = selected,
-        onClick = onClick,
-        label = { Text(label, style = MaterialTheme.typography.labelMedium) },
-        leadingIcon = if (selected && leadingCheck) {
-            {
-                Icon(
-                    Icons.Default.Check,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp)
-                )
-            }
-        } else null,
-        shape = RoundedCornerShape(50),
-        colors = FilterChipDefaults.filterChipColors(
-            containerColor = Color.Transparent,
-            labelColor = cs.onSurfaceVariant,
-            iconColor = cs.onPrimary,
-            selectedContainerColor = cs.primary,
-            selectedLabelColor = cs.onPrimary,
-            selectedLeadingIconColor = cs.onPrimary
-        ),
-        border = FilterChipDefaults.filterChipBorder(
-            enabled = true,
-            selected = selected,
-            borderColor = cs.outlineVariant,
-            selectedBorderColor = cs.primary,
-            selectedBorderWidth = 1.5.dp
-        )
-    )
-}
-
-@Composable
-private fun ChoiceItem(
+private fun SettingsDropdown(
     label: String,
     options: List<Pair<Int, String>>,
-    selected: Int,
-    onSelect: (Int) -> Unit
+    selectedValue: Int,
+    onSelect: (Int) -> Unit,
+    /** 当前值文案。默认取 options 里对应项的 label，少数场景才需要另给。 */
+    valueText: String? = null
 ) {
-    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
-        Text(label, style = MaterialTheme.typography.bodyLarge)
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+    var expanded by remember { mutableStateOf(false) }
+    val current = valueText ?: options.firstOrNull { it.first == selectedValue }?.second.orEmpty()
+
+    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
+        ListItem(
+            headlineContent = { Text(label, style = MaterialTheme.typography.bodyLarge) },
+            supportingContent = { Text(current, style = MaterialTheme.typography.bodySmall) },
+            trailingContent = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+            modifier = Modifier.menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
+        )
+        // 菜单底色/圆角跟全局卡片同一套（M3 默认是 surfaceContainer + 4dp 圆角）。
+        ExposedDropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+            shape = MaterialTheme.shapes.extraLarge,
+            containerColor = MaterialTheme.colorScheme.cardBackground,
+            shadowElevation = 8.dp
         ) {
             options.forEach { (value, text) ->
-                SettingsFilterChip(
-                    selected = selected == value,
-                    onClick = { onSelect(value) },
-                    label = text
+                DropdownMenuItem(
+                    text = { Text(text) },
+                    onClick = { onSelect(value); expanded = false },
+                    trailingIcon = if (value == selectedValue) {
+                        { Icon(Icons.Default.Check, contentDescription = null) }
+                    } else null
+                )
+            }
+        }
+    }
+}
+
+/**
+ * 设置页的**多选下拉**（v0.9.1）。点一项就地切换、菜单**不关** ——
+ * 多选要连着勾几项，每点一次就收起来会逼用户反复展开。
+ */
+@Composable
+private fun SettingsMultiDropdown(
+    label: String,
+    options: List<Pair<HomeBucket, String>>,
+    selected: Set<HomeBucket>,
+    onToggle: (HomeBucket, Boolean) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val current = if (selected.isEmpty()) "全部平铺（未分组）"
+    else options.filter { it.first in selected }.joinToString("、") { it.second }
+
+    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
+        ListItem(
+            headlineContent = { Text(label, style = MaterialTheme.typography.bodyLarge) },
+            supportingContent = { Text(current, style = MaterialTheme.typography.bodySmall) },
+            trailingContent = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+            modifier = Modifier.menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
+        )
+        ExposedDropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+            shape = MaterialTheme.shapes.extraLarge,
+            containerColor = MaterialTheme.colorScheme.cardBackground,
+            shadowElevation = 8.dp
+        ) {
+            options.forEach { (bucket, text) ->
+                val on = bucket in selected
+                DropdownMenuItem(
+                    text = { Text(text) },
+                    onClick = { onToggle(bucket, !on) }, // 不关菜单：多选要连着点
+                    trailingIcon = if (on) {
+                        { Icon(Icons.Default.Check, contentDescription = null) }
+                    } else null
                 )
             }
         }
@@ -2473,6 +2555,7 @@ private fun TodoRow(
     today: java.time.LocalDate,
     now: Long,
     checked: Boolean,
+    gestures: Gestures,
     onCircleTap: () -> Unit,
     onSwipeArchive: () -> Unit,
     onTodoEdit: () -> Unit,
@@ -2561,6 +2644,14 @@ private fun TodoRow(
             )
         }
 
+        // ── 双击编辑的计时（设置 → 操作）──
+        // 没有另起一个 `detectTapGestures(onDoubleTap=…)`：它和下面的 combinedClickable 会抢同一次
+        // 抬手事件，实测可能两边都不触发。这里用「两次 onClick 的间隔」判定，只有一个检测器，
+        // 涟漪反馈也还是 combinedClickable 的。间隔取系统的 doubleTapTimeout（300ms），
+        // 和桌面/ListView 的手感一致。
+        var lastTapAt by remember(todo.id) { mutableLongStateOf(0L) }
+        val doubleTapWindowMs = LocalViewConfiguration.current.doubleTapTimeoutMillis
+
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -2575,8 +2666,10 @@ private fun TodoRow(
                 .background(cardColor)
                 // 右滑：水平方向独立抢占，垂直滚动仍然是 LazyColumn 的
                 // （detectHorizontalDragGestures 只在水平超过 touch slop 后消费事件）。
-                .pointerInput(todo.id, checked) {
-                    if (checked) return@pointerInput
+                // 关掉「右滑归档」后连这个 pointerInput 都不挂 —— 不参与事件分发，
+                // 不是"接住了再判断"。
+                .pointerInput(todo.id, checked, gestures.swipeArchive) {
+                    if (checked || !gestures.swipeArchive) return@pointerInput
                     detectHorizontalDragGestures(
                         onDragStart = {
                             // 打断还在跑的回弹，否则动画会和手指抢 dragX。
@@ -2597,7 +2690,21 @@ private fun TodoRow(
                         }
                     )
                 }
-                .combinedClickable(onClick = {}, onLongClick = onTodoEdit)
+                // 单击：本来就没有动作，只用来数"第二次点击"。双击落在系统双击窗口内 = 编辑。
+                // 长按：开关关掉时传 null —— combinedClickable 就不再监听长按。
+                .combinedClickable(
+                    onClick = {
+                        if (!gestures.doubleTapEdit) return@combinedClickable
+                        val tapAt = System.nanoTime() / 1_000_000
+                        if (tapAt - lastTapAt <= doubleTapWindowMs) {
+                            lastTapAt = 0L
+                            onTodoEdit()
+                        } else {
+                            lastTapAt = tapAt
+                        }
+                    },
+                    onLongClick = if (gestures.longPressEdit) onTodoEdit else null
+                )
                 .padding(horizontal = 14.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
