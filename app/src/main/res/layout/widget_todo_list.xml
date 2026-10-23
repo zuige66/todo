@@ -1,12 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Widget 主布局：头部 + 列表 + 空状态。
+  Widget 主布局：头部 + 行容器 + 空状态。
+
+  ★ v0.8.1 重构：不用 ListView + RemoteViewsService —— vivo 桌面（com.bbk.launcher2）
+  实测从不绑定数据服务（onDataSetChanged 一次都不跑，列表恒空）。
+  行数本来就是固定的（2×2 最多 4 条、2×4 最多 6 条），所以改成
+  updateOne 里用 RemoteViews.addView 直接把行塞进 widget_rows 容器：
+  数据同步构建、无 bind、无 factory，任何 ROM 都没有兼容性问题。
 
   ★ 高度自适应逻辑在 TodoWidgetProvider 里（读 AppWidgetOptions 的 heightDp）：
-   - 高 < 200dp（2×2）：item 用 widget_item_todo_compact，最多 4 条
-   - 否则（2×4 / 4×4）：item 用 widget_item_todo，最多 6 条
-  ListView 的 adapter 通过 RemoteViewsService 提供（RemoteViews 的列表必须这么干，
-  Launcher 进程里跑的是我们的 Service，数据同步查 Room）。
+   - 高 < 200dp（2×2）：行用 widget_item_todo_compact，最多 4 条
+   - 否则（2×4 / 4×4）：行用 widget_item_todo，最多 6 条
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
@@ -14,8 +18,7 @@
     android:background="@color/widget_bg"
     android:orientation="vertical">
 
-    <!-- 头部：标题 + 条数。不加刷新按钮 —— 点击列表/圆圈之外的地方就是打开 App，
-         足够覆盖"刷新"诉求，且少一个元素少一分误触。 -->
+    <!-- 头部：标题 + 条数。点头部（列表以外的空白）= 打开 App。 -->
     <LinearLayout
         android:id="@+id/widget_header"
         android:layout_width="match_parent"
@@ -39,27 +42,26 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:textColor="@color/widget_text_secondary"
-            android:textSize="11sp"
-            tools:text="4 条"
-            xmlns:tools="http://schemas.android.com/tools" />
+            android:textSize="11sp" />
     </LinearLayout>
 
-    <ListView
-        android:id="@+id/widget_list"
+    <!-- 行容器：内容由 updateOne 动态塞入（RemoteViews.addView）。 -->
+    <LinearLayout
+        android:id="@+id/widget_rows"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:clipToPadding="false"
-        android:divider="@null"
+        android:orientation="vertical"
         android:paddingStart="10dp"
         android:paddingEnd="10dp"
-        android:paddingBottom="6dp"
-        android:scrollbars="none" />
+        android:paddingBottom="6dp" />
 
+    <!-- 空状态：没有待办时显示（visibility 由代码切换）。 -->
     <TextView
         android:id="@+id/widget_empty"
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
         android:gravity="center"
         android:text="@string/widget_empty"
         android:textColor="@color/widget_text_secondary"

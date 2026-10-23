@@ -33,6 +33,9 @@ object SettingsRepo {
     private const val KEY_KEEP_ALIVE = "keep_alive"
     private const val KEY_KEEPALIVE_NOTIF_TITLE = "keepalive_notif_title"
     private const val KEY_KEEPALIVE_NOTIF_TEXT = "keepalive_notif_text"
+    private const val KEY_WIDGET_COMPACT_DATE = "widget_compact_show_date"
+    private const val KEY_WIDGET_STANDARD_DATE = "widget_standard_show_date"
+    private const val KEY_WIDGET_HIDE_HEADER = "widget_hide_header"
 
     const val FOLLOW_SYSTEM = 0
     const val LIGHT = 1
@@ -192,6 +195,38 @@ object SettingsRepo {
             .putString(KEY_KEEPALIVE_NOTIF_TITLE, title)
             .putString(KEY_KEEPALIVE_NOTIF_TEXT, body)
             .apply()
+    }
+
+    // ---------- 桌面小组件 ----------
+
+    /** 紧凑行（2×2）是否显示日期。默认关：2×2 宽度小，事件会被日期挤成省略号。 */
+    fun widgetCompactShowDate(context: Context): Boolean =
+        context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            .getBoolean(KEY_WIDGET_COMPACT_DATE, false)
+
+    fun setWidgetCompactShowDate(context: Context, value: Boolean) {
+        context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            .edit().putBoolean(KEY_WIDGET_COMPACT_DATE, value).apply()
+    }
+
+    /** 标准行（2×3 及以上）是否显示日期。默认开。 */
+    fun widgetStandardShowDate(context: Context): Boolean =
+        context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            .getBoolean(KEY_WIDGET_STANDARD_DATE, true)
+
+    fun setWidgetStandardShowDate(context: Context, value: Boolean) {
+        context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            .edit().putBoolean(KEY_WIDGET_STANDARD_DATE, value).apply()
+    }
+
+    /** 是否隐藏组件头部（「待办」标题 + 条数）。默认显示。 */
+    fun widgetHideHeader(context: Context): Boolean =
+        context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            .getBoolean(KEY_WIDGET_HIDE_HEADER, false)
+
+    fun setWidgetHideHeader(context: Context, value: Boolean) {
+        context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            .edit().putBoolean(KEY_WIDGET_HIDE_HEADER, value).apply()
     }
 
     // ---------- 提醒文案池 (custom quotes) ----------

@@ -122,11 +122,6 @@
             android:name=".widget.TodoWidgetActionReceiver"
             android:exported="false" />
 
-        <!-- Widget 列表的数据源。BIND_REMOTE_VIEWS 是系统权限：只有 Launcher 能绑定它。 -->
-        <service
-            android:name=".widget.TodoWidgetService"
-            android:exported="false"
-            android:permission="android.permission.BIND_REMOTE_VIEWS" />
 
         <!-- 把内部存储里的 update/ 目录以 content:// 交给系统安装器。
              authority 必须与 UpdateDownloadService 里 "$packageName.fileprovider" 一致。 -->

@@ -160,7 +160,7 @@ import com.lirui.oneline.util.KeepAliveNotifStyle
 import com.lirui.oneline.util.NotificationStyle
 import com.lirui.oneline.util.Quotes
 import com.lirui.oneline.util.SettingsRepo
-import com.lirui.oneline.widget.WidgetPinHelper
+import com.lirui.oneline.widget.WidgetUpdater
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -1272,19 +1272,69 @@ private fun SettingsScreen(
                     modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp)
                 )
                 ItemDivider()
-                // v0.6：浮层顶栏的"沉浸式顶栏"开关已随浮层方案一起退役，不再提供。
-                ItemDivider()
-                // v0.8.1：一键添加桌面小组件。
-                // MIUI/HyperOS/vivo 的组件列表经常不显示新装的 App 组件（zuige 在澎湃 3
-                // 和 vivo 上都找不到），requestPinAppWidget 走系统标准流程，不依赖列表刷新。
+                // v0.8.1：一键添加改为**手动指引** —— requestPinAppWidget 在澎湃/vivo 上
+                // 要么静默失败要么无响应（zuige 实测），与其依赖不可控的系统弹窗，
+                // 不如把路径说清楚：长按桌面 → 小组件 → 搜「Todo」。
                 ListItem(
                     headlineContent = { Text("添加小组件到桌面") },
-                    supportingContent = { Text("点一下，系统弹确认直接放桌面") },
+                    supportingContent = { Text("长按桌面空白处 → 小组件 → 搜「Todo」") },
                     colors = ListItemDefaults.colors(containerColor = Color.Transparent),
                     modifier = Modifier.clickable {
-                        WidgetPinHelper.requestPin(context) {
-                            WidgetPinHelper.toastManualAdd(context)
-                        }
+                        Toast.makeText(
+                            context,
+                            "长按桌面空白处 → 小组件 → 搜「Todo」",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+                )
+            }
+        }
+
+        // ═══ 小组件 ═══
+        // 显示内容的三个开关。直接读写 SettingsRepo + 立即刷新组件
+        // （同 KeepAliveNotifEditor 的局部状态模式，不走 VM 参数链）。
+        item { SectionHeader("小组件") }
+        item {
+            SettingsCard {
+                var compactDate by remember {
+                    mutableStateOf(SettingsRepo.widgetCompactShowDate(context))
+                }
+                var standardDate by remember {
+                    mutableStateOf(SettingsRepo.widgetStandardShowDate(context))
+                }
+                var hideHeader by remember {
+                    mutableStateOf(SettingsRepo.widgetHideHeader(context))
+                }
+                ToggleItem(
+                    "2×2 显示日期",
+                    "默认只显示事件，防止标题被挤",
+                    compactDate,
+                    onChecked = { on ->
+                        SettingsRepo.setWidgetCompactShowDate(context, on)
+                        compactDate = on
+                        WidgetUpdater.refreshAsync(context)
+                    }
+                )
+                ItemDivider()
+                ToggleItem(
+                    "大组件显示日期",
+                    "2×3 及以上，默认显示",
+                    standardDate,
+                    onChecked = { on ->
+                        SettingsRepo.setWidgetStandardShowDate(context, on)
+                        standardDate = on
+                        WidgetUpdater.refreshAsync(context)
+                    }
+                )
+                ItemDivider()
+                ToggleItem(
+                    "隐藏头部",
+                    "顶部「待办」标题和条数",
+                    hideHeader,
+                    onChecked = { on ->
+                        SettingsRepo.setWidgetHideHeader(context, on)
+                        hideHeader = on
+                        WidgetUpdater.refreshAsync(context)
                     }
                 )
             }
