@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -81,7 +80,14 @@ fun AddSheet(
     editing: Boolean = false,
     initialRepeatDays: Int = 0
 ) {
-    val sheetState = rememberModalBottomSheetState()
+    // skipPartiallyExpanded = true：弹层**一次就完全展开**。
+    //
+    // 默认（false）会先停在 half-expanded —— 高度按**整块窗口**的一半算。而 M3 的弹层窗口
+    // 在 SDK 30+ 用的是 SOFT_INPUT_ADJUST_NOTHING（窗口本身不随键盘缩小），键盘弹起时
+    // 窗口只在外层 Box 上叠了 imePadding 把 sheet 整体顶上去，半屏高度仍按老窗口算 →
+    // 结果就是 sheet 只剩键盘上方一条窄缝，输入框正好被压在键盘边缘（真机盲打）。
+    // 全展开后 sheet 高度直接用「窗口高度 - 键盘」，输入框一定在键盘之上。
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     // Plain remember (not rememberSaveable): the sheet leaves composition on dismiss, and a
     // saveable state would resurrect the previous sentence on the next open.
     var text by remember(initialText) { mutableStateOf(initialText) }
@@ -173,7 +179,9 @@ fun AddSheet(
             modifier = Modifier
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
-                .imePadding()
+                // 这里**不要**再 imePadding()：ModalBottomSheet 最外层已经
+                // `Box(fillMaxSize().imePadding())` 把整个 sheet 顶到键盘上方了，
+                // 再叠一次会给滚动内容多塞一段等于键盘高度的空白，提交按钮要滚半天才看得到。
                 .padding(horizontal = 20.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {

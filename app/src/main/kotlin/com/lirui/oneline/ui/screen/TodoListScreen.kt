@@ -1140,7 +1140,11 @@ private fun SettingsScreen(
             end = 16.dp,
             top = topInset + TOP_BAR_BODY_HEIGHT + 8.dp,
             bottom = 8.dp
-        )
+        ),
+        // 卡片之间必须留缝：原来没有 arrangement，同一节标题下的两张卡（可靠性 / 提醒行为）
+        // 是**边贴边**的，真机上看着就是一张卡被拦腰切开（screenshot 2）。
+        // 节标题的 top/bottom padding 相应调小，保证节与节之间的视觉留白不变。
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         // ═══ 1. 提醒 · 可靠性（v0.6 置顶；v0.9.1 与「提醒行为」合并成一节）═══
         // zuige 拍板：这一节决定"提醒到底响不响"，是整个 App 最重要的设置，必须放第一且强调。
@@ -1583,7 +1587,9 @@ private fun SectionHeader(text: String) {
         style = MaterialTheme.typography.titleSmall,
         color = MaterialTheme.colorScheme.primary,
         fontWeight = FontWeight.Bold,
-        modifier = Modifier.padding(start = 8.dp, top = 20.dp, bottom = 6.dp)
+        // 列表本身已有 spacedBy(10dp)，这里只补剩下的差额：
+        // 标题上方 = 10 + 10 = 20dp（原来的手感），下方 = 2 + 10 = 12dp。
+        modifier = Modifier.padding(start = 8.dp, top = 10.dp, bottom = 2.dp)
     )
 }
 

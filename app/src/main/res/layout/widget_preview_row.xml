@@ -5,7 +5,7 @@
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="32dp"
+    android:layout_height="36dp"
     android:gravity="center_vertical"
     android:orientation="horizontal">
 
@@ -24,7 +24,7 @@
         android:paddingStart="8dp"
         android:text="周五 下午3点 交周报"
         android:textColor="@color/widget_text"
-        android:textSize="12sp" />
+        android:textSize="13sp" />
 
     <TextView
         android:layout_width="wrap_content"
@@ -32,5 +32,5 @@
         android:paddingStart="6dp"
         android:text="周五 15:00"
         android:textColor="@color/widget_text_secondary"
-        android:textSize="10sp" />
+        android:textSize="11sp" />
 </LinearLayout>

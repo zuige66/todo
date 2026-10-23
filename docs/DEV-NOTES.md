@@ -375,3 +375,45 @@ graphicsLayer 必须是链条上最靠左的那个绘制类修饰符。
 
 为什么沉浸式顶栏在「操作」而不是「外观」：它和手势是同一类东西（"我怎么操作这个列表"），
 不是配色/字号那种外观。
+
+## 弹层键盘 / 设置卡片间距 / 小组件字号（0.9.1 补丁，不升版本）
+
+### 编辑弹层被键盘挡住：sheet 不能停在半展开
+`ModalBottomSheet` 默认 `skipPartiallyExpanded = false`，打开先停在 **half-expanded**，
+高度按**整块窗口**的一半算。而 M3 的弹层窗口在 SDK 30+ 用的是
+`SOFT_INPUT_ADJUST_NOTHING`（窗口自身不随键盘缩小），键盘弹起时它只在外层
+`Box(fillMaxSize().imePadding())` 上把 sheet 整体顶上去 —— 半屏高度仍按老窗口算，
+结果 sheet 只剩键盘上方一条窄缝，输入框正好被压在键盘边缘（真机=盲打）。
+
+★ 修法：`rememberModalBottomSheetState(skipPartiallyExpanded = true)`。
+全展开后 sheet 高度直接取「窗口高度 − 键盘」，输入框必在键盘之上。
+
+★ 内容里**不要再写 `.imePadding()`**：ModalBottomSheet 最外层已经有
+`Box(fillMaxSize().imePadding())`，再叠一次等于给滚动内容多塞一段键盘高度的空白，
+提交按钮要滚半天才看得见。
+
+### 设置页卡片之间必须有间距
+设置页的 `LazyColumn` 原来**没有 `verticalArrangement`**（默认 0 间距）。
+同一节标题下有多张卡时（「提醒·可靠性」+「提醒·行为」共用同一个带徽章的标题），
+两张卡是边贴边的，真机上看着像一张卡被拦腰切开。
+现在 `verticalArrangement = Arrangement.spacedBy(10.dp)`；
+`SectionHeader` 的 padding 同步从 `top=20/bottom=6` 调到 `top=10/bottom=2`，
+保证节与节之间的视觉留白仍是 20dp。
+
+### 小组件字号 +2sp
+真机反馈偏小。四个行布局与头部一起放大：
+
+| 元素 | 原来 | 现在 |
+|---|---|---|
+| 行标题 | 13sp | 15sp |
+| 行日期 | 10sp | 11sp |
+| 行高（布局根） | 36dp | 40dp |
+| 头部标题 | 13sp | 14sp |
+| 头部条数 | 11sp | 12sp |
+| 空状态 | 13sp | 14sp |
+| 头部行高 | 26dp | 28dp |
+
+★ 三张行布局（`widget_item_todo` / `_below` / `_nodate`）的字号**必须一起改**，
+它们按设置切换、尺寸差一点就会看到"换个日期位置字号就变了"。
+★ 行高是 `layout_weight` 的下限值（4 行平分 `widget_rows`），调大只是抬下限；
+「日期在下方」那张两行文字 15+11sp ≈ 34dp，40dp 才不顶。
