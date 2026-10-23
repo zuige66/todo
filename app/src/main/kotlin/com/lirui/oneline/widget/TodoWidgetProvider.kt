@@ -7,6 +7,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.SystemClock
 import android.util.Log
 import android.view.View
 import android.widget.RemoteViews
@@ -115,6 +116,44 @@ object WidgetUpdater {
      */
     private const val MAX_ROWS = 4
 
+    // ---------- 「两帧归档」的瞬时状态 ----------
+    //
+    // RemoteViews **没有任何动画 API**（没有 ViewPropertyAnimator、没有 ObjectAnimator，
+    // 系统只接受"整棵视图树的一次快照"）。所以组件里的归档反馈只能靠两次
+    // updateAppWidget 拼出来：
+    //   第 1 帧（t=0）    ：这条画成"已勾选"（圆圈里出现勾 + 标题变灰）→ 点击有即时反馈
+    //   第 2 帧（t=+300ms）：真正归档并刷新 → 这一行消失，下面的补位
+    // 中间这 300ms 就是"动效"：用户看到勾亮起，再看到行被收走。
+    //
+    // 状态放在进程内的 @Volatile 字段，而不是 SharedPreferences：一次归档的生命周期
+    // 只有 300ms，落盘既慢又没必要；万一进程在这中间被杀，[COMPLETING_TTL_MS] 的
+    // 时间窗保证下次读到的旧 id 会被忽略（不会把某条永远画成已勾选）。
+
+    /** 第 1 帧与第 2 帧之间的间隔。太短桌面来不及重绘，太长点击会"发木"。 */
+    const val TICK_MILLIS = 300L
+
+    /** 瞬时状态的有效期。超过它说明第 2 帧没跑成，当作没有。 */
+    private const val COMPLETING_TTL_MS = 2_000L
+
+    @Volatile
+    private var completingId: Long = -1L
+
+    @Volatile
+    private var completingAt: Long = 0L
+
+    /** 标记"这条正在播放归档"，下一次 [refresh] 会把它画成已勾选。 */
+    fun markCompleting(id: Long) {
+        completingId = id
+        completingAt = SystemClock.elapsedRealtime()
+    }
+
+    fun clearCompleting() {
+        completingId = -1L
+    }
+
+    private fun isCompleting(id: Long): Boolean =
+        id == completingId && SystemClock.elapsedRealtime() - completingAt < COMPLETING_TTL_MS
+
     fun updateOne(context: Context, manager: AppWidgetManager, appWidgetId: Int) {
         try {
             // ★ 不再读 AppWidgetOptions 判尺寸：vivo 桌面报的 MIN/MAX_HEIGHT 恒为 152px，
@@ -154,7 +193,14 @@ object WidgetUpdater {
                 todos.forEach { todo ->
                     rv.addView(
                         R.id.widget_rows,
-                        buildRow(context, todo, showDate, dateBelow, dateOnly)
+                        buildRow(
+                            context,
+                            todo,
+                            showDate,
+                            dateBelow,
+                            dateOnly,
+                            done = isCompleting(todo.id)
+                        )
                     )
                 }
             }
@@ -173,7 +219,8 @@ object WidgetUpdater {
             Log.d(
                 TAG,
                 "updateOne id=$appWidgetId rows=${todos.size} showDate=$showDate " +
-                    "dateBelow=$dateBelow dateOnly=$dateOnly hideHeader=$hideHeader"
+                    "dateBelow=$dateBelow dateOnly=$dateOnly hideHeader=$hideHeader " +
+                    "done=${completingId}"
             )
         } catch (error: Throwable) {
             // 组件更新失败绝不能带崩广播（上次主线程查库就是这么炸出"空白组件"的）。
@@ -190,13 +237,16 @@ object WidgetUpdater {
      *                            不靠 setViewVisibility —— vivo 复用行视图时会藏不住）
      *  - [dateBelow]=true      → widget_item_todo_below（日期在标题下方，**事件优先**）
      *  - 否则                   → widget_item_todo（日期在右侧，**日期优先**）
+     *
+     * [done]=true 是归档第 1 帧：圆圈换成"带勾的圈"、标题转灰，300ms 后整行消失。
      */
     private fun buildRow(
         context: Context,
         todo: Todo,
         showDate: Boolean,
         dateBelow: Boolean,
-        dateOnly: Boolean
+        dateOnly: Boolean,
+        done: Boolean = false
     ): RemoteViews {
         val layout = when {
             !showDate -> R.layout.widget_item_todo_nodate
@@ -208,11 +258,20 @@ object WidgetUpdater {
 
         // 圆圈描边跟随 App 里选的配色（设置 → 外观 → 配色）。
         // shape 是空心圆，setColorFilter 会整体着色 → 描边变成当前主题主色。
+        // 已勾选态（widget_circle_done 是单色 vector）同样靠这个 filter 上色。
         rv.setInt(
             R.id.widget_circle,
             "setColorFilter",
             Palettes.byId(SettingsRepo.paletteId(context)).primary.toArgb()
         )
+        if (done) {
+            rv.setImageViewResource(R.id.widget_circle, R.drawable.widget_circle_done)
+            // 标题转灰 = "已经处理掉了"，和 App 里 progress 把标题淡化的观感对齐。
+            rv.setTextColor(
+                R.id.widget_title,
+                context.getColor(R.color.widget_text_secondary)
+            )
+        }
 
         // 到期文案 + 逾期标红。无日期（dueAtMillis == null）时右侧留空。
         // 组件**不带星期**（zuige 2026-10-23：只要日期），故 showWeekday 恒 false。

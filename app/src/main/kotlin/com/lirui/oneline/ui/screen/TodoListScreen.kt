@@ -2693,23 +2693,47 @@ private fun CheckCircle(progress: Float, overdue: Boolean, onClick: () -> Unit, 
                     alpha = progress * 0.85f
                 )
             }
-            if (progress >= 1f) {
+            // ★ 打勾必须**在填满之前**就开始画。
+            //   原来只判 `progress >= 1f`：而 progress 走满 1f 的那一刻，ViewModel 里
+            //   同一个 CIRCLE_FILL_MILLIS 的 delay 也正好到点、这一行当场被移除 ——
+            //   勾存在的时间是 0 帧，用户永远看不到（"归档动效少了个打勾"就是这个）。
+            //   现在从 55% 起按长度描出来，最后约 290ms 是"勾在填满的圆里亮起"，
+            //   然后整行消失，读起来才是完整的"打勾 -> 划掉"。
+            val checkT = ((progress - 0.55f) / 0.45f).coerceIn(0f, 1f)
+            if (checkT > 0f) {
                 val c = center
                 val s = size.minDimension
-                drawLine(
-                    color = Color.White,
-                    start = Offset(c.x - s * 0.16f, c.y),
-                    end = Offset(c.x + s * 0.02f, c.y + s * 0.17f),
-                    strokeWidth = strokeW + 1f,
-                    cap = StrokeCap.Round
-                )
-                drawLine(
-                    color = Color.White,
-                    start = Offset(c.x + s * 0.02f, c.y + s * 0.17f),
-                    end = Offset(c.x + s * 0.2f, c.y - s * 0.15f),
-                    strokeWidth = strokeW + 1f,
-                    cap = StrokeCap.Round
-                )
+                val p0 = Offset(c.x - s * 0.16f, c.y)
+                val p1 = Offset(c.x + s * 0.02f, c.y + s * 0.17f)
+                val p2 = Offset(c.x + s * 0.2f, c.y - s * 0.15f)
+                val len1 = (p1 - p0).getDistance()
+                val len2 = (p2 - p1).getDistance()
+                val drawn = (len1 + len2) * checkT
+                val w = strokeW + 1f
+                if (drawn <= len1) {
+                    drawLine(
+                        color = Color.White,
+                        start = p0,
+                        end = p0 + (p1 - p0) * (drawn / len1),
+                        strokeWidth = w,
+                        cap = StrokeCap.Round
+                    )
+                } else {
+                    drawLine(
+                        color = Color.White,
+                        start = p0,
+                        end = p1,
+                        strokeWidth = w,
+                        cap = StrokeCap.Round
+                    )
+                    drawLine(
+                        color = Color.White,
+                        start = p1,
+                        end = p1 + (p2 - p1) * ((drawn - len1) / len2),
+                        strokeWidth = w,
+                        cap = StrokeCap.Round
+                    )
+                }
             }
         }
     }

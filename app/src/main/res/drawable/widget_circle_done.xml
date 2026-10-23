@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  组件「已勾选」态的圆圈：外圈 + 里面一个勾，**全部同一个颜色**。
+
+  ★ 为什么全用 strokeColor="#FF000000"（黑色）而不是写死主题色：
+    RemoteViews 里拿不到 Compose 的调色板，颜色是代码里
+    `setInt(widget_circle, "setColorFilter", primary)` 运行时染上去的。
+    setColorFilter 是**整体**着色 —— 图里只要有一处颜色不同（比如白勾），
+    它就会被一起染成主题色，勾直接消失。所以整张图必须单色。
+    （这也是为什么不能用「实心圆挖空出一个勾」：挖空要 evenOdd 路径，
+     多段子路径很容易画歪，收益不值这个风险。）
+
+  24dp 画布，圆圈半径 9dp、描边 2dp，勾落在 7.6~16.4 之间，视觉居中。
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+
+    <!-- 外圈：从 (12,12) 起画一个半径 9 的整圆（两段半圆弧闭合）。 -->
+    <path
+        android:pathData="M12,12 m-9,0 a9,9 0 1,1 18,0 a9,9 0 1,1 -18,0"
+        android:strokeColor="#FF000000"
+        android:strokeWidth="2"
+        android:fillColor="@android:color/transparent" />
+
+    <!-- 勾：左下 -> 底 -> 右上。 -->
+    <path
+        android:pathData="M7.6,12.4 L10.6,15.2 L16.4,9.2"
+        android:strokeColor="#FF000000"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:fillColor="@android:color/transparent" />
+</vector>
