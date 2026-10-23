@@ -17,7 +17,21 @@ class ReminderEngineTest {
         ZonedDateTime.of(y, mo, d, h, m, 0, 0, zone).toInstant().toEpochMilli()
 
     private fun compute(dueAt: Long, exact: Boolean): List<ReminderEngine.Reminder> =
-        ReminderEngine.computeReminders(dueAt, exact, now, zone)
+        ReminderEngine.computeReminders(dueAt, exact, nowMillis = now, zone = zone)
+
+    /** 带时间段的版本（开始日 = [startAt]）。 */
+    private fun computeRange(
+        startAt: Long,
+        dueAt: Long,
+        exact: Boolean = false
+    ): List<ReminderEngine.Reminder> =
+        ReminderEngine.computeReminders(
+            dueAtMillis = dueAt,
+            hasExactTime = exact,
+            startAtMillis = startAt,
+            nowMillis = now,
+            zone = zone
+        )
 
     // D=1 (tomorrow) => graded today 12:00 + DUE at due time (tomorrow 09:00).
     @Test fun tomorrow_gradedReminder_atNoon() {
@@ -165,5 +179,47 @@ class ReminderEngineTest {
 
     @Test fun previousOccurrence_noDue_returnsNull() {
         assertNull(ReminderEngine.previousOccurrence(null, 1, zone))
+    }
+
+    // --- 时间段「开始日」提醒 ---
+    //
+    // 存储约定：startAtMillis 落在开始日 00:00，dueAtMillis 是最后一天（默认时刻 09:00）。
+    // now 固定 2026-10-21 12:00。
+
+    @Test fun range_startReminder_firesOnStartDayMorning() {
+        val r = computeRange(startAt = due(2026, 10, 25, 0, 0), dueAt = due(2026, 11, 1))
+        val start = r.single { it.kind == ReminderEngine.Reminder.Kind.START }
+        assertEquals(due(2026, 10, 25, 9, 0), start.fireAtMillis)
+        assertEquals("今天开始", start.message)
+    }
+
+    @Test fun range_startReminder_isSortedBeforeDue() {
+        val r = computeRange(startAt = due(2026, 10, 25, 0, 0), dueAt = due(2026, 11, 1))
+        // 整个列表按时间升序：开始日的提醒必然排在最后一天之前。
+        assertEquals(r.sortedBy { it.fireAtMillis }, r)
+        assertTrue(r.first().fireAtMillis < r.last().fireAtMillis)
+    }
+
+    @Test fun range_startEqualsDue_noStartReminder() {
+        // 退化区间（开始日==结束日）不该多响一次 —— 那就是单日待办。
+        val r = computeRange(startAt = due(2026, 10, 25, 0, 0), dueAt = due(2026, 10, 25))
+        assertTrue(r.none { it.kind == ReminderEngine.Reminder.Kind.START })
+    }
+
+    @Test fun range_startDayAlreadyPast_noStartReminder() {
+        // 开始日 2026-10-19 已经过去（now = 10-21），不补发。
+        val r = computeRange(startAt = due(2026, 10, 19, 0, 0), dueAt = due(2026, 10, 23))
+        assertTrue(r.none { it.kind == ReminderEngine.Reminder.Kind.START })
+    }
+
+    @Test fun range_startDayTodayButTimePassed_noStartReminder() {
+        // 开始日就是今天（10-21），但 09:00 已过（now = 12:00）—— 不弹一条"今天开始"。
+        val r = computeRange(startAt = due(2026, 10, 21, 0, 0), dueAt = due(2026, 10, 25))
+        assertTrue(r.none { it.kind == ReminderEngine.Reminder.Kind.START })
+    }
+
+    @Test fun singleDay_hasNoStartReminder() {
+        val r = computeRange(startAt = 0L, dueAt = due(2026, 10, 25))
+        assertTrue(r.none { it.kind == ReminderEngine.Reminder.Kind.START })
     }
 }

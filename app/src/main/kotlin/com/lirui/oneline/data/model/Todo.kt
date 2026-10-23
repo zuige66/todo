@@ -18,6 +18,9 @@ import androidx.room.PrimaryKey
  *   1 = daily, 7 = weekly, 30 = monthly (approx). On completion such a todo rolls forward
  *   to its next occurrence instead of being archived.
  * - [archived]: completed tasks are archived (hidden from the active list).
+ * - [deletedAt]: 删除是**软删除** —— 落一个时间戳进回收站，而不是从表里抹掉。
+ *   null = 没删。所有列表查询都必须带 `deletedAt IS NULL`，否则回收站里的东西会
+ *   重新出现在活跃列表里（见 [com.lirui.oneline.data.TodoDao]）。
  */
 @Entity(tableName = "todos")
 data class Todo(
@@ -36,5 +39,7 @@ data class Todo(
     @ColumnInfo(defaultValue = "0") val repeatDays: Int = 0,
     @ColumnInfo(defaultValue = "0") val archived: Boolean = false,
     @ColumnInfo(defaultValue = "0") val createdAt: Long = System.currentTimeMillis(),
-    @ColumnInfo(defaultValue = "0") val completedAt: Long? = null
+    @ColumnInfo(defaultValue = "0") val completedAt: Long? = null,
+    /** 进回收站的时间戳；null = 不在回收站。 */
+    @ColumnInfo(defaultValue = "NULL") val deletedAt: Long? = null
 )

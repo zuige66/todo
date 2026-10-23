@@ -25,10 +25,18 @@ object ReminderScheduler {
     /**
      * Recompute and (re)schedule reminders for one todo. Best-effort: exact alarm capabilities
      * are checked and fall back to inexact if not granted.
+     *
+     * @param startAtMillis 时间段开始日（null = 单日待办），决定要不要额外排一条「今天开始」。
      */
-    fun scheduleFor(context: Context, todoId: Long, dueAtMillis: Long, hasExactTime: Boolean) {
+    fun scheduleFor(
+        context: Context,
+        todoId: Long,
+        dueAtMillis: Long,
+        hasExactTime: Boolean,
+        startAtMillis: Long? = null
+    ) {
         scope.launch {
-            scheduleBlocking(context, todoId, dueAtMillis, hasExactTime)
+            scheduleBlocking(context, todoId, dueAtMillis, hasExactTime, startAtMillis)
         }
     }
 
@@ -36,7 +44,8 @@ object ReminderScheduler {
         context: Context,
         todoId: Long,
         dueAtMillis: Long,
-        hasExactTime: Boolean
+        hasExactTime: Boolean,
+        startAtMillis: Long? = null
     ) {
         // Cancel any previously set reminders for this todo.
         cancelForId(context, todoId)
@@ -44,7 +53,13 @@ object ReminderScheduler {
         // Master reminder switch: when off, nothing is scheduled.
         if (!SettingsRepo.remindersEnabled(context)) return
 
-        val reminders = ReminderEngine.computeReminders(dueAtMillis, hasExactTime)
+        val reminders = ReminderEngine.computeReminders(
+            dueAtMillis = dueAtMillis,
+            hasExactTime = hasExactTime,
+            startAtMillis = startAtMillis,
+            // 「今天开始」跟用户设的默认时刻走，和"只写日期的待办用默认时刻"是同一个约定。
+            startMinuteOfDay = SettingsRepo.defaultMinuteOfDay(context)
+        )
         val am = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager?
         if (am == null) return
 
@@ -67,7 +82,10 @@ object ReminderScheduler {
 
         reminders.forEach { r ->
             val allowed = when (r.kind) {
-                ReminderEngine.Reminder.Kind.DUE -> atDue
+                // START 归「到点提醒」：它就是"这一天到了"的那一声，和 DUE 是同一类语义。
+                // 归到 inAdvance 会让关掉"到点提醒"、只留提前提醒的人照样收到它。
+                ReminderEngine.Reminder.Kind.DUE,
+                ReminderEngine.Reminder.Kind.START -> atDue
                 else -> inAdvance // GRADED and EXACT_PREP are advance reminders
             }
             if (!allowed) return@forEach
@@ -98,7 +116,7 @@ object ReminderScheduler {
         val dao = AppDatabase.get(context).todoDao()
         dao.getActiveAll().forEach { todo ->
             todo.dueAtMillis?.let { due ->
-                scheduleBlocking(context, todo.id, due, todo.hasExactTime)
+                scheduleBlocking(context, todo.id, due, todo.hasExactTime, todo.startAtMillis)
             }
         }
     }
@@ -106,9 +124,10 @@ object ReminderScheduler {
     fun cancelForId(context: Context, todoId: Long) {
         val am = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager?
         if (am == null) return
-        // GRADED / EXACT_PREP / DUE / OVERDUE are ordinals 0 / 1 / 2 / 3.
-        for (kind in 0..3) {
-            val pi = pendingReminder(context, todoId, kind)
+        // ★ 遍历枚举而不是写死 0..3：以前加新 kind 忘了改这里，旧的闹钟就永远取消不掉，
+        //   改一条待办的时间后会同时收到新旧两条提醒。ordinal 就是 requestCode 尾数。
+        ReminderEngine.Reminder.Kind.values().forEach { kind ->
+            val pi = pendingReminder(context, todoId, kind.ordinal)
             am.cancel(pi)
         }
     }
@@ -121,7 +140,7 @@ object ReminderScheduler {
     fun reScheduleOverdue(context: Context, todo: com.lirui.oneline.data.model.Todo) {
         scope.launch {
             todo.dueAtMillis?.let { due ->
-                scheduleBlocking(context, todo.id, due, todo.hasExactTime)
+                scheduleBlocking(context, todo.id, due, todo.hasExactTime, todo.startAtMillis)
             }
         }
     }

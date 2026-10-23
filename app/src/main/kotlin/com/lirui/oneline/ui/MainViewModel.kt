@@ -10,6 +10,7 @@ import com.lirui.oneline.data.TodoRepository
 import com.lirui.oneline.data.model.Todo
 import com.lirui.oneline.parser.Parser
 import com.lirui.oneline.parser.ParsedTodo
+import com.lirui.oneline.reminder.NotificationDismissScheduler
 import com.lirui.oneline.util.AppTime
 import com.lirui.oneline.widget.WidgetUpdater
 import kotlinx.coroutines.CancellationException
@@ -31,7 +32,9 @@ const val CIRCLE_FILL_MILLIS = 650L
 
 data class UiState(
     val active: List<Todo> = emptyList(),
-    val archived: List<Todo> = emptyList()
+    val archived: List<Todo> = emptyList(),
+    /** 回收站（软删除，[TodoRepository.TRASH_RETENTION_DAYS] 天内可恢复）。 */
+    val trash: List<Todo> = emptyList()
 )
 
 class MainViewModel(app: Application) : AndroidViewModel(app) {
@@ -40,8 +43,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val parser = Parser()
 
     val state: StateFlow<UiState> =
-        combine(repo.active, repo.archived) { act, arch ->
-            UiState(active = act, archived = arch)
+        combine(repo.active, repo.archived, repo.trash) { act, arch, trash ->
+            UiState(active = act, archived = arch, trash = trash)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), UiState())
 
     /** Latest parse result for the add sheet preview/error. */
@@ -171,7 +174,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 // ★ 动画期间被撤销（CompletedBar 的「撤销」）：pending 已被 unarchive 清掉，
                 // 这里必须收手，否则 650ms 一到照样写库，撤销就成了假动作。
                 if (id !in _pendingArchive.value) return@launch
-                if (!repo.archive(id)) {
+                if (repo.archive(id)) {
+                    // ★ 不立刻撤通知：通知上带着「撤回」，立即撤掉等于把反悔的入口砍了。
+                    //   延迟 10 秒再撤，期间任何一次 unarchive 都会取消这个定时器
+                    //   （见 NotificationDismissScheduler 的类注释）。
+                    NotificationDismissScheduler.scheduleCancel(getApplication(), id)
+                } else {
                     _messages.tryEmit("这条待办已经不在了")
                 }
                 WidgetUpdater.refreshAsync(getApplication())
@@ -189,6 +197,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun unarchive(id: Long) {
         _pendingArchive.update { it - id }
+        // 待办回到活跃状态：撤掉归档时排的「延时撤通知」，否则 10 秒后通知没了，
+        // 用户明明是刚撤回的却再也收不到这条提醒。
+        NotificationDismissScheduler.cancelScheduled(id)
         viewModelScope.launch {
             repo.unarchive(id)
             WidgetUpdater.refreshAsync(getApplication())
@@ -199,6 +210,25 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         _pendingArchive.update { it - id }
         viewModelScope.launch {
             repo.delete(id)
+            // 删除现在是"移进回收站"，必须给一句回执 —— 否则行消失了、库没少东西，
+            // 用户不知道是被删了还是被藏了，也不敢去回收站确认。
+            _messages.tryEmit("已移到回收站，${TodoRepository.TRASH_RETENTION_DAYS} 天内可恢复")
+            WidgetUpdater.refreshAsync(getApplication())
+        }
+    }
+
+    /** 回收站 → 恢复。 */
+    fun restoreFromTrash(id: Long) {
+        viewModelScope.launch {
+            repo.restore(id)
+            WidgetUpdater.refreshAsync(getApplication())
+        }
+    }
+
+    /** 回收站 → 彻底删除（不可恢复）。 */
+    fun purgeFromTrash(id: Long) {
+        viewModelScope.launch {
+            repo.purge(id)
             WidgetUpdater.refreshAsync(getApplication())
         }
     }

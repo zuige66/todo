@@ -22,27 +22,40 @@ object ReminderEngine {
 
     const val DAY_MS = 24L * 60 * 60 * 1000
 
+    /** 时间段「今天开始」这条提醒的默认时刻（用户没设默认时刻时用 09:00）。 */
+    const val DEFAULT_START_MINUTE_OF_DAY = 9 * 60
+
     /** One reminder point: a concrete wall-clock instant to fire a notification at. */
     data class Reminder(
         val fireAtMillis: Long,
         val kind: Kind,
         val message: String
     ) {
-        enum class Kind { GRADED, EXACT_PREP, DUE, OVERDUE }
+        /**
+         * ★ 新增 kind 只能往后追加。ordinal 就是 PendingIntent 的 requestCode 尾数
+         *   （`todoId*10 + ordinal`），插在中间会让已有闹钟整体错位、cancel 不掉。
+         */
+        enum class Kind { GRADED, EXACT_PREP, DUE, OVERDUE, START }
     }
 
     /**
      * Compute all reminders for a todo.
      * @param dueAtMillis the due epoch ms
      * @param hasExactTime whether an exact time was parsed
+     * @param startAtMillis 时间段开始日（null = 单日待办）。非空且开始日 != 结束日时，
+     *   开始日当天额外提醒一次 —— 否则「25号到1号出差」在 25 号那天一条通知都没有，
+     *   而开始那天恰恰是最该被提醒的。
      * @param nowMillis reference "now" for determinism in tests
      * @param zone device timezone
+     * @param startMinuteOfDay 开始日提醒落在几点几分（读用户设置里的默认时刻）
      */
     fun computeReminders(
         dueAtMillis: Long,
         hasExactTime: Boolean,
+        startAtMillis: Long? = null,
         nowMillis: Long = System.currentTimeMillis(),
-        zone: ZoneId = AppTime.ZONE
+        zone: ZoneId = AppTime.ZONE,
+        startMinuteOfDay: Int = DEFAULT_START_MINUTE_OF_DAY
     ): List<Reminder> {
         if (dueAtMillis <= 0L) return emptyList()
 
@@ -55,6 +68,10 @@ object ReminderEngine {
         val days = java.time.temporal.ChronoUnit.DAYS.between(today, dueDate)
 
         val reminders = mutableListOf<Reminder>()
+
+        startReminder(startAtMillis, dueAtMillis, now, zone, startMinuteOfDay)?.let {
+            reminders += it
+        }
 
         val graded = gradedReminder(days, due, now, zone)
         if (graded != null) reminders += graded
@@ -135,6 +152,41 @@ object ReminderEngine {
         if (dueAtMillis == null || dueAtMillis <= 0L || repeatDays <= 0) return null
         val due = ZonedDateTime.ofInstant(Instant.ofEpochMilli(dueAtMillis), zone)
         return due.minusDays(repeatDays.toLong()).toInstant().toEpochMilli()
+    }
+
+    /**
+     * 时间段「开始日」的那一条提醒。
+     *
+     * 只有真正的区间才提醒：
+     * - `startAtMillis == null` → 单日待办，没有"开始"可言
+     * - 开始日 == 结束日 → 退化成单日（[com.lirui.oneline.data.TodoRepository] 不会这么存，
+     *   但解析器/老数据可能出现，防御性跳过，否则会跟 DUE 同一天响两次）
+     * - 开始日已经在过去 → 不补发（用户是在看一条历史区间，不是刚新建）
+     *
+     * 文案故意只说「今天开始」，不带日期：通知标题会拼成「出差 今天开始」，
+     * 那一天的语境已经由"今天"承担，再塞一个日期是多余的。
+     */
+    private fun startReminder(
+        startAtMillis: Long?,
+        dueAtMillis: Long,
+        now: ZonedDateTime,
+        zone: ZoneId,
+        minuteOfDay: Int
+    ): Reminder? {
+        if (startAtMillis == null || startAtMillis <= 0L) return null
+        if (startAtMillis >= dueAtMillis) return null
+
+        val startDate = Instant.ofEpochMilli(startAtMillis).atZone(zone).toLocalDate()
+        val dueDate = Instant.ofEpochMilli(dueAtMillis).atZone(zone).toLocalDate()
+        if (startDate == dueDate) return null
+
+        val minute = minuteOfDay.coerceIn(0, 23 * 60 + 59)
+        val fireMs = ZonedDateTime.of(
+            startDate.atTime(minute / 60, minute % 60), zone
+        ).toInstant().toEpochMilli()
+        if (fireMs < now.toInstant().toEpochMilli()) return null
+
+        return Reminder(fireMs, Reminder.Kind.START, "今天开始")
     }
 
     private fun gradedReminder(

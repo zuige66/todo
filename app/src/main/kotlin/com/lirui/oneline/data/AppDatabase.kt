@@ -10,7 +10,7 @@ import com.lirui.oneline.data.model.Todo
 
 @Database(
     entities = [Todo::class],
-    version = 4,
+    version = 5,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -44,6 +44,18 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Add [Todo.deletedAt]（回收站；可空，null = 未删除）。
+         *
+         * 老数据全部是"没删过"，deletedAt 自然为 null，所有查询的 `deletedAt IS NULL`
+         * 条件都成立，行为零变化。列必须是可空的 —— 没有默认值的 ALTER 在旧行上会失败。
+         */
+        private val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE todos ADD COLUMN deletedAt INTEGER")
+            }
+        }
+
         fun get(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -51,7 +63,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "oneline.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                     .build().also { INSTANCE = it }
             }
         }

@@ -166,12 +166,16 @@ object WidgetUpdater {
             val hideHeader = SettingsRepo.widgetHideHeader(context)
 
             val dao = AppDatabase.get(context).todoDao()
-            val todos = runBlocking { dao.getActiveAll().take(MAX_ROWS) }
+            // ★ 先拿全量再截断：头部「N 条」统计的是**活跃待办总数**，不是"这一屏放得下几条"。
+            //   以前直接 take(MAX_ROWS) 后再取 size，于是有 7 条时头部写「4 条」——
+            //   用户以为数据丢了。
+            val all = runBlocking { dao.getActiveAll() }
+            val todos = all.take(MAX_ROWS)
 
             val rv = RemoteViews(context.packageName, R.layout.widget_todo_list)
             rv.setTextViewText(
                 R.id.widget_count,
-                context.getString(R.string.widget_header_count, todos.size)
+                context.getString(R.string.widget_header_count, all.size)
             )
             rv.setViewVisibility(
                 R.id.widget_header,

@@ -69,6 +69,10 @@ class NotificationActionReceiver : BroadcastReceiver() {
                         )
                     }
                     NotificationHelper.ACTION_UNDO -> {
+                        // 撤回 = 这条待办又活跃了。若应用内刚点过圆圈（排了一个 10 秒后
+                        // 撤通知的任务），必须把它撤掉，否则这里刚翻转回来的通知
+                        // 会在几秒后自己消失。
+                        NotificationDismissScheduler.cancelScheduled(todoId)
                         val todo = repo.undoFromNotification(todoId) ?: return@launch
                         // The notification must STAY: the todo is active again and the user may
                         // want to complete it right from here. Re-post on the same id so the

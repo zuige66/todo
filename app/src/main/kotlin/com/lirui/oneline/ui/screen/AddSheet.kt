@@ -121,9 +121,11 @@ fun AddSheet(
     var showTimePicker by remember { mutableStateOf(false) }
     var showTitleEditor by remember { mutableStateOf(false) }
     var showDetailEditor by remember { mutableStateOf(false) }
-    // 弹层存活期内的"现在"，用于判断手动选的时刻今天是否已过。
-    val nowMillis = remember { AppTime.nowMillis() }
-    val today = remember { AppTime.today() }
+    // 弹层存活期内的"现在"。★ 不用 remember：弹层可能开着跨过 0 点（或跨过用户设的那个
+    // 时刻），remember 会把"打开那一刻"钉死，之后 timeError 一直按旧时间判断。
+    // 每次重组现取，成本可以忽略，输入一个字就会触发重组。
+    val nowMillis = AppTime.nowMillis()
+    val today = AppTime.today()
     // 日历上「今天」的描边圈去掉（zuige：24 号是选中的实心、23 号还有个圈，容易误读成"选了两天"）。
     // 只去掉描边，选中态与区间底色不受影响。
     val pickerColors = DatePickerDefaults.colors(todayDateBorderColor = Color.Transparent)
@@ -131,18 +133,19 @@ fun AddSheet(
     /** 句子解析 + 手动覆盖 合并后的最终预览（提交也用它）。 */
     fun effectiveParses(): List<ParsedTodo> = parses.mapIndexed { index, p ->
         val date = if (dateOverrides.containsKey(index)) dateOverrides[index] else p.dueDate
-        var start = if (startDateOverrides.containsKey(index)) startDateOverrides[index] else p.startDate
+        val startRaw = if (startDateOverrides.containsKey(index)) startDateOverrides[index] else p.startDate
         val time = timeOverrides[index] ?: p.dueTime
         val title = titleOverrides[index] ?: p.title
         val detail = if (detailOverrides.containsKey(index)) detailOverrides[index] else p.detail
-        // 开始晚于结束时自动对调，保证区间永远有效。
-        var end = date
-        if (start != null && end != null && start.isAfter(end)) {
-            val t = start; start = end; end = t
-        }
-        // 只有开始日没有结束日的"区间"没有意义（而且会因为 dueAtMillis 为空在列表里消失），
-        // 用户在结束日上选了「无日期」= 整条都不要日期，开始日一并清掉。
-        if (end == null) start = null
+        // 区间归一化（反转对调、结束日没了就清开始日）与预览卡片共用同一个函数 ——
+        // 两处各写一遍正是"卡片显示的和实际存的不一样"的根因。
+        val (start, end) = normalizeRange(startRaw, date)
+        // ★ 用户**真的动过**这个维度，才清掉句子解析出来的 error。
+        //   以前是无条件 `dateError = false`：输入「周一开会」（本周一已过，红字警告），
+        //   只把标题改一个字，日期根本没碰，dateError 就被清了 —— 校验通过，
+        //   列表里多出一条已逾期的待办。改了日期才该重判，改标题不该。
+        val dateTouched = dateOverrides.containsKey(index) || startDateOverrides.containsKey(index)
+        val timeTouched = timeOverrides.containsKey(index)
         if (end == null && time == null && start == null &&
             !dateOverrides.containsKey(index) && !startDateOverrides.containsKey(index) &&
             !titleOverrides.containsKey(index) && !detailOverrides.containsKey(index)
@@ -157,16 +160,23 @@ fun AddSheet(
                 startDate = start,
                 // hasExactTime 是计算属性（dueTime != null）：手动选了时刻自动就是精确提醒，
                 // 不需要也不能在 copy 里传。
-                // 覆盖后重新判断"今天已过"：用户把日期改到未来就不该再报 dateError。
-                dateError = false,
-                timeError = time != null && end == today && time.isBefore(
-                    java.time.Instant.ofEpochMilli(nowMillis).atZone(AppTime.ZONE).toLocalTime()
-                )
+                // 覆盖后重新判断"今天已过"：用户把日期/时间改到未来就不该再报 error，
+                // 但没动过的那一维必须保留原判。
+                dateError = if (dateTouched) false else p.dateError,
+                timeError = if (timeTouched) {
+                    time != null && end == today && time.isBefore(
+                        java.time.Instant.ofEpochMilli(nowMillis).atZone(AppTime.ZONE).toLocalTime()
+                    )
+                } else {
+                    p.timeError
+                }
             )
         }
     }
+    // 合并后的结果（预览、红字、提交三处共用同一份，避免"提示和实际校验不一致"）。
+    val effective = effectiveParses()
     // 标题被手动清空时不能提交（VM 会判 Blank，这里提前禁掉按钮并说明原因）。
-    val anyTitleBlank = effectiveParses().none { it.cleanTitle.isNotBlank() }
+    val anyTitleBlank = effective.none { it.cleanTitle.isNotBlank() }
 
     // 添加模式开局必须重新解析一次：ViewModel 里的预览可能还是上一句话的结果
     // （曾导致空输入框挂着一条「10月23日」的幽灵 chip）。
@@ -272,9 +282,12 @@ fun AddSheet(
             }
 
             // Short, action-oriented errors.
+            // ★ 读的是**合并覆盖后**的结果，不是原始 parses。以前读原始值，
+            //   于是"把日期改成下周一"之后红字还挂着 —— 而点「添加」其实是能成功的，
+            //   提示和实际校验脱节（反过来更糟：只改标题就绕过了校验，见 effectiveParses）。
             val err = when {
-                parses.any { it.dateError } -> "日期已过，换个未来的日期"
-                parses.any { it.timeError } -> "时间已过，换个未来的时间"
+                effective.any { it.dateError } -> "日期已过，换个未来的日期"
+                effective.any { it.timeError } -> "时间已过，换个未来的时间"
                 else -> null
             }
             if (err != null) {
@@ -291,6 +304,7 @@ fun AddSheet(
             if (text.isNotBlank()) {
                 PreviewCard(
                     parses = parses,
+                    editing = editing,
                     dateOverrides = dateOverrides,
                     startDateOverrides = startDateOverrides,
                     timeOverrides = timeOverrides,
@@ -411,9 +425,20 @@ fun AddSheet(
                                     startDateOverrides + (pickingIndex to AppTime.pickerDate(s))
                                 dateOverrides = dateOverrides + (pickingIndex to AppTime.pickerDate(e))
                             } else if (s != null) {
-                                // 只点了第一天（还没点终点）= 用户其实只想要一天 → 退回单日。
-                                startDateOverrides = startDateOverrides + (pickingIndex to null)
-                                dateOverrides = dateOverrides + (pickingIndex to AppTime.pickerDate(s))
+                                // 只点了第一天（还没点终点）。两种语境语义相反：
+                                val sDate = AppTime.pickerDate(s)
+                                if (start == null && end != null) {
+                                    // ① 从「+ 时间段」进来的单日待办：用户点的这一天是**起点**，
+                                    //    终点沿用原来那天。直接复用"退回单日"的分支会把结束日
+                                    //    改成起点，用户点一下反而把日期改掉了。
+                                    val (a, b) = if (sDate.isAfter(end)) end to sDate else sDate to end
+                                    startDateOverrides = startDateOverrides + (pickingIndex to a)
+                                    dateOverrides = dateOverrides + (pickingIndex to b)
+                                } else {
+                                    // ② 本来就是区间、重新只点了一天 = 用户其实只想要一天 → 退回单日。
+                                    startDateOverrides = startDateOverrides + (pickingIndex to null)
+                                    dateOverrides = dateOverrides + (pickingIndex to sDate)
+                                }
                             }
                             showRangePicker = false
                         }) { Text("确定") }
@@ -557,6 +582,8 @@ private val TodayOrLater = object : SelectableDates {
 @Composable
 private fun PreviewCard(
     parses: List<ParsedTodo>,
+    /** 编辑模式：输入框解析出多条时只有第一条会被保存，文案必须说清楚。 */
+    editing: Boolean = false,
     dateOverrides: Map<Int, java.time.LocalDate?>,
     startDateOverrides: Map<Int, java.time.LocalDate?>,
     timeOverrides: Map<Int, java.time.LocalTime>,
@@ -570,12 +597,16 @@ private fun PreviewCard(
 ) {
     val items = parses.mapIndexed { index, p ->
         // 有覆盖就用覆盖值渲染，否则用句子解析值。
-        val date = if (dateOverrides.containsKey(index)) dateOverrides[index] else p.dueDate
-        val start = if (startDateOverrides.containsKey(index)) startDateOverrides[index] else p.startDate
+        val dateRaw = if (dateOverrides.containsKey(index)) dateOverrides[index] else p.dueDate
+        val startRaw = if (startDateOverrides.containsKey(index)) startDateOverrides[index] else p.startDate
         val time = timeOverrides[index] ?: p.dueTime
         val title = titleOverrides[index] ?: p.title
         val detail = if (detailOverrides.containsKey(index)) detailOverrides[index] else p.detail
-        PreviewRow(index, p, start, date, time, title, detail)
+        // ★ 必须走同一套归一化。以前这里直接用原始 start/date，于是：
+        //   把结束日改到开始日之前 → 卡片显示「10月25日 – 10月23日」，保存后却是 10月23–25；
+        //   把结束日选成「无日期」→ 卡片还挂着「开始 10月25日」，保存后开始日却没了。
+        val (start, end) = normalizeRange(startRaw, dateRaw)
+        PreviewRow(index, p, start, end, time, title, detail)
     }.filter { row ->
         row.date != null || row.time != null || row.start != null ||
             row.p.repeatDays > 0 || row.title.isNotBlank()
@@ -598,10 +629,14 @@ private fun PreviewCard(
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             if (items.size > 1) {
+                // 添加模式是"一句多建"，编辑模式却只有第一条会被 update ——
+                // 以前这里两种模式都写「将创建 N 条待办」，编辑时等于承诺了做不到的事。
                 Text(
-                    "将创建 ${items.size} 条待办",
+                    if (editing) "编辑只保存第一条，其余 ${items.size - 1} 条请单独添加"
+                    else "将创建 ${items.size} 条待办",
                     style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary
+                    color = if (editing) MaterialTheme.colorScheme.error
+                    else MaterialTheme.colorScheme.primary
                 )
             }
             items.forEachIndexed { i, row ->
@@ -634,6 +669,23 @@ private fun PreviewCard(
  * （用户反馈"开会太靠左下角，与上面日期对齐"）。抽成常量让两边永远一致。
  */
 private val PREVIEW_CHIP_HPAD = 12.dp
+
+/**
+ * 区间归一化：开始晚于结束就对调；结束日被清空时开始日一起清掉
+ * （只剩开始日的"区间"没有 dueAtMillis，存进去会从列表里消失）。
+ *
+ * ★ 预览卡片和提交必须**共用这一个函数**。以前两边各写一遍，症状是：
+ *   - 把结束日改到开始日之前：卡片显示「10月25日 – 10月23日」，存进去却是 10/23–25；
+ *   - 把结束日选成「无日期」：卡片还挂着「开始 10月25日」，保存后开始日却没了。
+ */
+private fun normalizeRange(
+    start: java.time.LocalDate?,
+    end: java.time.LocalDate?
+): Pair<java.time.LocalDate?, java.time.LocalDate?> {
+    if (end == null) return null to null
+    if (start != null && start.isAfter(end)) return end to start
+    return start to end
+}
 
 /** 一条预览行的合并后视图（句子解析 + 手动覆盖）。 */
 private data class PreviewRow(
@@ -684,6 +736,11 @@ private fun PreviewItem(
                 )
             } else if (date != null) {
                 InfoChip(Format.dateShort(date), onClick = onPickDate)
+                // ★ 单日 → 时间段的入口（0.9.3）。
+                //   在此之前，只有句子写成「25号到1号」才可能有开始日 —— UI 上完全没有路，
+                //   想把一条已存在的单日待办改成时间段，只能删了重打一遍句子。
+                //   点它打开的是同一个区间选择器，初始只带结束日，用户点一个起点即成区间。
+                InfoChip("+ 时间段", onClick = onPickRange)
             } else {
                 InfoChip("+ 日期", onClick = onPickDate)
             }
