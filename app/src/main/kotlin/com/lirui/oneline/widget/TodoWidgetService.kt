@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.widget.RemoteViews
 import android.widget.RemoteViewsService
+import android.util.Log
 import com.lirui.oneline.MainActivity
 import com.lirui.oneline.R
 import com.lirui.oneline.data.AppDatabase
@@ -47,6 +48,7 @@ private class TodoRemoteViewsFactory(
         // getActiveAll 的 ORDER BY：COALESCE(dueAtMillis, 极大值) —— 无日期天然排最后，
         // 与首页板块顺序一致，不需要在内存里再排一次。
         items = runBlocking { dao.getActiveAll().take(limit) }
+        Log.d("TodoWidget", "onDataSetChanged count=${items.size} limit=$limit compact=$compact")
     }
 
     override fun getCount(): Int = items.size

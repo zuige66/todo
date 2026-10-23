@@ -7,6 +7,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.util.Log
 import android.widget.RemoteViews
 import com.lirui.oneline.MainActivity
 import com.lirui.oneline.R
@@ -81,6 +82,8 @@ class TodoWidgetProvider : AppWidgetProvider() {
  */
 object WidgetUpdater {
 
+    private const val TAG = "TodoWidget"
+
     /** fire-and-forget 的 IO 作用域。写库后刷新组件不应拖累调用方（可能是主线程）。 */
     val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -142,6 +145,11 @@ object WidgetUpdater {
         rv.setOnClickPendingIntent(R.id.widget_empty, openApp)
 
         manager.updateAppWidget(appWidgetId, rv)
+
+        // ★ setRemoteAdapter 之后必须手动通知刷新：部分 ROM 的 Launcher 不会在
+        //   bind 后自动触发 onDataSetChanged，列表就一直空着（vivo 实测不显示待办）。
+        manager.notifyAppWidgetViewDataChanged(appWidgetId, R.id.widget_list)
+        Log.d(TAG, "updateOne id=$appWidgetId compact=$compact limit=$limit total=$total")
     }
 }
 
