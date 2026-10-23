@@ -1,14 +1,20 @@
 package com.lirui.oneline.ui.screen
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -26,7 +32,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.SelectableDates
@@ -37,7 +42,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TimePicker
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.rememberDateRangePickerState
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -87,7 +91,6 @@ fun AddSheet(
     // 窗口只在外层 Box 上叠了 imePadding 把 sheet 整体顶上去，半屏高度仍按老窗口算 →
     // 结果就是 sheet 只剩键盘上方一条窄缝，输入框正好被压在键盘边缘（真机盲打）。
     // 全展开后 sheet 高度直接用「窗口高度 - 键盘」，输入框一定在键盘之上。
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     // Plain remember (not rememberSaveable): the sheet leaves composition on dismiss, and a
     // saveable state would resurrect the previous sentence on the next open.
     var text by remember(initialText) { mutableStateOf(initialText) }
@@ -174,14 +177,41 @@ fun AddSheet(
 
     val submit = { onAdd(effectiveParses(), if (editing) repeatOn else true) }
 
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+    // ★★ 不用 ModalBottomSheet（v0.9.1 补丁，这一处改了三轮，前两轮都没解决）。
+    //
+    // ModalBottomSheet 的"弹层"其实是一个**独立的 Dialog 窗口**，而 M3 给这个窗口设的是
+    // SDK 30+ 的 SOFT_INPUT_ADJUST_NOTHING：窗口自己不随键盘缩小，只能靠 ime insets
+    // 把它顶上去。这条链路在真机 + 各家输入法上并不可靠 —— 实测换了输入法之后，
+    // sheet 就只剩「圆角把手 + 半行标题」一条缝，调 skipPartiallyExpanded 也没救。
+    //
+    // 现在改成**应用内覆盖层**：它和列表在同一个窗口里，键盘避让走主窗口的 ime insets。
+    // 设置页那几个输入框一直正常，说明主窗口这条路是可靠的。
+    Box(Modifier.fillMaxSize()) {
+        // 遮罩：点空白关闭。indication = null —— 整屏涟漪太吓人。
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.45f))
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null
+                ) { onDismiss() }
+        )
+        // imePadding 加在这一层：键盘弹起时整块面板贴到键盘上沿，
+        // 面板可用高度自动变成「屏高 − 键盘」，内部 verticalScroll 消化超长内容。
+        Box(
+            Modifier
+                .fillMaxSize()
+                .imePadding(),
+            contentAlignment = Alignment.BottomCenter
+        ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                // clip / background 必须在 verticalScroll **之前**，否则圆角不裁切、底色不画。
+                .clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp))
+                .background(MaterialTheme.colorScheme.surface)
                 .verticalScroll(rememberScrollState())
-                // 这里**不要**再 imePadding()：ModalBottomSheet 最外层已经
-                // `Box(fillMaxSize().imePadding())` 把整个 sheet 顶到键盘上方了，
-                // 再叠一次会给滚动内容多塞一段等于键盘高度的空白，提交按钮要滚半天才看得到。
                 .padding(horizontal = 20.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
@@ -504,7 +534,10 @@ fun AddSheet(
                 }
             )
         }
+        }
     }
+    // 返回键关闭：覆盖层不再是独立窗口，系统不会自动处理返回。
+    BackHandler { onDismiss() }
 }
 
 /** 日期选择器的可选范围：今天起（毫秒按 UTC 口径解回日期，避免 UTC 边界差一天）。 */

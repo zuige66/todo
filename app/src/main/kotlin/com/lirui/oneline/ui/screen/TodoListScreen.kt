@@ -646,10 +646,12 @@ private fun TodoAppContent(
                 }
             }
         }
-    }
 
-    if (showAdd) {
-        AddSheet(
+        // 添加/编辑弹层放在**同一个 Box 内**：AddSheet 现在是一个应用内覆盖层
+        // （不再自带 Dialog 窗口），必须和内容同级才能在它上面画，也才能共用主窗口的
+        // ime insets —— 这是「编辑时键盘挡住输入框」的最终修法。
+        if (showAdd) {
+            AddSheet(
             initialText = editTarget?.let {
                 // 回填句子的规则（含"为什么不能拼星期""为什么不能带默认时刻"）见 Format.editSentence。
                 Format.editSentence(
@@ -681,7 +683,8 @@ private fun TodoAppContent(
             parses = vm.lastParses,
             editing = editTarget != null,
             initialRepeatDays = editTarget?.repeatDays ?: 0
-        )
+            )
+        }
     }
 }
 
@@ -1146,7 +1149,7 @@ private fun SettingsScreen(
         // 节标题的 top/bottom padding 相应调小，保证节与节之间的视觉留白不变。
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        // ═══ 1. 提醒 · 可靠性（v0.6 置顶；v0.9.1 与「提醒行为」合并成一节）═══
+        // ═══ 1. 提醒（v0.6 置顶；v0.9.1 可靠性 + 行为合并成**同一张卡**）═══
         // zuige 拍板：这一节决定"提醒到底响不响"，是整个 App 最重要的设置，必须放第一且强调。
         // 强调方式：标题恒定显示状态徽章 —— 有未放行项时整行转红并写明后果，全齐时显示"已就绪"。
         // 合并「后台常驻」：它和可靠性是同一件事的两半（系统放不放行 / 用户愿不愿意付常驻通知的代价），
@@ -1176,7 +1179,53 @@ private fun SettingsScreen(
                 notificationsOk = notificationsOk,
                 exactOk = exactOk,
                 onExactAlarmSettings = onExactAlarmSettings,
-                onStateRefresh = { reliabilityTick++ }
+                onStateRefresh = { reliabilityTick++ },
+                // 提醒行为接在**同一张卡**里（v0.9.1 补丁）。原来它是独立的第二张卡：
+                // 两张卡在真机上边贴边，看着像一张卡被拦腰切开；而"响不响"和"什么时候响"
+                // 本来就是一件事，拆成两张卡没有任何信息量。
+                behavior = {
+                    ToggleItem("开启提醒", "全部提醒的总开关", remindersEnabled, onSetRemindersEnabled)
+                    ItemDivider()
+                    ToggleItem("到点提醒", "设定时间到了再响一次", remindAtDue, onSetRemindAtDue)
+                    ItemDivider()
+                    ToggleItem("提前提醒", "提前 7/3/1 天与 1 小时", remindInAdvance, onSetRemindInAdvance)
+                    // ↓ 原「逾期处理」「待办行为(默认时刻)」两节并入这里：
+                    //   它们和到点/提前一样都是"什么时候响"，不该被外观类设置隔开。
+                    ItemDivider()
+                    ToggleItem("逾期反复叮嘱", "过期后按间隔再提醒", overdueNag, onSetOverdueNag)
+                    // 打开开关后"提醒间隔"不该让整张卡片突然长高一截
+                    AnimatedVisibility(
+                        visible = overdueNag,
+                        enter = expandVertically() + fadeIn(),
+                        exit = shrinkVertically() + fadeOut()
+                    ) {
+                        Column {
+                            ItemDivider()
+                            SettingsDropdown(
+                                label = "提醒间隔",
+                                options = listOf(6 to "6小时", 12 to "12小时", 24 to "1天", 48 to "2天"),
+                                selectedValue = overdueInterval,
+                                onSelect = onSetOverdueInterval
+                            )
+                        }
+                    }
+                    ItemDivider()
+                    SettingsDropdown(
+                        label = "默认提醒时刻",
+                        options = listOf(
+                            9 * 60 to "9:00", 12 * 60 to "12:00",
+                            18 * 60 to "18:00", 21 * 60 to "21:00"
+                        ),
+                        selectedValue = defaultMinuteOfDay,
+                        onSelect = onSetDefaultMinuteOfDay
+                    )
+                    Text(
+                        "只写日期、不写时间的待办，到这个时刻提醒。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp)
+                    )
+                }
             )
         }
         if (!exactOk) {
@@ -1190,57 +1239,7 @@ private fun SettingsScreen(
             }
         }
 
-        // ═══ 2. 提醒 · 行为 ═══
-        // 原来「提醒可靠性」和「提醒」是两个并排的节标题，读起来像两件事；
-        // 其实前者决定"响不响"、后者决定"什么时候响"，是同一件事的两半。
-        // 标题沿用上面那个带状态徽章的行，这里不再重复出标题。
-        item {
-            SettingsCard {
-                ToggleItem("开启提醒", "全部提醒的总开关", remindersEnabled, onSetRemindersEnabled)
-                ItemDivider()
-                ToggleItem("到点提醒", "设定时间到了再响一次", remindAtDue, onSetRemindAtDue)
-                ItemDivider()
-                ToggleItem("提前提醒", "提前 7/3/1 天与 1 小时", remindInAdvance, onSetRemindInAdvance)
-                // ↓ 原「逾期处理」「待办行为(默认时刻)」两节并入这里：
-                //   它们和到点/提前一样都是"什么时候响"，不该被外观类设置隔开。
-                ItemDivider()
-                ToggleItem("逾期反复叮嘱", "过期后按间隔再提醒", overdueNag, onSetOverdueNag)
-                // 打开开关后"提醒间隔"不该让整张卡片突然长高一截
-                AnimatedVisibility(
-                    visible = overdueNag,
-                    enter = expandVertically() + fadeIn(),
-                    exit = shrinkVertically() + fadeOut()
-                ) {
-                    Column {
-                        ItemDivider()
-                        SettingsDropdown(
-                            label = "提醒间隔",
-                            options = listOf(6 to "6小时", 12 to "12小时", 24 to "1天", 48 to "2天"),
-                            selectedValue = overdueInterval,
-                            onSelect = onSetOverdueInterval
-                        )
-                    }
-                }
-                ItemDivider()
-                SettingsDropdown(
-                    label = "默认提醒时刻",
-                    options = listOf(
-                        9 * 60 to "9:00", 12 * 60 to "12:00",
-                        18 * 60 to "18:00", 21 * 60 to "21:00"
-                    ),
-                    selectedValue = defaultMinuteOfDay,
-                    onSelect = onSetDefaultMinuteOfDay
-                )
-                Text(
-                    "只写日期、不写时间的待办，到这个时刻提醒。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp)
-                )
-            }
-        }
-
-        // ═══ 3. 通知 ═══
+        // ═══ 2. 通知 ═══
         // 三个**并列**的折叠项（zuige 纠正：通知模板只含标题模板+完成后缀+预览，
         // 与提醒文案、常驻通知文案是并列关系，不是包含关系）。
         item { SectionHeader("通知") }
@@ -1298,7 +1297,7 @@ private fun SettingsScreen(
         // （v0.6：「提醒可靠性」「后台常驻」已上移为第一节 —— 它们是本页最重要的设置。）
         // （v0.6.2：「测试」下移到全页最后 —— 低频排障项不该夹在日常设置中间。）
 
-        // ═══ 4. 外观 ═══
+        // ═══ 3. 外观 ═══
         item { SectionHeader("外观") }
         item {
             SettingsCard {
@@ -1328,7 +1327,7 @@ private fun SettingsScreen(
             }
         }
 
-        // ═══ 5. 操作（v0.9.1）═══
+        // ═══ 4. 操作（v0.9.1）═══
         // zuige 拍板：手势不再硬编码，统一收到这一节；沉浸式顶栏也从「外观」移进来 ——
         // 它和手势是同一类东西（"我怎么操作这个列表"），不是配色/字号那种外观。
         item { SectionHeader("操作") }
@@ -1389,7 +1388,7 @@ private fun SettingsScreen(
             }
         }
 
-        // ═══ 6. 小组件 ═══
+        // ═══ 5. 小组件 ═══
         // 四个开关，直接读写 SettingsRepo + 立即刷新组件
         // （同 KeepAliveNotifEditor 的局部状态模式，不走 VM 参数链）。
         // ★ 2026-10-23：不再按组件尺寸分档 —— vivo 桌面报的尺寸恒为 152px，
@@ -1484,7 +1483,7 @@ private fun SettingsScreen(
             }
         }
 
-        // ═══ 7. 列表与待办 ═══
+        // ═══ 6. 列表与待办 ═══
         item { SectionHeader("列表与待办") }
         item {
             SettingsCard {
@@ -1537,7 +1536,7 @@ private fun SettingsScreen(
             }
         }
 
-        // ═══ 8. 测试（全页最后）═══
+        // ═══ 7. 测试（全页最后）═══
         item { SectionHeader("测试") }
         item {
             SettingsCard {
@@ -2921,7 +2920,12 @@ private fun ReliabilitySection(
     notificationsOk: Boolean,
     exactOk: Boolean,
     onExactAlarmSettings: () -> Unit,
-    onStateRefresh: () -> Unit
+    onStateRefresh: () -> Unit,
+    /**
+     * 同一张卡的下半部分 —— 提醒行为的开关（v0.9.1 补丁：从独立一张卡并进来）。
+     * 传 null 表示只要可靠性部分。
+     */
+    behavior: (@Composable ColumnScope.() -> Unit)? = null
 ) {
     val context = LocalContext.current
 
@@ -3017,6 +3021,13 @@ private fun ReliabilitySection(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 14.dp)
         )
+        // 提醒行为（开关 / 间隔 / 默认时刻）接在同一张卡的下半部分：
+        // 原来它是独立一张卡，两张卡在真机上边贴边，看着像被拦腰切开；
+        // 而且"响不响"和"什么时候响"本来就是一件事（zuige 拍板合并）。
+        if (behavior != null) {
+            ItemDivider()
+            behavior()
+        }
     }
 }
 

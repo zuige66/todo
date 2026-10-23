@@ -378,7 +378,36 @@ graphicsLayer 必须是链条上最靠左的那个绘制类修饰符。
 
 ## 弹层键盘 / 设置卡片间距 / 小组件字号（0.9.1 补丁，不升版本）
 
-### 编辑弹层被键盘挡住：sheet 不能停在半展开
+### ★ 编辑弹层：不要用 ModalBottomSheet（v0.9.1 补丁，第三次才修对）
+
+**结论：`ModalBottomSheet` 在这台真机上不可用于带输入框的弹层，已整体换成应用内覆盖层。**
+
+踩过的三个坑，按时间顺序：
+
+1. 第一版：`rememberDatePickerState` 那套没问题，弹层用默认 `ModalBottomSheet`。
+   现象 = 键盘弹起后只剩「圆角把手 + 半行标题」，输入框完全被压在键盘下面。
+2. 第二版：换成 `skipPartiallyExpanded = true` 全展开。**没用**。
+   因为 `skipPartiallyExpanded` 只影响"停半屏还是全屏"，不影响键盘避让。
+3. 第三版：把 `contentWindowInsets` 从默认的 `safeDrawing`（含 ime）改成
+   `navigationBars`，避免 ime 被扣两遍。**还是没用**：换了输入法之后依旧只有一条缝。
+
+**根因**：`ModalBottomSheet` 的"弹层"是一个**独立的 Dialog 窗口**，而 M3 给这个窗口
+设的是 SDK 30+ 的 `SOFT_INPUT_ADJUST_NOTHING`（见 `ModalBottomSheet.android.kt`，
+`window.setSoftInputMode(...)`）。窗口自己不随键盘缩小，只能靠 ime insets 把 sheet 顶上去。
+这条链路的 insets 上报**依赖输入法**，各家键盘（尤其带 AI 工具栏的国产输入法）不一致，
+所以同一个包在两种输入法下表现完全不同 —— 这也是为什么我截图看着好了、用户实测还是被挡。
+
+**最终方案**：`AddSheet` 不再是 Dialog，改成应用内覆盖层 ——
+`Box(fillMaxSize)` 里放「遮罩 + `Box(imePadding)` 底部对齐的面板 + `verticalScroll` 的内容」。
+它和列表在**同一个窗口**，键盘避让走主窗口的 ime insets（设置页那几个输入框一直是正常的，
+证明这条路可靠）。配套两点：
+- `AddSheet` 的调用点必须挪进 `TodoAppContent` 的根 `Box` 内（和 Scaffold 同级），
+  否则覆盖层不会叠在内容上面；
+- 覆盖层不是独立窗口，返回键要自己接 `BackHandler { onDismiss() }`。
+
+**以后不要再往 AddSheet 里塞 ModalBottomSheet**，除非换成"整页导航"。
+
+### （历史）编辑弹层被键盘挡住：sheet 不能停在半展开
 `ModalBottomSheet` 默认 `skipPartiallyExpanded = false`，打开先停在 **half-expanded**，
 高度按**整块窗口**的一半算。而 M3 的弹层窗口在 SDK 30+ 用的是
 `SOFT_INPUT_ADJUST_NOTHING`（窗口自身不随键盘缩小），键盘弹起时它只在外层
@@ -417,3 +446,16 @@ graphicsLayer 必须是链条上最靠左的那个绘制类修饰符。
 它们按设置切换、尺寸差一点就会看到"换个日期位置字号就变了"。
 ★ 行高是 `layout_weight` 的下限值（4 行平分 `widget_rows`），调大只是抬下限；
 「日期在下方」那张两行文字 15+11sp ≈ 34dp，40dp 才不顶。
+
+## 提醒节只剩一张卡（v0.9.1 补丁）
+
+原来「提醒 · 可靠性」和「提醒 · 行为」是**两张** `SettingsCard`，但共用同一个带状态徽章的
+节标题。列表又是 `spacedBy(10dp)` 之前的状态，两张卡边贴边 —— 真机上看着就像一张卡被拦腰切开。
+
+现在 `ReliabilitySection` 多了一个 `behavior: (@Composable ColumnScope.() -> Unit)?` 参数：
+可靠性的行（允许通知 / 精确闹钟 / 电池优化 / 自启动 / 后台常驻）排在前面，中间一条
+`ItemDivider()`，接行为的开关（开启提醒 / 到点 / 提前 / 逾期 / 间隔 / 默认时刻）——
+**一张卡里到底**。
+
+设置页因此从 8 节变 7 节：
+1 提醒 → 2 通知 → 3 外观 → 4 操作 → 5 小组件 → 6 列表与待办 → 7 测试。
