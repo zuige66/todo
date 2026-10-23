@@ -2,12 +2,11 @@
 <!--
   Widget 提供者配置。
 
-  - minWidth/minHeight = 2×2 的最小尺寸（dp，Android 按 cell 换算的经验值）
-  - minResizeWidth/Height 允许用户拉到更小（4 格宽以内的任意组合）
-  - resizeMode 纵横都可拉：拉高就自动从紧凑行换成标准行、显示更多条
-  - targetCellWidth/Height = 2×2：加组件时默认就是这个尺寸
-  - previewLayout（API 31+）比 previewImage 更真实，但需要额外一张 XML 布局；
-    先用 previewImage（layer-list 画的缩略图），低版本也兼容
+  - minWidth/minHeight = 2×2 的最小尺寸；resizeMode 纵横都可拉，
+    拉高自动从紧凑行（4 条）换标准行（6 条）—— 切换逻辑在 TodoWidgetProvider
+  - targetCellWidth/Height = 2×2：加组件时的默认尺寸（API 31+）
+  - previewLayout（API 31+）：澎湃/MIUI 的组件列表主要认它（previewImage 支持差）
+  - description（API 31+）：选择器里的说明文字
 -->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
     android:description="@string/widget_description"
