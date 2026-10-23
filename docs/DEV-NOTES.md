@@ -95,6 +95,19 @@
   新用例统一用 `Parser(2026-10-23)` 这类"参考日之后"的 today。
 - 编辑弹层打开时**不再重新解析**回填句子（`AddSheet` 的 `LaunchedEffect` 加 `if (!editing)`）：
   值直接来自 `previewExisting` 的精确反推，避免"点开编辑、什么都没改、一保存日期就变"。
+- ★ **时间段的起止用同一个区间日历选**（0.8.9）：「开始 X」「结束 Y」两个 chip 合成一个「X – Y」chip，
+  点开是 M3 `DateRangePicker`。三条口径：
+  ① 区间选择器**不传 `selectableDates`**（= 允许选过去）—— 进行中 / 已开始的时间段本来就在过去，
+     沿用单日选择器的 `TodayOrLater` 会让开始日根本改不了；
+  ② 只在日历上点了起点（`selectedEndDateMillis == null`）= 用户只想要一天 → 退回单日：
+     `startDateOverrides[index] = null` + `dateOverrides[index] = 起点`；
+  ③ 「取消开始日」同样退回单日（结束日留着）。区间上**不放**「无日期」——想彻底去掉日期就先退回单日，
+     再从单日 chip 选「无日期」，否则确认区要堆三个文字按钮（360dp 宽度放不下）。
+  `DateRangePicker` 放进 `DatePickerDialog` 的内容槽**必须加 `Modifier.weight(1f)`**，
+  否则按内容高度撑开、月份滚动区被压没。
+- **日历上「今天」的描边圈已去掉**（0.8.9）：`DatePickerDefaults.colors(todayDateBorderColor = Color.Transparent)`，
+  单日与区间两个日历共用同一个 `pickerColors`。真机上"选中日实心 + 今天还有个圈"会被读成选了两天；
+  去掉的只是描边圈，选中态与区间底色不受影响。
 - **逾期判定**：统一调 `Format.isOverdue(due, today, nowMillis, hasExactTime)`。
   有精确时刻 → `due <= now`；**只写日期 → 过了那天才算**（不能拿默认 09:00 兜底去判逾期）。
   分组 `Format.groupLabel` 内部也调它，两者口径必须一致；`overduePin` 只控制列表排序。

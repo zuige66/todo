@@ -20,7 +20,9 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDefaults
 import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.DateRangePicker
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.HorizontalDivider
@@ -35,6 +37,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TimePicker
 import androidx.compose.material3.rememberDatePickerState
+import androidx.compose.material3.rememberDateRangePickerState
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
@@ -47,6 +50,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import com.lirui.oneline.parser.ParsedTodo
@@ -103,13 +107,17 @@ fun AddSheet(
     var detailOverrides by remember { mutableStateOf(mapOf<Int, String?>()) }
     var pickingIndex by remember { mutableIntStateOf(-1) }
     var showDatePicker by remember { mutableStateOf(false) }
-    var showStartPicker by remember { mutableStateOf(false) }
+    // 时间段（有开始日）走"起止同屏"的区间选择器，不再分两个日历（v0.8.9）。
+    var showRangePicker by remember { mutableStateOf(false) }
     var showTimePicker by remember { mutableStateOf(false) }
     var showTitleEditor by remember { mutableStateOf(false) }
     var showDetailEditor by remember { mutableStateOf(false) }
     // 弹层存活期内的"现在"，用于判断手动选的时刻今天是否已过。
     val nowMillis = remember { AppTime.nowMillis() }
     val today = remember { AppTime.today() }
+    // 日历上「今天」的描边圈去掉（zuige：24 号是选中的实心、23 号还有个圈，容易误读成"选了两天"）。
+    // 只去掉描边，选中态与区间底色不受影响。
+    val pickerColors = DatePickerDefaults.colors(todayDateBorderColor = Color.Transparent)
 
     /** 句子解析 + 手动覆盖 合并后的最终预览（提交也用它）。 */
     fun effectiveParses(): List<ParsedTodo> = parses.mapIndexed { index, p ->
@@ -247,9 +255,9 @@ fun AddSheet(
                         pickingIndex = index
                         showDatePicker = true
                     },
-                    onPickStart = { index ->
+                    onPickRange = { index ->
                         pickingIndex = index
-                        showStartPicker = true
+                        showRangePicker = true
                     },
                     onPickTime = { index ->
                         pickingIndex = index
@@ -320,40 +328,64 @@ fun AddSheet(
                 dismissButton = {
                     TextButton(onClick = { showDatePicker = false }) { Text("取消") }
                 }
-            ) { DatePicker(state = pickerState) }
+            ) { DatePicker(state = pickerState, colors = pickerColors) }
         }
 
-        // ── 开始日选择器（时间段 v0.8.4）──
-        if (showStartPicker && pickingIndex in parses.indices) {
-            val current = startDateOverrides[pickingIndex] ?: parses[pickingIndex].startDate
-            val pickerState = rememberDatePickerState(
-                // 同结束日：UTC 当日 00:00，否则开始日也少一天。
-                initialSelectedDateMillis = AppTime.pickerMillis(current ?: AppTime.today()),
-                selectableDates = TodayOrLater
+        // ── 时间段：起止日期在同一个日历里选（v0.8.9）──
+        // 以前是「开始 / 结束」两个 chip 各弹一个单日日历，改一条区间要开两次、还得自己保证先后顺序。
+        // 现在合成一个 chip，点开就是 DateRangePicker：一次点起点、一次点终点，中间自动涂区间底色。
+        if (showRangePicker && pickingIndex in parses.indices) {
+            val start = startDateOverrides[pickingIndex] ?: parses[pickingIndex].startDate
+            val end = dateOverrides[pickingIndex] ?: parses[pickingIndex].dueDate
+            val rangeState = rememberDateRangePickerState(
+                // 同单日选择器：UTC 当日 00:00 口径（见 AppTime.pickerMillis），否则整段少一天。
+                initialSelectedStartDateMillis = start?.let { AppTime.pickerMillis(it) },
+                initialSelectedEndDateMillis = end?.let { AppTime.pickerMillis(it) }
+                // ★ 不传 selectableDates：区间允许选过去的日期。
+                //   进行中 / 已开始的时间段（比如今天在改 10/21–10/26）本来就落在过去，
+                //   沿用单日选择器的「今天起」会让开始日根本改不了。
             )
             DatePickerDialog(
-                onDismissRequest = { showStartPicker = false },
+                onDismissRequest = { showRangePicker = false },
                 confirmButton = {
                     Row {
-                        if (current != null) {
+                        // 取消开始日 = 退回单日：结束日留着，开始日清掉。
+                        // 只给一个次要按钮，避免确认区被三个文字按钮挤爆；
+                        // 想彻底去掉日期，先退回单日再从单日 chip 上选「无日期」。
+                        if (start != null && end != null) {
                             TextButton(onClick = {
                                 startDateOverrides = startDateOverrides + (pickingIndex to null)
-                                showStartPicker = false
+                                showRangePicker = false
                             }) { Text("取消开始日") }
                         }
                         TextButton(onClick = {
-                            pickerState.selectedDateMillis?.let { millis ->
+                            val s = rangeState.selectedStartDateMillis
+                            val e = rangeState.selectedEndDateMillis
+                            if (s != null && e != null) {
                                 startDateOverrides =
-                                    startDateOverrides + (pickingIndex to AppTime.pickerDate(millis))
+                                    startDateOverrides + (pickingIndex to AppTime.pickerDate(s))
+                                dateOverrides = dateOverrides + (pickingIndex to AppTime.pickerDate(e))
+                            } else if (s != null) {
+                                // 只点了第一天（还没点终点）= 用户其实只想要一天 → 退回单日。
+                                startDateOverrides = startDateOverrides + (pickingIndex to null)
+                                dateOverrides = dateOverrides + (pickingIndex to AppTime.pickerDate(s))
                             }
-                            showStartPicker = false
+                            showRangePicker = false
                         }) { Text("确定") }
                     }
                 },
                 dismissButton = {
-                    TextButton(onClick = { showStartPicker = false }) { Text("取消") }
+                    TextButton(onClick = { showRangePicker = false }) { Text("取消") }
                 }
-            ) { DatePicker(state = pickerState) }
+            ) {
+                // weight 是必须的：DatePickerDialog 的内容槽是 Column，区间日历自己带滚动，
+                // 不给权重它会按内容高度撑，月份的滚动区就被压没了。
+                DateRangePicker(
+                    state = rangeState,
+                    colors = pickerColors,
+                    modifier = Modifier.weight(1f)
+                )
+            }
         }
 
         // ── 时间选择器 ──
@@ -462,7 +494,7 @@ private fun PreviewCard(
     titleOverrides: Map<Int, String>,
     detailOverrides: Map<Int, String?>,
     onPickDate: (Int) -> Unit,
-    onPickStart: (Int) -> Unit,
+    onPickRange: (Int) -> Unit,
     onPickTime: (Int) -> Unit,
     onEditTitle: (Int) -> Unit,
     onEditDetail: (Int) -> Unit
@@ -517,7 +549,7 @@ private fun PreviewCard(
                     title = row.title,
                     detail = row.detail,
                     onPickDate = { onPickDate(row.index) },
-                    onPickStart = { onPickStart(row.index) },
+                    onPickRange = { onPickRange(row.index) },
                     onPickTime = { onPickTime(row.index) },
                     onEditTitle = { onEditTitle(row.index) },
                     onEditDetail = { onEditDetail(row.index) }
@@ -563,7 +595,7 @@ private fun PreviewItem(
     title: String,
     detail: String?,
     onPickDate: () -> Unit,
-    onPickStart: () -> Unit,
+    onPickRange: () -> Unit,
     onPickTime: () -> Unit,
     onEditTitle: () -> Unit,
     onEditDetail: () -> Unit
@@ -575,13 +607,12 @@ private fun PreviewItem(
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             if (start != null) {
-                // 时间段：开始 / 结束 两个 chip，各自可点改。
-                InfoChip("开始 ${Format.dateShort(start)}", onClick = onPickStart)
-                if (date != null) {
-                    InfoChip("结束 ${Format.dateShort(date)}", onClick = onPickDate)
-                } else {
-                    InfoChip("+ 结束", onClick = onPickDate)
-                }
+                // 时间段：起止**合成一个 chip**（v0.8.9），点开是同一个日历里的区间选择。
+                // 以前是两个 chip 各弹一个单日日历，改一条区间要开两次、还得自己保证先后。
+                InfoChip(
+                    if (date != null) rangeLabel(start, date) else "开始 ${Format.dateShort(start)}",
+                    onClick = onPickRange
+                )
             } else if (date != null) {
                 InfoChip(Format.dateShort(date), onClick = onPickDate)
             } else {
@@ -656,6 +687,17 @@ private fun InfoChip(
             modifier = Modifier.padding(horizontal = PREVIEW_CHIP_HPAD, vertical = 6.dp)
         )
     }
+}
+
+/**
+ * 时间段 chip 的文案：「10月21日 – 10月26日」，跨年才补年份。
+ * 不用 `Format.dateShort`（它带周几，两段拼起来太长，会把 chip 撑到换行）。
+ */
+private fun rangeLabel(start: java.time.LocalDate, end: java.time.LocalDate): String {
+    val a = Format.monthDay(start)
+    val b = Format.monthDay(end)
+    return if (start.year == end.year) "$a – $b"
+    else "${start.year}年$a – ${end.year}年$b"
 }
 
 /** 每天 / 每周 / 每月 / 每 N 天, for the repeat switch subtitle. */

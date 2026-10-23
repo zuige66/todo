@@ -106,8 +106,15 @@ android {
         //         右半的月日/日号跟随左半，整段都在今天之前才整体前移一个周期；
         //         编辑模式打开时不再拿回填句子重新解析（值来自 previewExisting 的精确反推），
         //         避免"点开编辑、什么都没改、一保存就把日期改掉"。
-        versionCode = 26
-        versionName = "0.8.8"
+        // 0.8.9 = 时间段改「起止同屏选」：原来「开始 X」「结束 Y」两个 chip 各弹一个单日日历，
+        //         改一条区间要开两次、还得自己保证先后；现在合成一个「X – Y」chip，
+        //         点开是 M3 DateRangePicker，一次点起点一次点终点，中间自动涂区间底色。
+        //         区间选择器**允许选过去**（进行中/已开始的时间段本来就在过去，否则开始日改不了）；
+        //         只点了起点就按单日处理（退回单日），「取消开始日」也退回单日。
+        //         日历上「今天」的描边圈去掉（todayDateBorderColor = 透明）——
+        //         24 号是选中的实心、23 号还有个圈，容易被读成"选了两天"。
+        versionCode = 27
+        versionName = "0.8.9"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
