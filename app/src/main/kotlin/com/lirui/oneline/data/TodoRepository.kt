@@ -28,6 +28,7 @@ class TodoRepository(private val context: Context) {
             title = parsed.cleanTitle,
             detail = parsed.detail.orEmpty(),
             dueAtMillis = due?.first,
+            startAtMillis = parsedToStart(parsed),
             hasExactTime = parsed.hasExactTime,
             repeatDays = parsed.repeatDays
         ))
@@ -47,6 +48,15 @@ class TodoRepository(private val context: Context) {
         val time = parsed.dueTime ?: defaultTime(parsed.dueDate)
         val zdt = ZonedDateTime.of(date, time, zone)
         return zdt.toInstant().toEpochMilli() to parsed.hasExactTime
+    }
+
+    /**
+     * 时间段的开始日 epoch；单日待办（[ParsedTodo.startDate] == null）返回 null。
+     * 开始日只按「日」存（当天 00:00）—— 时刻只作用于结束日（dueAtMillis）。
+     */
+    private fun parsedToStart(parsed: ParsedTodo): Long? {
+        val date = parsed.startDate ?: return null
+        return date.atStartOfDay(AppTime.ZONE).toInstant().toEpochMilli()
     }
 
     /** Default time-of-day for a date-only todo — the user-configurable default. */
@@ -118,7 +128,17 @@ class TodoRepository(private val context: Context) {
             guard++
         } while ((next.isBefore(today) || (next == today && curTime.isBefore(nowTime))) && guard < 400)
         val nextEpoch = ZonedDateTime.of(next, curTime, zone).toInstant().toEpochMilli()
-        dao.updateContent(id = todo.id, title = todo.title, detail = todo.detail, dueAtMillis = nextEpoch, hasExactTime = todo.hasExactTime, repeatDays = todo.repeatDays)
+        // 顺延时开始日同步平移（重复任务通常没有开始日，这里是防御性处理）。
+        val nextStart = todo.startAtMillis?.let { it + (nextEpoch - due) }
+        dao.updateContent(
+            id = todo.id,
+            title = todo.title,
+            detail = todo.detail,
+            dueAtMillis = nextEpoch,
+            startAtMillis = nextStart,
+            hasExactTime = todo.hasExactTime,
+            repeatDays = todo.repeatDays
+        )
         ReminderScheduler.scheduleBlocking(context, todo.id, nextEpoch, todo.hasExactTime)
     }
 
@@ -144,6 +164,7 @@ class TodoRepository(private val context: Context) {
             title = parsed.cleanTitle,
             detail = parsed.detail.orEmpty(),
             dueAtMillis = due?.first,
+            startAtMillis = parsedToStart(parsed),
             hasExactTime = parsed.hasExactTime,
             repeatDays = parsed.repeatDays
         )
@@ -190,6 +211,7 @@ class TodoRepository(private val context: Context) {
                     title = todo.title,
                     detail = todo.detail,
                     dueAtMillis = prev,
+                    startAtMillis = todo.startAtMillis,
                     hasExactTime = todo.hasExactTime,
                     repeatDays = todo.repeatDays
                 )

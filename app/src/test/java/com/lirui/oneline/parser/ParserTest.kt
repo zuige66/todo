@@ -816,4 +816,115 @@ class ParserTest {
         assertEquals("开会", r.title)
         assertEquals(LocalDate.of(2026, 10, 24), r.dueDate)
     }
+
+    // ---- 时间段（v0.8.4）----
+    //
+    // 约定：dueDate = 最后一天（逾期只看它），startDate = 开始日；单日时 startDate 必须为 null，
+    // 这样 v0.8.3 及更早写入的数据（该列为空）语义完全不变。
+
+    @Test fun singleDate_hasNullStart() {
+        assertNull(parse("10月23日开会").startDate)
+        assertNull(parse("明天开会").startDate)
+    }
+
+    @Test fun range_weekdayToWeekday() {
+        // 今天周三 10-21：周一 = 10-19（已过，但作为开始日不算错误），周五 = 10-23
+        val r = parse("周一到周五出差")
+        assertEquals("出差", r.title)
+        assertEquals(LocalDate.of(2026, 10, 19), r.startDate)
+        assertEquals(LocalDate.of(2026, 10, 23), r.dueDate)
+        assertFalse(r.dateError) // 开始日在过去不等于逾期/报错
+    }
+
+    @Test fun range_dayOnlyRightSide_sameMonth() {
+        val r = parse("10月21日到23日开会")
+        assertEquals("开会", r.title)
+        assertEquals(LocalDate.of(2026, 10, 21), r.startDate)
+        assertEquals(LocalDate.of(2026, 10, 23), r.dueDate)
+    }
+
+    // 右半只写日号、且小于左半 -> 顺延到下一月（10/25 到 2 号 = 11/2）
+    @Test fun range_dayOnlyRightSide_rollsToNextMonth() {
+        val r = parse("10月25日到2日交材料")
+        assertEquals("交材料", r.title)
+        assertEquals(LocalDate.of(2026, 10, 25), r.startDate)
+        assertEquals(LocalDate.of(2026, 11, 2), r.dueDate)
+    }
+
+    @Test fun range_crossYear() {
+        val r = parse("12月30日到1月2日放假")
+        assertEquals("放假", r.title)
+        assertEquals(LocalDate.of(2026, 12, 30), r.startDate)
+        assertEquals(LocalDate.of(2027, 1, 2), r.dueDate)
+    }
+
+    // 开区间："到下周三" = 今天起 到 下周三
+    @Test fun range_openStart_anchorsOnToday() {
+        val r = parse("到下周三开会")
+        assertEquals("开会", r.title)
+        assertEquals(today, r.startDate)
+        assertEquals(LocalDate.of(2026, 10, 28), r.dueDate)
+    }
+
+    @Test fun range_withTimeOnEnd() {
+        val r = parse("周一到周五下午3点交")
+        assertEquals("交", r.title)
+        assertEquals(LocalDate.of(2026, 10, 19), r.startDate)
+        assertEquals(LocalDate.of(2026, 10, 23), r.dueDate)
+        assertEquals(LocalTime.of(15, 0), r.dueTime)
+    }
+
+    // ---- 时长写法 ----
+    @Test fun duration_withinDays() {
+        val r = parse("3天内交方案")
+        assertEquals("交方案", r.title)
+        assertEquals(today, r.startDate)
+        assertEquals(LocalDate.of(2026, 10, 23), r.dueDate) // 含今天，共 3 天
+    }
+
+    @Test fun duration_fromAnchor() {
+        val r = parse("从今天起3天出差")
+        assertEquals("出差", r.title)
+        assertEquals(today, r.startDate)
+        assertEquals(LocalDate.of(2026, 10, 23), r.dueDate)
+    }
+
+    @Test fun duration_fromFutureAnchor() {
+        val r = parse("从10月24日起5天出差")
+        assertEquals("出差", r.title)
+        assertEquals(LocalDate.of(2026, 10, 24), r.startDate)
+        assertEquals(LocalDate.of(2026, 10, 28), r.dueDate)
+    }
+
+    // 「3天后」不是范围：没有「内」就不该被 stripDuration 吃掉。
+    // 注：解析器本身不支持「N天后」，所以它整体留在标题里（v0.8.3 行为不变）。
+    @Test fun duration_withoutNei_isNotRange() {
+        val r = parse("3天后开会")
+        assertNull(r.startDate)
+        assertNull(r.dueDate)
+        assertEquals("3天后开会", r.title)
+    }
+
+    // ---- 不能误伤：含「到」的普通词 ----
+    @Test fun range_noFalsePositive_onCommonWords() {
+        for (s in listOf("看到就回我", "迟到30分钟", "收到快递")) {
+            val r = parse(s)
+            assertNull("「$s」不应被当成时间段", r.startDate)
+            assertEquals(s, r.title)
+        }
+    }
+
+    // ---- parseAll：时间段是一整条待办，不能被多日期逻辑拆开 ----
+    @Test fun parseAll_range_staysOneTodo() {
+        val list = parser().parseAll("周一到周五出差")
+        assertEquals(1, list.size)
+        assertEquals(LocalDate.of(2026, 10, 19), list[0].startDate)
+        assertEquals(LocalDate.of(2026, 10, 23), list[0].dueDate)
+    }
+
+    @Test fun parseAll_multiDate_stillSplits() {
+        val list = parser().parseAll("明天后天开会")
+        assertEquals(2, list.size)
+        assertTrue(list.all { it.startDate == null })
+    }
 }

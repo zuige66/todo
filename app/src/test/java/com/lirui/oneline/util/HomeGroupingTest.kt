@@ -97,6 +97,55 @@ class HomeGroupingTest {
         )
     }
 
+    // --- bucket (时间段) ---
+    //
+    // 规则：进行中 -> 今日；还没开始 -> 按开始日归档；单日（start=null）-> 按结束日归档。
+    // 「进行中进今日」是关键取舍：一段跨到下周的任务今天就在做，沉到"下周"用户会漏看。
+
+    @Test fun rangeBucket_inProgress_isToday() {
+        assertEquals(
+            HomeBucket.TODAY,
+            HomeGrouping.bucketOfRange(at(2026, 10, 20), at(2026, 10, 23), today)
+        )
+    }
+
+    @Test fun rangeBucket_startingToday_isToday() {
+        assertEquals(
+            HomeBucket.TODAY,
+            HomeGrouping.bucketOfRange(at(2026, 10, 21), at(2026, 10, 28), today)
+        )
+    }
+
+    @Test fun rangeBucket_endingToday_isToday() {
+        assertEquals(
+            HomeBucket.TODAY,
+            HomeGrouping.bucketOfRange(at(2026, 10, 19), at(2026, 10, 21), today)
+        )
+    }
+
+    // 还没开始 -> 用开始日归档，不能因为结束日在很远就沉到"更晚"。
+    @Test fun rangeBucket_notStarted_usesStartBucket() {
+        assertEquals(
+            HomeBucket.TOMORROW,
+            HomeGrouping.bucketOfRange(at(2026, 10, 22), at(2026, 11, 20), today)
+        )
+        assertEquals(
+            HomeBucket.NEXT_WEEK,
+            HomeGrouping.bucketOfRange(at(2026, 10, 26), at(2026, 11, 20), today)
+        )
+    }
+
+    // 单日（start = null）必须和 v0.8.3 完全一致：只看结束日。
+    @Test fun rangeBucket_nullStart_fallsBackToEnd() {
+        assertEquals(HomeBucket.TODAY, HomeGrouping.bucketOfRange(null, at(2026, 10, 21), today))
+        assertEquals(HomeBucket.TOMORROW, HomeGrouping.bucketOfRange(null, at(2026, 10, 22), today))
+        assertEquals(HomeBucket.LATER, HomeGrouping.bucketOfRange(null, at(2026, 11, 20), today))
+    }
+
+    @Test fun rangeBucket_noDates_isLater() {
+        assertEquals(HomeBucket.LATER, HomeGrouping.bucketOfRange(null, null, today))
+    }
+
     // --- merge rule ---
 
     @Test fun resolve_allEnabled_keepsOriginal() {

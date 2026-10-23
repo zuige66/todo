@@ -80,8 +80,11 @@ android {
         //         恢复「沉浸式顶栏」开关（默认关）；首装默认配置按 zuige 当前习惯设定。
         // 0.8.3 = 国内更新兜底源：检查更新主源 GitHub、blog 静态源（blog.zuiges.com）兜底，
         //         APK 下载主源（GitHub 资产 CDN）失败时向 blog 源重试镜像直链。
-        versionCode = 21
-        versionName = "0.8.3"
+        // 0.8.4 = 时间段待办：一条待办跨多天（「周一到周五出差」「10月21日到23日」「3天内交方案」），
+        //         dueAtMillis 语义改为「最后一天」，因此逾期判定零改动 —— 最后一天过完才变红；
+        //         新增 startAtMillis（Room v3→v4），列表按「进行中→今日」归档、显示 还剩N天/最后一天。
+        versionCode = 22
+        versionName = "0.8.4"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

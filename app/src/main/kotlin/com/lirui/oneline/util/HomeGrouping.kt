@@ -103,6 +103,27 @@ object HomeGrouping {
     }
 
     /**
+     * 时间段的分桶（v0.8.4 起）：
+     * - **进行中**（today ∈ [start, end]）→ [HomeBucket.TODAY]：符合「今天要推进它」的直觉；
+     * - **未开始** → 按开始日走 [bucketOf]；
+     * - 已逾期由 [boardOf] 先分进逾期板块，这里不会被调用。
+     * 单日（start == null）退回按结束日分桶，行为与旧版完全一致。
+     */
+    fun bucketOfRange(
+        start: Long?,
+        end: Long?,
+        today: LocalDate = AppTime.today()
+    ): HomeBucket {
+        if (start == null || end == null) {
+            return if (end != null) bucketOf(end, today) else HomeBucket.LATER
+        }
+        val s = Format.dueAtMillis(start)
+        val e = Format.dueAtMillis(end)
+        if (!today.isBefore(s) && !today.isAfter(e)) return HomeBucket.TODAY
+        return bucketOf(start, today)
+    }
+
+    /**
      * Map a todo's natural bucket onto the bucket it is rendered under.
      *
      * "Merge into the next enabled bucket" is what makes a partial selection like

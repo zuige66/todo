@@ -25,6 +25,12 @@ data class Todo(
     val title: String,
     @ColumnInfo(defaultValue = "") val detail: String = "",
     val dueAtMillis: Long? = null,
+    /**
+     * 时间段的开始日（epoch 毫秒，按 AppTime.ZONE 落在当天）。
+     * null = 单日待办，行为与旧版完全一致；非 null 时 [dueAtMillis] 的语义是「最后一天」，
+     * 逾期判定仍只看 [dueAtMillis]（见 Format.isOverdue）。
+     */
+    val startAtMillis: Long? = null,
     val hasExactTime: Boolean = false,
 
     @ColumnInfo(defaultValue = "0") val repeatDays: Int = 0,

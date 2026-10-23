@@ -95,4 +95,91 @@ object Format {
         if (!hasExactTime) return dueAtMillis(due).isBefore(today)
         return due <= nowMillis
     }
+
+    // ---------- 时间段（v0.8.4）----------
+    //
+    // 约定：start = 开始日（可空，null = 单日），end = 最后一天（即 dueAtMillis）。
+    // 逾期永远只看 end —— 见 [isOverdue]，所以「最后一天结束才算逾期」是天然成立的。
+
+    /** 今天是否落在 [start, end] 之间（含两端）。单日（start == null）恒 false。 */
+    fun isInProgress(
+        start: Long?,
+        end: Long?,
+        today: LocalDate = AppTime.today()
+    ): Boolean {
+        if (start == null || end == null) return false
+        val s = dueAtMillis(start)
+        val e = dueAtMillis(end)
+        return !today.isBefore(s) && !today.isAfter(e)
+    }
+
+    /** 距结束日还有几天：0 = 今天结束，负数 = 已过结束日。 */
+    fun daysLeft(end: Long, today: LocalDate = AppTime.today()): Long =
+        java.time.temporal.ChronoUnit.DAYS.between(today, dueAtMillis(end))
+
+    /**
+     * 时间段的一行文案：`10月21日–23日` / `10月21日–11月3日` / `2026年10月21日–2027年1月3日`，
+     * 末尾按需带星期与结束时刻。单日退回 [dueLine]。
+     */
+    fun rangeLine(
+        start: Long?,
+        end: Long,
+        showWeekday: Boolean = true,
+        today: LocalDate = AppTime.today(),
+        showTime: Boolean = true
+    ): String {
+        if (start == null) return dueLine(end, showWeekday, today, showTime)
+        val s = dueAtMillis(start)
+        val e = dueAtMillis(end)
+        if (s == e) return dueLine(end, showWeekday, today, showTime)
+
+        val suffix = buildString {
+            if (showWeekday) append(" ").append(WEEKDAYS_CN[e.dayOfWeek.value - 1])
+            if (showTime) {
+                val t = java.time.Instant.ofEpochMilli(end).atZone(AppTime.ZONE).toLocalTime()
+                append(" ").append(if (t.minute == 0) "${t.hour}点" else String.format("%d:%02d", t.hour, t.minute))
+            }
+        }
+        return when {
+            s.year == e.year && s.monthValue == e.monthValue ->
+                "%d月%d日–%d日%s".format(Locale.CHINA, s.monthValue, s.dayOfMonth, e.dayOfMonth, suffix)
+            s.year == e.year ->
+                "%d月%d日–%d月%d日%s".format(Locale.CHINA, s.monthValue, s.dayOfMonth, e.monthValue, e.dayOfMonth, suffix)
+            else ->
+                "%d年%d月%d日–%d年%d月%d日%s".format(Locale.CHINA, s.year, s.monthValue, s.dayOfMonth, e.year, e.monthValue, e.dayOfMonth, suffix)
+        }
+    }
+
+    /** 右侧紧凑范围：`21–23日` / `10/21–11/3`；单日退回 [monthDay]。 */
+    fun monthDayRange(start: Long?, end: Long): String {
+        if (start == null) return monthDay(dueAtMillis(end))
+        val s = dueAtMillis(start)
+        val e = dueAtMillis(end)
+        if (s == e) return monthDay(e)
+        return if (s.year == e.year && s.monthValue == e.monthValue) {
+            "%d–%d日".format(Locale.CHINA, s.dayOfMonth, e.dayOfMonth)
+        } else {
+            "%d/%d–%d/%d".format(Locale.CHINA, s.monthValue, s.dayOfMonth, e.monthValue, e.dayOfMonth)
+        }
+    }
+
+    /**
+     * 时间段的状态短语：`未开始` / `最后一天` / `还剩N天` / `进行中` / `逾期`。
+     * 单日（start == null）返回 null —— 单日不需要这层状态。
+     */
+    fun rangeStatus(
+        start: Long?,
+        end: Long,
+        today: LocalDate = AppTime.today(),
+        nowMillis: Long = AppTime.nowMillis(),
+        hasExactTime: Boolean = true
+    ): String? {
+        if (start == null) return null
+        if (isOverdue(end, today, nowMillis, hasExactTime)) return "逾期"
+        val s = dueAtMillis(start)
+        if (today.isBefore(s)) return "未开始"
+        if (today == dueAtMillis(end)) return "最后一天"
+        val left = daysLeft(end, today)
+        return if (left > 0) "还剩${left}天" else "进行中"
+    }
 }

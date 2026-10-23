@@ -156,6 +156,8 @@ class Parser(
     private data class Acc(
         var title: MutableList<String> = ArrayList(),
         var date: LocalDate? = null,
+        /** 时间段的开始日；null = 单日。 */
+        var startDate: LocalDate? = null,
         var time: LocalTime? = null,
         var repeatDays: Int = 0,
         var dateError: Boolean = false,
@@ -180,7 +182,9 @@ class Parser(
 
         val acc = Acc()
         for (token in splitTokens(normalize(input))) {
-            var rest = stripLeadingDate(token, acc)
+            // 时间段优先于单日期：命中后 token 已被消费成「开始/结束 + 剩余标题」。
+            var rest = stripRange(token, acc) ?: stripDuration(token, acc) ?: token
+            rest = stripLeadingDate(rest, acc)
             rest = stripLeadingTime(rest, acc)
             if (rest.isNotBlank()) acc.title += rest
         }
@@ -220,7 +224,8 @@ class Parser(
             repeatDays = acc.repeatDays,
             timeError = acc.timeError || todayTimePast,
             dateError = acc.dateError,
-            detail = parts.drop(1).joinToString(" ").trim().ifBlank { null }
+            detail = parts.drop(1).joinToString(" ").trim().ifBlank { null },
+            startDate = acc.startDate
         )
     }
 
@@ -234,6 +239,9 @@ class Parser(
     fun parseAll(input: String): List<ParsedTodo> {
         if (input.isBlank()) return listOf(parse(input))
         refreshClock()
+
+        // 时间段是「一整条待办」，不能被下面的多日期逻辑拆成两条。
+        parse(input).takeIf { it.startDate != null }?.let { return listOf(it) }
 
         val dates = LinkedHashSet<LocalDate>()
         val acc = Acc()
@@ -442,6 +450,106 @@ class Parser(
         }
 
         return rest
+    }
+
+    // ---------- 时间段（v0.8.4）----------
+
+    /**
+     * 范围连接词。长词在前：「一直到」必须先于「到」匹配，否则「一直到」会被切成
+     * 「一」+「到」。`-` 故意不收：它同时是 `2026-10-24` 的日期分隔符，先切会拆坏单日期。
+     */
+    private val rangeConnectors = listOf("一直到", "到", "至", "~", "～", "—", "–")
+
+    /**
+     * 解析一个 token 里的时间段，如「周一到周三」「10月21日到23日」「到下周三」。
+     *
+     * 只在**同一个 token** 内识别：左半必须是一整个日期、右半必须能解析出日期，
+     * 否则返回 null 交回普通单日期逻辑（这样「看到」「迟到」这类含「到」的词不会误伤）。
+     * 命中时把 start 写进 [Acc.startDate]、end 写进 [Acc.date]，返回右半日期之后的剩余文本。
+     */
+    private fun stripRange(token: String, acc: Acc): String? {
+        val connector = rangeConnectors.firstOrNull { token.contains(it) } ?: return null
+        val idx = token.indexOf(connector)
+        if (idx < 0) return null
+        var left = token.substring(0, idx).trim()
+        val right = token.substring(idx + connector.length).trim()
+        if (right.isEmpty()) return null
+        if (left.startsWith("从")) left = left.removePrefix("从").trim()
+
+        // 左半为空 = 开区间（"到下周三"），起点取今天。
+        val start: LocalDate
+        if (left.isEmpty()) {
+            start = today
+        } else {
+            if (repeatDays(left) != null) return null // 重复 + 范围不支持
+            val leftAcc = Acc()
+            val leftRest = stripLeadingDate(left, leftAcc)
+            val leftDate = leftAcc.date ?: return null
+            if (leftRest.isNotBlank()) return null // 左边混了非日期内容，不是范围
+            start = leftDate
+        }
+
+        // 右半：先试「只写日号」的同月形式（"10月21日到23日"），否则走普通日期解析。
+        val end: LocalDate
+        val rightRest: String
+        val dayOnly = dayOnlyRe.matcher(right)
+        if (dayOnly.lookingAt()) {
+            val day = numOf(dayOnly.group(1)!!) ?: return null
+            var e = start.withDayOfMonth(day.coerceAtMost(start.lengthOfMonth()))
+            if (e.isBefore(start)) {
+                val nm = start.plusMonths(1)
+                e = nm.withDayOfMonth(day.coerceAtMost(nm.lengthOfMonth()))
+            }
+            end = e
+            rightRest = right.substring(dayOnly.end())
+        } else {
+            val rightAcc = Acc()
+            rightRest = stripLeadingDate(right, rightAcc)
+            end = rightAcc.date ?: return null
+        }
+
+        var s = start
+        var e = end
+        // 左半没写年份被顺延到明年、右半还在今年时，把左半拉回右半的年份
+        // （"10月21日到10月23日" 在今天=10/23 时：左半会顺延到明年）。
+        if (s.isAfter(e) && s.year > e.year) s = s.minusYears((s.year - e.year).toLong())
+        if (s.isAfter(e)) { val t = s; s = e; e = t }
+
+        acc.startDate = s
+        acc.setDate(e, today)
+        return rightRest
+    }
+
+    /** 时长写法：`从X起N天` / `N天内`（必须带「内」，避免把「3天后」误判成范围）。 */
+    private fun stripDuration(token: String, acc: Acc): String? {
+        val fromRe = Pattern.compile(
+            "^从(.+?)(?:起|开始)(\\d{1,2}|[一二三四五六七八九十]{1,3})\\s*天(?:内|之内)?"
+        )
+        fromRe.matcher(token).let { m ->
+            if (m.lookingAt()) {
+                val n = numOf(m.group(2)!!) ?: return null
+                if (n <= 0) return null
+                val anchorAcc = Acc()
+                stripLeadingDate(m.group(1)!!, anchorAcc)
+                val anchor = anchorAcc.date ?: return null
+                acc.startDate = anchor
+                acc.setDate(anchor.plusDays((n - 1).toLong()), today)
+                return token.substring(m.end())
+            }
+        }
+        val withinRe = Pattern.compile(
+            "^(\\d{1,2}|[一二三四五六七八九十]{1,3})\\s*天(?:内|之内)"
+        )
+        withinRe.matcher(token).let { m ->
+            if (m.lookingAt()) {
+                val n = numOf(m.group(1)!!) ?: return null
+                if (n <= 0) return null
+                acc.startDate = today
+                acc.setDate(today.plusDays((n - 1).toLong()), today)
+                return token.substring(m.end())
+            }
+        }
+        return null
     }
 
     /**

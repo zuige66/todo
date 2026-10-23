@@ -96,11 +96,14 @@ fun AddSheet(
     // 键 = 预览项下标。dateOverrides 的**键存在**即"用户干预过"，值为 null 表示改成无日期；
     // timeOverrides 只有"设过"才会进表（不可清）；title/detail 的 override 键存在即干预过。
     var dateOverrides by remember { mutableStateOf(mapOf<Int, java.time.LocalDate?>()) }
+    // 时间段的开始日覆盖（v0.8.4）：键存在即"用户干预过"；值为 null 表示取消开始日（退回单日）。
+    var startDateOverrides by remember { mutableStateOf(mapOf<Int, java.time.LocalDate?>()) }
     var timeOverrides by remember { mutableStateOf(mapOf<Int, java.time.LocalTime>()) }
     var titleOverrides by remember { mutableStateOf(mapOf<Int, String>()) }
     var detailOverrides by remember { mutableStateOf(mapOf<Int, String?>()) }
     var pickingIndex by remember { mutableIntStateOf(-1) }
     var showDatePicker by remember { mutableStateOf(false) }
+    var showStartPicker by remember { mutableStateOf(false) }
     var showTimePicker by remember { mutableStateOf(false) }
     var showTitleEditor by remember { mutableStateOf(false) }
     var showDetailEditor by remember { mutableStateOf(false) }
@@ -111,24 +114,32 @@ fun AddSheet(
     /** 句子解析 + 手动覆盖 合并后的最终预览（提交也用它）。 */
     fun effectiveParses(): List<ParsedTodo> = parses.mapIndexed { index, p ->
         val date = if (dateOverrides.containsKey(index)) dateOverrides[index] else p.dueDate
+        var start = if (startDateOverrides.containsKey(index)) startDateOverrides[index] else p.startDate
         val time = timeOverrides[index] ?: p.dueTime
         val title = titleOverrides[index] ?: p.title
         val detail = if (detailOverrides.containsKey(index)) detailOverrides[index] else p.detail
-        if (date == null && time == null && !dateOverrides.containsKey(index) &&
+        // 开始晚于结束时自动对调，保证区间永远有效。
+        var end = date
+        if (start != null && end != null && start.isAfter(end)) {
+            val t = start; start = end; end = t
+        }
+        if (end == null && time == null && start == null &&
+            !dateOverrides.containsKey(index) && !startDateOverrides.containsKey(index) &&
             !titleOverrides.containsKey(index) && !detailOverrides.containsKey(index)
         ) {
             p
         } else {
             p.copy(
                 title = title,
-                dueDate = date,
+                dueDate = end,
                 dueTime = time,
                 detail = detail,
+                startDate = start,
                 // hasExactTime 是计算属性（dueTime != null）：手动选了时刻自动就是精确提醒，
                 // 不需要也不能在 copy 里传。
                 // 覆盖后重新判断"今天已过"：用户把日期改到未来就不该再报 dateError。
                 dateError = false,
-                timeError = time != null && date == today && time.isBefore(
+                timeError = time != null && end == today && time.isBefore(
                     java.time.Instant.ofEpochMilli(nowMillis).atZone(AppTime.ZONE).toLocalTime()
                 )
             )
@@ -222,12 +233,17 @@ fun AddSheet(
                 PreviewCard(
                     parses = parses,
                     dateOverrides = dateOverrides,
+                    startDateOverrides = startDateOverrides,
                     timeOverrides = timeOverrides,
                     titleOverrides = titleOverrides,
                     detailOverrides = detailOverrides,
                     onPickDate = { index ->
                         pickingIndex = index
                         showDatePicker = true
+                    },
+                    onPickStart = { index ->
+                        pickingIndex = index
+                        showStartPicker = true
                     },
                     onPickTime = { index ->
                         pickingIndex = index
@@ -298,6 +314,40 @@ fun AddSheet(
                 },
                 dismissButton = {
                     TextButton(onClick = { showDatePicker = false }) { Text("取消") }
+                }
+            ) { DatePicker(state = pickerState) }
+        }
+
+        // ── 开始日选择器（时间段 v0.8.4）──
+        if (showStartPicker && pickingIndex in parses.indices) {
+            val current = startDateOverrides[pickingIndex] ?: parses[pickingIndex].startDate
+            val pickerState = rememberDatePickerState(
+                initialSelectedDateMillis = (current ?: AppTime.today())
+                    .atStartOfDay(AppTime.ZONE).toInstant().toEpochMilli(),
+                selectableDates = TodayOrLater
+            )
+            DatePickerDialog(
+                onDismissRequest = { showStartPicker = false },
+                confirmButton = {
+                    Row {
+                        if (current != null) {
+                            TextButton(onClick = {
+                                startDateOverrides = startDateOverrides + (pickingIndex to null)
+                                showStartPicker = false
+                            }) { Text("取消开始日") }
+                        }
+                        TextButton(onClick = {
+                            pickerState.selectedDateMillis?.let { millis ->
+                                val picked = java.time.Instant.ofEpochMilli(millis)
+                                    .atZone(java.time.ZoneOffset.UTC).toLocalDate()
+                                startDateOverrides = startDateOverrides + (pickingIndex to picked)
+                            }
+                            showStartPicker = false
+                        }) { Text("确定") }
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showStartPicker = false }) { Text("取消") }
                 }
             ) { DatePicker(state = pickerState) }
         }
@@ -406,10 +456,12 @@ private val TodayOrLater = object : SelectableDates {
 private fun PreviewCard(
     parses: List<ParsedTodo>,
     dateOverrides: Map<Int, java.time.LocalDate?>,
+    startDateOverrides: Map<Int, java.time.LocalDate?>,
     timeOverrides: Map<Int, java.time.LocalTime>,
     titleOverrides: Map<Int, String>,
     detailOverrides: Map<Int, String?>,
     onPickDate: (Int) -> Unit,
+    onPickStart: (Int) -> Unit,
     onPickTime: (Int) -> Unit,
     onEditTitle: (Int) -> Unit,
     onEditDetail: (Int) -> Unit
@@ -417,12 +469,14 @@ private fun PreviewCard(
     val items = parses.mapIndexed { index, p ->
         // 有覆盖就用覆盖值渲染，否则用句子解析值。
         val date = if (dateOverrides.containsKey(index)) dateOverrides[index] else p.dueDate
+        val start = if (startDateOverrides.containsKey(index)) startDateOverrides[index] else p.startDate
         val time = timeOverrides[index] ?: p.dueTime
         val title = titleOverrides[index] ?: p.title
         val detail = if (detailOverrides.containsKey(index)) detailOverrides[index] else p.detail
-        PreviewRow(index, p, date, time, title, detail)
+        PreviewRow(index, p, start, date, time, title, detail)
     }.filter { row ->
-        row.date != null || row.time != null || row.p.repeatDays > 0 || row.title.isNotBlank()
+        row.date != null || row.time != null || row.start != null ||
+            row.p.repeatDays > 0 || row.title.isNotBlank()
     }
     if (items.isEmpty()) return
 
@@ -456,11 +510,13 @@ private fun PreviewCard(
                 }
                 PreviewItem(
                     p = row.p,
+                    start = row.start,
                     date = row.date,
                     time = row.time,
                     title = row.title,
                     detail = row.detail,
                     onPickDate = { onPickDate(row.index) },
+                    onPickStart = { onPickStart(row.index) },
                     onPickTime = { onPickTime(row.index) },
                     onEditTitle = { onEditTitle(row.index) },
                     onEditDetail = { onEditDetail(row.index) }
@@ -481,6 +537,7 @@ private val PREVIEW_CHIP_HPAD = 12.dp
 private data class PreviewRow(
     val index: Int,
     val p: ParsedTodo,
+    val start: java.time.LocalDate?,
     val date: java.time.LocalDate?,
     val time: java.time.LocalTime?,
     val title: String,
@@ -499,11 +556,13 @@ private data class PreviewRow(
 @Composable
 private fun PreviewItem(
     p: ParsedTodo,
+    start: java.time.LocalDate?,
     date: java.time.LocalDate?,
     time: java.time.LocalTime?,
     title: String,
     detail: String?,
     onPickDate: () -> Unit,
+    onPickStart: () -> Unit,
     onPickTime: () -> Unit,
     onEditTitle: () -> Unit,
     onEditDetail: () -> Unit
@@ -514,7 +573,15 @@ private fun PreviewItem(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            if (date != null) {
+            if (start != null) {
+                // 时间段：开始 / 结束 两个 chip，各自可点改。
+                InfoChip("开始 ${Format.dateShort(start)}", onClick = onPickStart)
+                if (date != null) {
+                    InfoChip("结束 ${Format.dateShort(date)}", onClick = onPickDate)
+                } else {
+                    InfoChip("+ 结束", onClick = onPickDate)
+                }
+            } else if (date != null) {
                 InfoChip(Format.dateShort(date), onClick = onPickDate)
             } else {
                 InfoChip("+ 日期", onClick = onPickDate)

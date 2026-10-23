@@ -23,7 +23,9 @@ data class ParsedTodo(
     val repeatDays: Int = 0,       // 0 = no repeat
     val timeError: Boolean = false, // true if a recognizable "time-like" token was past/impossible
     val dateError: Boolean = false,  // true if a date was recognized but already past
-    val detail: String? = null      // free-text detail after the event title
+    val detail: String? = null,     // free-text detail after the event title
+    /** 时间段的开始日；null = 单日（[dueDate] 即唯一日期）。 */
+    val startDate: LocalDate? = null
 ) {
     /** The sanitized remainder after removing recognized tokens. */
     val cleanTitle: String get() = title.trim()

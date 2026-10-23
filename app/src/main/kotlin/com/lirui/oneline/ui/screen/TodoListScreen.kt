@@ -872,8 +872,9 @@ private fun TodoList(
                 // Resolve each todo onto a rendered bucket, keeping bucket declaration order.
                 val grouped = HashMap<HomeBucket, MutableList<Todo>>()
                 for (todo in boardItems) {
-                    val due = todo.dueAtMillis ?: continue
-                    val natural = HomeGrouping.bucketOf(due, today)
+                    if (todo.dueAtMillis == null) continue
+                    // 时间段：进行中归「今日」，未开始按开始日分桶（见 bucketOfRange）。
+                    val natural = HomeGrouping.bucketOfRange(todo.startAtMillis, todo.dueAtMillis, today)
                     val target = HomeGrouping.resolveBucket(natural, enabledBuckets) ?: continue
                     grouped.getOrPut(target) { mutableListOf() } += todo
                 }
@@ -910,6 +911,8 @@ private fun TodoListRow(
     TodoRow(
         todo,
         overdue = overdue,
+        today = today,
+        now = now,
         checked = checked,
         onCircleTap = { onCircleTap(todo) },
         onSwipeArchive = { onSwipeArchive(todo) },
@@ -1002,7 +1005,8 @@ private fun ArchivedList(
                         }
                         todo.dueAtMillis?.let { due ->
                             Text(
-                                Format.dueLine(due),
+                                if (todo.startAtMillis != null) Format.rangeLine(todo.startAtMillis, due)
+                                else Format.dueLine(due),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.outline
                             )
@@ -2476,6 +2480,8 @@ private val SWIPE_MAX_OFFSET = 160.dp
 private fun TodoRow(
     todo: Todo,
     overdue: Boolean,
+    today: java.time.LocalDate,
+    now: Long,
     checked: Boolean,
     onCircleTap: () -> Unit,
     onSwipeArchive: () -> Unit,
@@ -2636,10 +2642,14 @@ private fun TodoRow(
                         color = if (overdue) cs.error.copy(alpha = 0.85f) else cs.onSurfaceVariant
                     )
                 }
-                // Weekday + time stay here, under the title.
+                // Weekday + time stay here, under the title. 时间段显示完整区间。
                 todo.dueAtMillis?.let { due ->
                     Text(
-                        Format.weekdayTime(due),
+                        if (todo.startAtMillis != null) {
+                            Format.rangeLine(todo.startAtMillis, due)
+                        } else {
+                            Format.weekdayTime(due)
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         color = if (overdue) cs.error else cs.onSurfaceVariant
                     )
@@ -2653,8 +2663,17 @@ private fun TodoRow(
                     modifier = Modifier.padding(start = 10.dp)
                 ) {
                     repeatLabel(todo.repeatDays)?.let { RepeatBadge(it) }
+                    // 时间段状态：进行中 / 最后一天 / 还剩N天 / 逾期。单日不显示。
+                    Format.rangeStatus(todo.startAtMillis, due, today, now, todo.hasExactTime)?.let { status ->
+                        Text(
+                            status,
+                            style = MaterialTheme.typography.labelSmall,
+                            maxLines = 1,
+                            color = if (overdue) cs.error else cs.primary
+                        )
+                    }
                     Text(
-                        Format.monthDay(Format.dueAtMillis(due)),
+                        Format.monthDayRange(todo.startAtMillis, due),
                         style = MaterialTheme.typography.bodySmall,
                         maxLines = 1,
                         color = if (overdue) cs.error else cs.onSurfaceVariant

@@ -2,6 +2,7 @@ package com.lirui.oneline.util
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.LocalDate
@@ -81,6 +82,125 @@ class FormatTest {
     @Test fun noDate_isNeverOverdue() {
         val now = epoch(2026, 10, 21, 23, 59)
         assertFalse(Format.isOverdue(null, today, now))
+    }
+
+    // ---- 时间段（v0.8.4）：start = 开始日，end = 最后一天（dueAtMillis）----
+
+    @Test fun inProgress_coversBothEnds() {
+        val start = epoch(2026, 10, 20)
+        val end = epoch(2026, 10, 23)
+        assertTrue(Format.isInProgress(start, end, today))
+        assertTrue(Format.isInProgress(epoch(2026, 10, 21), end, today))
+        assertTrue(Format.isInProgress(start, epoch(2026, 10, 21), today))
+    }
+
+    @Test fun inProgress_falseOutsideRange() {
+        val end = epoch(2026, 10, 23)
+        assertFalse(Format.isInProgress(epoch(2026, 10, 22), end, today)) // 还没开始
+        assertFalse(Format.isInProgress(epoch(2026, 10, 18), epoch(2026, 10, 20), today)) // 已结束
+    }
+
+    // 单日待办（start == null）不参与"进行中"，避免给所有老数据多出一层状态。
+    @Test fun inProgress_nullStart_isFalse() {
+        assertFalse(Format.isInProgress(null, epoch(2026, 10, 21), today))
+    }
+
+    @Test fun daysLeft_countsToEndDay() {
+        assertEquals(2L, Format.daysLeft(epoch(2026, 10, 23), today))
+        assertEquals(0L, Format.daysLeft(epoch(2026, 10, 21), today))
+        assertEquals(-2L, Format.daysLeft(epoch(2026, 10, 19), today))
+    }
+
+    @Test fun rangeLine_sameMonth_collapsesDay() {
+        assertEquals(
+            "10月21日–23日 周五",
+            Format.rangeLine(epoch(2026, 10, 21), epoch(2026, 10, 23), today = today, showTime = false)
+        )
+    }
+
+    @Test fun rangeLine_crossMonth_keepsBothMonths() {
+        assertEquals(
+            "10月28日–11月3日 周二",
+            Format.rangeLine(epoch(2026, 10, 28), epoch(2026, 11, 3), today = today, showTime = false)
+        )
+    }
+
+    @Test fun rangeLine_crossYear_showsBothYears() {
+        assertEquals(
+            "2026年12月30日–2027年1月2日 周六",
+            Format.rangeLine(epoch(2026, 12, 30), epoch(2027, 1, 2), today = today, showTime = false)
+        )
+    }
+
+    @Test fun rangeLine_appendsEndTime() {
+        assertEquals(
+            "10月21日–23日 周五 15:30",
+            Format.rangeLine(epoch(2026, 10, 21), epoch(2026, 10, 23, 15, 30), today = today)
+        )
+    }
+
+    // 单日 / start 缺失都必须退回 dueLine，保证老数据文案一字不变。
+    @Test fun rangeLine_fallsBackToDueLine() {
+        val expected = Format.dueLine(epoch(2026, 10, 23), today = today)
+        assertEquals(expected, Format.rangeLine(null, epoch(2026, 10, 23), today = today))
+        assertEquals(
+            expected,
+            Format.rangeLine(epoch(2026, 10, 23), epoch(2026, 10, 23), today = today)
+        )
+    }
+
+    @Test fun monthDayRange_compactForms() {
+        assertEquals("21–23日", Format.monthDayRange(epoch(2026, 10, 21), epoch(2026, 10, 23)))
+        assertEquals("10/28–11/3", Format.monthDayRange(epoch(2026, 10, 28), epoch(2026, 11, 3)))
+        // 单日退回 monthDay
+        assertEquals("10月23日", Format.monthDayRange(null, epoch(2026, 10, 23)))
+        assertEquals("10月23日", Format.monthDayRange(epoch(2026, 10, 23), epoch(2026, 10, 23)))
+    }
+
+    @Test fun rangeStatus_notStarted() {
+        assertEquals(
+            "未开始",
+            Format.rangeStatus(epoch(2026, 10, 22), epoch(2026, 10, 25), today, epoch(2026, 10, 21, 12))
+        )
+    }
+
+    @Test fun rangeStatus_lastDay() {
+        assertEquals(
+            "最后一天",
+            Format.rangeStatus(
+                epoch(2026, 10, 19), epoch(2026, 10, 21), today, epoch(2026, 10, 21, 12),
+                hasExactTime = false
+            )
+        )
+    }
+
+    @Test fun rangeStatus_countsRemainingDays() {
+        assertEquals(
+            "还剩2天",
+            Format.rangeStatus(epoch(2026, 10, 20), epoch(2026, 10, 23), today, epoch(2026, 10, 21, 12))
+        )
+        // 开始日当天也算"还剩"，不显示"进行中"这种空话
+        assertEquals(
+            "还剩3天",
+            Format.rangeStatus(epoch(2026, 10, 21), epoch(2026, 10, 24), today, epoch(2026, 10, 21, 12))
+        )
+    }
+
+    // 核心诉求：最后一天过完才算逾期，结束日当天 23:59 仍是"最后一天"。
+    @Test fun rangeStatus_overdueOnlyAfterEndDay() {
+        val endOfToday = epoch(2026, 10, 21)
+        assertEquals(
+            "最后一天",
+            Format.rangeStatus(epoch(2026, 10, 19), endOfToday, today, epoch(2026, 10, 21, 23, 59), hasExactTime = false)
+        )
+        assertEquals(
+            "逾期",
+            Format.rangeStatus(epoch(2026, 10, 17), epoch(2026, 10, 20), today, epoch(2026, 10, 21, 0, 1), hasExactTime = false)
+        )
+    }
+
+    @Test fun rangeStatus_nullStart_isNull() {
+        assertNull(Format.rangeStatus(null, epoch(2026, 10, 23), today, epoch(2026, 10, 21, 12)))
     }
 
     companion object {

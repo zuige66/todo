@@ -41,6 +41,6 @@ interface TodoDao {
     @Query("UPDATE todos SET archived = 0 WHERE id = :id")
     suspend fun unarchiveById(id: Long)
 
-    @Query("UPDATE todos SET title = :title, detail = :detail, dueAtMillis = :dueAtMillis, hasExactTime = :hasExactTime, repeatDays = :repeatDays WHERE id = :id")
-    suspend fun updateContent(id: Long, title: String, detail: String, dueAtMillis: Long?, hasExactTime: Boolean, repeatDays: Int)
+    @Query("UPDATE todos SET title = :title, detail = :detail, dueAtMillis = :dueAtMillis, startAtMillis = :startAtMillis, hasExactTime = :hasExactTime, repeatDays = :repeatDays WHERE id = :id")
+    suspend fun updateContent(id: Long, title: String, detail: String, dueAtMillis: Long?, startAtMillis: Long?, hasExactTime: Boolean, repeatDays: Int)
 }

@@ -62,12 +62,16 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun previewExisting(todo: Todo) {
         // Pinned zone: a device-timezone change must not shift what the stored epoch means.
         val zoned = todo.dueAtMillis?.let { java.time.Instant.ofEpochMilli(it).atZone(AppTime.ZONE) }
+        val start = todo.startAtMillis?.let {
+            java.time.Instant.ofEpochMilli(it).atZone(AppTime.ZONE).toLocalDate()
+        }
         val parsed = ParsedTodo(
             title = todo.title,
             dueDate = zoned?.toLocalDate(),
             dueTime = zoned?.toLocalTime(),
             repeatDays = todo.repeatDays,
-            detail = todo.detail.ifBlank { null }
+            detail = todo.detail.ifBlank { null },
+            startDate = start
         )
         lastParse = parsed
         lastParses = listOf(parsed)
