@@ -67,6 +67,10 @@ _smoke/
 
 # ---------- 8. Agent 工作区（会话日志、抓取的截图等，仅本机）----------
 .workbuddy/
+.workbuddy-ai/
+
+# Gradle 自动生成的本机 JVM 工具链解析结果（含本机下载镜像 URL）
+gradle/gradle-daemon-jvm.properties
 
 # ---------- 9. 本地工具缓存（★ 绝不能提交，曾误入 1.6 万个文件）----------
 .npm-cache/
