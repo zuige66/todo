@@ -161,6 +161,7 @@ object WidgetUpdater {
             //   日期怎么显示完全由设置里的三个开关决定，与尺寸无关。
             val showDate = SettingsRepo.widgetShowDate(context)
             val dateBelow = SettingsRepo.widgetDateBelow(context)
+            val eventPriority = SettingsRepo.widgetEventPriority(context)
             val dateOnly = SettingsRepo.widgetDateOnly(context)
             val hideHeader = SettingsRepo.widgetHideHeader(context)
 
@@ -198,6 +199,7 @@ object WidgetUpdater {
                             todo,
                             showDate,
                             dateBelow,
+                            eventPriority,
                             dateOnly,
                             done = isCompleting(todo.id)
                         )
@@ -235,8 +237,9 @@ object WidgetUpdater {
      * 三张布局按设置选（**不再按组件尺寸**，vivo 报的尺寸不可信）：
      *  - [showDate]=false      → widget_item_todo_nodate（布局里根本没有 widget_due，
      *                            不靠 setViewVisibility —— vivo 复用行视图时会藏不住）
-     *  - [dateBelow]=true      → widget_item_todo_below（日期在标题下方，**事件优先**）
-     *  - 否则                   → widget_item_todo（日期在右侧，**日期优先**）
+     *  - [dateBelow]=true      → widget_item_todo_below（日期在标题下方，标题独占整行）
+     *  - [eventPriority]=true  → widget_item_todo_event（日期在右，**事件优先**：标题先占宽度）
+     *  - 否则                   → widget_item_todo（日期在右，**日期优先**：日期完整、标题让位）
      *
      * [done]=true 是归档第 1 帧：圆圈换成"带勾的圈"、标题转灰，300ms 后整行消失。
      */
@@ -245,12 +248,17 @@ object WidgetUpdater {
         todo: Todo,
         showDate: Boolean,
         dateBelow: Boolean,
+        eventPriority: Boolean,
         dateOnly: Boolean,
         done: Boolean = false
     ): RemoteViews {
         val layout = when {
             !showDate -> R.layout.widget_item_todo_nodate
             dateBelow -> R.layout.widget_item_todo_below
+            // 日期在右侧时才有"谁让谁"的问题：
+            //   事件优先 → 标题先占宽度，日期吃剩下的（超出省略）
+            //   日期优先 → 日期完整，标题提前省略（"通知测…"）
+            eventPriority -> R.layout.widget_item_todo_event
             else -> R.layout.widget_item_todo
         }
         val rv = RemoteViews(context.packageName, layout)

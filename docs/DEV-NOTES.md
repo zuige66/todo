@@ -459,3 +459,38 @@ graphicsLayer 必须是链条上最靠左的那个绘制类修饰符。
 
 设置页因此从 8 节变 7 节：
 1 提醒 → 2 通知 → 3 外观 → 4 操作 → 5 小组件 → 6 列表与待办 → 7 测试。
+
+## 覆盖层必须用 Surface，不能用 Box + background（v0.9.1 补丁）
+
+把 `AddSheet` 从 `ModalBottomSheet` 换成应用内覆盖层之后，换了个深色配色，
+标题「添加待办」变成**黑字**、几乎看不见。
+
+原因：`LocalContentColor` 的**默认值是 `Color.Black`**。只有 `Surface` / `Scaffold` /
+`ModalBottomSheet`（内部也是 Surface）这类容器会把它设成 `contentColorFor(containerColor)`。
+覆盖层当时只写了 `Box(...).background(colorScheme.surface)` —— 底色对了，但没人设内容色，
+于是所有没显式指定 color 的 `Text` 都拿到默认的黑色。
+
+修法：面板改成 `Surface(shape = 圆角, color = surface, contentColor = onSurface)`。
+★ 以后写任何"自绘背景的容器"，只要里面有 `Text`，要么用 `Surface`，要么显式
+`CompositionLocalProvider(LocalContentColor provides …)`。只给 `background()` 不够。
+
+## 小组件「事件优先」开关（v0.9.1 补丁）
+
+默认 **开**（zuige：默认事件覆盖日期）。
+
+它只解决一件事：**日期在右侧时，谁先占宽度**。实现是第四张行布局
+`widget_item_todo_event.xml`，和 `widget_item_todo.xml` 只差两个属性：
+
+| | 标题 | 日期 |
+|---|---|---|
+| 日期优先（`widget_item_todo`） | `0dp + weight=1` → 吃剩下的，很早就省略 | `wrap_content` → **永远完整** |
+| 事件优先（`widget_item_todo_event`） | `wrap_content` → **先拿到完整宽度** | `0dp + weight=1` → 吃剩下的，超出省略 |
+
+因为 `LinearLayout` 先测量非 weight 子项，所以"谁是 `wrap_content`"就等于"谁优先"。
+长标题在日期优先下变「通知测…」，在事件优先下标题完整、日期变「10月…」。
+
+★ 只在 `widgetDateBelow == false` 时露出这个开关，代码里也是这个分支才选新布局：
+  日期换到标题下方之后，标题本来就独占整行，没有"谁让谁"的问题。
+★ 代价：事件优先下标题是 `wrap_content`，极长时会被父容器裁掉（LinearLayout 不压缩非
+  weight 子项）。实际标题极少长到那个程度，比"永远提前省略"可接受。
+★ 新增设置键 `widget_event_priority`（默认 true），加在「小组件 → 日期位置」下面。

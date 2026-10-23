@@ -1408,6 +1408,10 @@ private fun SettingsScreen(
                 var hideHeader by remember {
                     mutableStateOf(SettingsRepo.widgetHideHeader(context))
                 }
+                // 「事件优先」只在"日期靠右"时才有意义（日期换到标题下方后，标题本来就独占整行）。
+                var eventPriority by remember {
+                    mutableStateOf(SettingsRepo.widgetEventPriority(context))
+                }
                 ToggleItem(
                     "显示日期",
                     "关掉后只显示事件，任何尺寸都生效",
@@ -1434,14 +1438,29 @@ private fun SettingsScreen(
                         WidgetUpdater.refreshAsync(context)
                     }
                 )
-                // 选项名只写位置，容易看不出"谁让位"；这里补一句当前档位的实际效果。
+                // 选项名只写位置，容易看不出效果；这里补一句当前档位的实际表现。
                 Text(
-                    if (dateBelow) "事件优先：标题占满整行，日期换到下面"
-                    else "日期优先：日期靠右完整显示，标题太长才省略",
+                    if (dateBelow) "标题占满整行，日期换到下面"
+                    else "日期靠右显示，谁优先见下面的「事件优先」",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp)
                 )
+                // ★ 只在日期靠右时露出：日期放到标题下方之后标题独占整行，
+                //   "谁让谁"的问题不存在了（zuige 2026-10-23 明确）。
+                if (!dateBelow) {
+                    ItemDivider()
+                    ToggleItem(
+                        "事件优先",
+                        "开：标题先占宽度、完整显示，日期太长才省略；关：日期完整，标题提前省略",
+                        eventPriority,
+                        onChecked = { on ->
+                            SettingsRepo.setWidgetEventPriority(context, on)
+                            eventPriority = on
+                            WidgetUpdater.refreshAsync(context)
+                        }
+                    )
+                }
                 ItemDivider()
                 ToggleItem(
                     "只显示日期",

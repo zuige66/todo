@@ -205,12 +205,19 @@ fun AddSheet(
                 .imePadding(),
             contentAlignment = Alignment.BottomCenter
         ) {
+        // ★ 必须用 Surface，不能只靠 Box + background。
+        //   `LocalContentColor` 的默认值是 **Color.Black** —— 只有 Surface / Scaffold 这类
+        //   容器会把它设成 contentColorFor(containerColor)。上一版把 ModalBottomSheet 换成
+        //   Box + background 后没人设它，换个深色配色之后标题「添加待办」就成了黑字，看不见。
+        Surface(
+            shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+            color = MaterialTheme.colorScheme.surface,
+            contentColor = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.fillMaxWidth()
+        ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                // clip / background 必须在 verticalScroll **之前**，否则圆角不裁切、底色不画。
-                .clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp))
-                .background(MaterialTheme.colorScheme.surface)
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -533,6 +540,7 @@ fun AddSheet(
                     TextButton(onClick = { showDetailEditor = false }) { Text("取消") }
                 }
             )
+        }
         }
         }
     }

@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  行布局 D：**事件优先**（日期仍在右侧，但标题先占宽度）。
+
+  和布局 A（widget_item_todo）的唯一区别是"谁先被测量"：
+
+    布局 A（日期优先）  [圆圈] [标题 weight=1 → 吃剩下的] [日期 wrap_content 完整]
+                       → 日期先拿够自己的宽度，标题被压缩、省略号很早出现
+
+    布局 D（事件优先）  [圆圈] [标题 wrap_content 完整]  [日期 weight=1 → 吃剩下的]
+                       → 标题先拿到自己的完整宽度，日期只剩边角料，超出就省略号
+
+  所以长标题在 A 里会变成「通知测…」，在 D 里标题完整、日期变成「10月…」甚至看不见。
+  这就是设置里「事件优先」开关的全部差别（zuige 2026-10-23：默认事件优先）。
+
+  ★ 代价：标题 wrap_content 且极长时会把行撑出父容器（LinearLayout 不会压缩
+    非 weight 子项），右侧被裁。实际标题极少长到那个程度，远比"永远提前省略"可接受。
+
+  ★ layout_weight="1"：4 行平分 widget_rows 的高度（和另外三张一致）。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_row"
+    android:layout_width="match_parent"
+    android:layout_height="40dp"
+    android:layout_weight="1"
+    android:background="@drawable/widget_row_bg"
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:paddingStart="6dp"
+    android:paddingEnd="10dp">
+
+    <ImageView
+        android:id="@+id/widget_circle"
+        android:layout_width="18dp"
+        android:layout_height="18dp"
+        android:contentDescription="@string/done"
+        android:src="@drawable/widget_circle" />
+
+    <!-- 标题：wrap_content —— 这一行"事件优先"的全部实现就在这个属性上。
+         maxLines + ellipsize 保留，供极端长度时至少有个省略号。 -->
+    <TextView
+        android:id="@+id/widget_title"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:ellipsize="end"
+        android:maxLines="1"
+        android:paddingStart="8dp"
+        android:textColor="@color/widget_text"
+        android:textSize="15sp" />
+
+    <!-- 日期：0dp + weight=1 —— 只吃标题吃完剩下的宽度，不够就省略。 -->
+    <TextView
+        android:id="@+id/widget_due"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:ellipsize="end"
+        android:gravity="end"
+        android:maxLines="1"
+        android:paddingStart="8dp"
+        android:textColor="@color/widget_text_secondary"
+        android:textSize="11sp" />
+</LinearLayout>

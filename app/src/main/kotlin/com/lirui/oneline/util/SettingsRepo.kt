@@ -41,6 +41,7 @@ object SettingsRepo {
     private const val KEY_KEEPALIVE_NOTIF_TEXT = "keepalive_notif_text"
     private const val KEY_WIDGET_SHOW_DATE = "widget_show_date"
     private const val KEY_WIDGET_DATE_BELOW = "widget_date_below"
+    private const val KEY_WIDGET_EVENT_PRIORITY = "widget_event_priority"
     private const val KEY_WIDGET_DATE_ONLY = "widget_date_only"
     private const val KEY_WIDGET_HIDE_HEADER = "widget_hide_header"
     // 退役键（保留、永不读取）：widget_compact_show_date / widget_standard_show_date /
@@ -302,6 +303,26 @@ object SettingsRepo {
     fun setWidgetDateBelow(context: Context, value: Boolean) {
         context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
             .edit().putBoolean(KEY_WIDGET_DATE_BELOW, value).apply()
+    }
+
+    /**
+     * 日期在**右侧**时，谁优先占宽度（v0.9.1 补丁）。
+     *
+     * true = **事件优先**：标题先拿到完整宽度，日期只吃剩下的、超出就省略号；
+     * false = 日期优先：日期完整，标题被压缩（这就是"通知测…"那种观感）。
+     *
+     * ★ 只在 `widgetDateBelow == false` 时生效 —— 日期放到标题下方之后，标题本来就独占
+     *   整行宽度，没有"谁让谁"的问题了（zuige 明确：日期在下面不用管这个开关）。
+     *
+     * 默认 **true（事件优先）** —— zuige 2026-10-23 定：默认事件覆盖日期。
+     */
+    fun widgetEventPriority(context: Context): Boolean =
+        context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            .getBoolean(KEY_WIDGET_EVENT_PRIORITY, true)
+
+    fun setWidgetEventPriority(context: Context, value: Boolean) {
+        context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            .edit().putBoolean(KEY_WIDGET_EVENT_PRIORITY, value).apply()
     }
 
     /** 只显示日期、不带具体时间（「10月23日」而不是「10月23日 14点」）。默认开。 */
