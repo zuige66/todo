@@ -632,3 +632,43 @@ zuige：不需要回收站，删除时多一个确认就行。改动：
   flag 必须写在 Intent **自己**身上，不能只依赖外面统一的那个。
 ★ `singleTask` 生效后，已有的 `onNewIntent` 不会被调用（MainActivity 本来就没重写），
   行为不受影响；`todoId` extra 目前没有任何地方消费，属于另一个待补的缺口。
+
+## 0.9.3 热修：一打开就闪退（DB 迁移校验失败）
+
+### 现象
+装完 versionCode 31 那版，点图标立刻闪退，连界面都出不来。
+
+### 根因
+`MIGRATION_4_5` 写的是：
+
+```kotlin
+db.execSQL("ALTER TABLE todos ADD COLUMN deletedAt INTEGER")
+```
+
+而实体上是 `@ColumnInfo(defaultValue = "NULL")`。Room 迁移完会拿 `PRAGMA table_info`
+读到的**实际列默认值**去跟实体期望值比对，而 SQLite 里：
+
+| SQL | `PRAGMA table_info` 的 dflt_value |
+|---|---|
+| `ADD COLUMN b INTEGER` | `NULL`（SQL 空值） |
+| `ADD COLUMN c INTEGER DEFAULT NULL` | `'NULL'`（字符串） |
+
+两者不等 → Room 抛 `Migration didn't properly handle: todos(com.lirui.oneline.data.model.Todo)`
+→ 异常从 `Room.databaseBuilder().build()` 一路冒到 `MainViewModel` 的构造 → `onCreate` 里秒崩。
+
+**编译期完全看不出来**：KSP 只校验实体和 schema 文件，不校验 migration 里那句 SQL 的实际效果。
+单测也覆盖不到 —— 项目里没有 Room instrumentation 测试。
+
+### 修法
+1. SQL 补上 `DEFAULT NULL`，让 dflt_value 变成字符串 `'NULL'`，与 schema 的
+   `"defaultValue": "NULL"` 对上；
+2. 加**幂等**判断：先 `PRAGMA table_info` 查列是否存在，存在就跳过。
+   覆盖"迁移中途失败但没回滚"的设备，避免 `duplicate column name`。
+
+### 红线（以后改 schema 必看）
+- `ALTER TABLE ... ADD COLUMN` 的默认值**必须和 `@ColumnInfo(defaultValue = ...)` 逐字一致**。
+  实体写 `defaultValue = "NULL"`，SQL 就必须写 `DEFAULT NULL`；不写就是两回事。
+- 数据库改动**必须真机跑一遍**（或至少补一个 migration 测试）。
+  这次全套静态检查 + 248 条单测全绿，照样一装就崩。
+- 想彻底避开这类问题：**不要给没人用的字段加 `defaultValue`**。这次那个列本来就是
+  留占位用的，如果写成 `@ColumnInfo` 什么都不填，migration 里那句反而是对的。

@@ -45,15 +45,35 @@ abstract class AppDatabase : RoomDatabase() {
         }
 
         /**
-         * Add [Todo.deletedAt]（回收站；可空，null = 未删除）。
+         * Add [Todo.deletedAt]（历史列，现在没有任何代码写它；见 [Todo] 的类注释）。
          *
-         * 老数据全部是"没删过"，deletedAt 自然为 null，所有查询的 `deletedAt IS NULL`
-         * 条件都成立，行为零变化。列必须是可空的 —— 没有默认值的 ALTER 在旧行上会失败。
+         * ★★ 这一句必须带 `DEFAULT NULL`。踩过的坑（0.9.3 一打开就闪退）：
+         *   实体上写的是 `@ColumnInfo(defaultValue = "NULL")`，Room 迁移完会拿**实际列定义**
+         *   跟实体期望的比对 —— 而 `ALTER TABLE ... ADD COLUMN x INTEGER`（不写 DEFAULT）
+         *   在 `PRAGMA table_info` 里读到的 dflt_value 是**空**，只有显式写
+         *   `DEFAULT NULL` 才是字符串 `'NULL'`。两者不等 → Room 抛
+         *   `Migration didn't properly handle: todos(...)` → 启动即崩，且编译期完全看不出来。
+         *
+         * ★ 幂等：已经装过出问题那一版、迁移中途失败但**没有回滚**的设备，列可能已经存在。
+         *   直接 ALTER 会抛 "duplicate column name"，所以先查 PRAGMA 再决定加不加。
          */
         private val MIGRATION_4_5 = object : Migration(4, 5) {
             override fun migrate(db: SupportSQLiteDatabase) {
-                db.execSQL("ALTER TABLE todos ADD COLUMN deletedAt INTEGER")
+                if (!hasColumn(db, "todos", "deletedAt")) {
+                    db.execSQL("ALTER TABLE todos ADD COLUMN deletedAt INTEGER DEFAULT NULL")
+                }
             }
+        }
+
+        private fun hasColumn(db: SupportSQLiteDatabase, table: String, column: String): Boolean {
+            db.query("PRAGMA table_info($table)").use { cursor ->
+                val nameIndex = cursor.getColumnIndex("name")
+                if (nameIndex < 0) return false
+                while (cursor.moveToNext()) {
+                    if (cursor.getString(nameIndex) == column) return true
+                }
+            }
+            return false
         }
 
         fun get(context: Context): AppDatabase {

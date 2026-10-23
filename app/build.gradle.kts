@@ -173,7 +173,15 @@ android {
         //              一个 flag 都没带，MainActivity 又是默认 standard —— 每次点击都会
         //              在同 task 里再压一个实例，返回要点两次。改 launchMode="singleTask"
         //              + 所有打开 App 的 Intent 显式带 NEW_TASK|CLEAR_TOP|SINGLE_TOP。
-        versionCode = 31
+        //         ⑦ 修「0.9.3 一打开就闪退」（只有 versionCode 31 那版会崩）：
+        //            MIGRATION_4_5 里写的是 `ALTER TABLE ... ADD COLUMN deletedAt INTEGER`，
+        //            没有 DEFAULT NULL —— 而实体上是 @ColumnInfo(defaultValue = "NULL")。
+        //            Room 迁移完会拿 PRAGMA 读到的实际默认值跟实体期望的比对：不写 DEFAULT
+        //            时 dflt_value 是空，写了才是字符串 'NULL'，两者不等 →
+        //            `Migration didn't properly handle: todos(...)` → onCreate 里秒崩。
+        //            编译期完全看不出来。现在补上 DEFAULT NULL，并加幂等判断（列已存在就跳过）。
+        //            versionName 仍 0.9.3，只把 versionCode 推到 32，便于确认装的是修复版。
+        versionCode = 32
         versionName = "0.9.3"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
