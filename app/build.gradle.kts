@@ -78,8 +78,10 @@ android {
         //         圆圈跟随主题色、点击直接归档（两帧反馈：勾亮起 → 行消失）；
         //         首页归档补齐"打勾"（原来只在进度 100% 时画，与行移除同帧，肉眼看不到）；
         //         恢复「沉浸式顶栏」开关（默认关）；首装默认配置按 zuige 当前习惯设定。
-        versionCode = 20
-        versionName = "0.8.2"
+        // 0.8.3 = 国内更新兜底源：检查更新主源 GitHub、blog 静态源（blog.zuiges.com）兜底，
+        //         APK 下载主源（GitHub 资产 CDN）失败时向 blog 源重试镜像直链。
+        versionCode = 21
+        versionName = "0.8.3"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

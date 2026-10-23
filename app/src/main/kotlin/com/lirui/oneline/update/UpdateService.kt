@@ -43,15 +43,17 @@ sealed interface UpdateCheck {
 }
 
 /**
- * 检查更新：GitHub Releases `/releases/latest`。
+ * 检查更新：主源 GitHub Releases `/releases/latest`，兜底源 blog 静态 `latest.json`。
  *
- * 实现思路借自 `D:/Workplace/Hyper Music Scape Lock` 的 `UpdateService`，
- * 但只保留本项目真实可用的那一层：
- * - 那边还有 blog 静态 `latest.json` 回退源，本项目没有对应站点，**不做伪回退**
- *   （代码里留一个不存在的回退源，等于给"检查失败"多加 5 秒等待）；
- * - 那边比较 versionCode + versionName 双维度，本项目只有 versionName 一条线
- *   （release 的 asset 直接覆盖安装，versionCode 由构建脚本保证单调），所以只比 versionName。
+ * 主源 vs 兜底源（借自 `D:/Workplace/Hyper Music Scape Lock` 的 `UpdateService`）：
+ * - **主源 GitHub**：权威、实时，连通时一律以它为准，避免被镜像源劫持 / 降级；
+ * - **兜底源 blog**：部署在 `blog.zuiges.com`（GitHub Pages 自定义域名，国内通常可直连），
+ *   仅当主源「网络不可达」（DNS 污染 / 超时 / TLS 拦截）或「被限流」（403/429）时回退，
+ *   取 `latest.json` 的 `versionName` + `apkUrl`（APK 同站托管，国内可直连）；
+ * - **下载兜底**：`UpdateDownloadService` 在主源 APK（GitHub 资产 CDN）下载失败时，
+ *   会再向 blog 源要一次镜像直链重试（`blogFallbackApkUrl()`）。
  *
+ * 只比 versionName 一条线（release 的 asset 直接覆盖安装，versionCode 由构建脚本保证单调）。
  * 失败分类刻意做细：DNS 污染 / 超时 / TLS / HTTP 状态码是四种不同的病，
  * 统一糊成"检查失败"的话，用户和我都没法判断该改什么。
  */
@@ -65,6 +67,10 @@ object UpdateService {
     private const val LATEST_RELEASE_API =
         "https://api.github.com/repos/zuige66/todo/releases/latest"
 
+    /** blog 静态兜底源：GitHub 被墙 / 限流时回退到这里（同站托管 APK，国内通常可直连）。 */
+    private const val BLOG_LATEST_URL =
+        "https://blog.zuiges.com/downloads/oneline/latest.json"
+
     /**
      * 6s。GitHub API 通的话 1.5s 内必回；6s 不回基本等于被墙/没网，
      * 再等下去只是让按钮一直转圈。
@@ -72,30 +78,46 @@ object UpdateService {
     private const val TIMEOUT_MILLIS = 6_000
 
     suspend fun check(currentVersion: String): UpdateCheck = withContext(Dispatchers.IO) {
-        val response = try {
-            fetch(LATEST_RELEASE_API)
-        } catch (error: UnknownHostException) {
-            Log.w(TAG, "DNS failed: ${error.message}")
-            return@withContext UpdateCheck.Failed("连不上服务器，请检查网络后重试")
-        } catch (error: SocketTimeoutException) {
-            Log.w(TAG, "Timeout: ${error.message}")
-            return@withContext UpdateCheck.Failed("连接超时，请稍后重试")
-        } catch (error: SSLException) {
-            Log.w(TAG, "TLS failed: ${error.message}")
-            return@withContext UpdateCheck.Failed("网络被拦截，请换一个网络再试")
-        } catch (error: IOException) {
-            Log.w(TAG, "IO failed: ${error::class.simpleName}: ${error.message}")
-            return@withContext UpdateCheck.Failed("网络异常，请稍后重试")
+        // 主源：GitHub Releases API。连通即以它为准（权威、实时，防镜像劫持/降级）。
+        // 只有「网络不可达」（DNS 污染 / 超时 / TLS 拦截）或「被限流」（403/429）才回退 blog。
+        val github = runCatching { fetch(LATEST_RELEASE_API) }
+        val ghCode = github.getOrNull()?.code
+        val shouldFallback = github.isFailure || ghCode == 403 || ghCode == 429
+
+        if (!shouldFallback) {
+            val r = github.getOrNull()!!
+            return@withContext when {
+                r.code == HttpURLConnection.HTTP_NOT_FOUND -> UpdateCheck.NoRelease
+                r.code !in 200..299 -> UpdateCheck.Failed("服务器返回 HTTP ${r.code}")
+                else -> parse(r.body, currentVersion)
+            }
         }
 
-        when {
-            response.code == HttpURLConnection.HTTP_NOT_FOUND -> UpdateCheck.NoRelease
-            response.code == 403 || response.code == 429 ->
-                UpdateCheck.Failed("请求过于频繁（HTTP ${response.code}），请稍后再试")
-            response.code !in 200..299 ->
-                UpdateCheck.Failed("服务器返回 HTTP ${response.code}")
-            else -> parse(response.body, currentVersion)
+        // 兜底源：blog 静态 latest.json（格式见 hexo 仓库 source/downloads/oneline/latest.json）。
+        Log.i(TAG, "GitHub 主源不可用，回退 blog 源：$BLOG_LATEST_URL")
+        val blog = runCatching { fetch(BLOG_LATEST_URL) }
+        if (blog.isFailure) {
+            val reason = if (github.isFailure) {
+                githubReason(github.exceptionOrNull())
+            } else {
+                "GitHub 请求受限（HTTP $ghCode），备用源也连不上"
+            }
+            return@withContext UpdateCheck.Failed(reason)
         }
+        val br = blog.getOrNull()!!
+        if (br.code !in 200..299) {
+            return@withContext UpdateCheck.Failed("更新源（blog）返回 HTTP ${br.code}")
+        }
+        return@withContext parseBlog(br.body, currentVersion)
+    }
+
+    /** 主源网络错的汉字提示（主源其实连通但被限流时不会走到这里）。 */
+    private fun githubReason(e: Throwable?): String = when (e) {
+        is UnknownHostException -> "连不上服务器，请检查网络后重试"
+        is SocketTimeoutException -> "连接超时，请稍后重试"
+        is SSLException -> "网络被拦截，请换一个网络再试"
+        is IOException -> "网络异常，请稍后重试"
+        else -> "更新源暂时不可用，请稍后再试"
     }
 
     private fun parse(body: String, currentVersion: String): UpdateCheck {
@@ -136,6 +158,52 @@ object UpdateService {
                 apkUrl = apkUrl
             )
         )
+    }
+
+    /**
+     * 解析 blog 兜底源的 latest.json（简化格式，与 GitHub release JSON 不同）：
+     * `{ "versionCode": 21, "versionName": "0.8.3", "apkUrl": "...", "changelog": "..." }`。
+     * 只比 versionName（与 [parse] 一致；versionCode 仅作信息保留）。
+     */
+    private fun parseBlog(body: String, currentVersion: String): UpdateCheck {
+        val json = try {
+            JSONObject(body)
+        } catch (_: JSONException) {
+            return UpdateCheck.Failed("发布信息格式异常")
+        }
+
+        val remoteVersion = json.optString("versionName").trim()
+        if (remoteVersion.isBlank()) return UpdateCheck.Failed("发布信息里没有版本号")
+
+        val newer = Version.isNewer(remoteVersion, currentVersion)
+            ?: return UpdateCheck.Failed("版本号格式异常：$remoteVersion（本机 $currentVersion）")
+        if (!newer) return UpdateCheck.UpToDate
+
+        val apkUrl = json.optString("apkUrl").orEmpty()
+        val changelog = json.optString("changelog").orEmpty()
+        Log.i(TAG, "New version v$remoteVersion from blog (apk=${apkUrl.ifBlank { "none" }})")
+        return UpdateCheck.Available(
+            AppUpdate(
+                version = remoteVersion,
+                changelog = changelog,
+                releaseUrl = RELEASES_PAGE,
+                apkUrl = apkUrl
+            )
+        )
+    }
+
+    /**
+     * 下载兜底：取出 blog 源里挂的 APK 直链（国内可直连），供 [UpdateDownloadService]
+     * 在主源（GitHub 资产 CDN）下载失败时重试一次。任何异常 / 非 200 都返回空串。
+     */
+    fun blogFallbackApkUrl(): String {
+        return try {
+            val r = fetch(BLOG_LATEST_URL)
+            if (r.code !in 200..299) return ""
+            JSONObject(r.body).optString("apkUrl").orEmpty()
+        } catch (_: Throwable) {
+            ""
+        }
     }
 
     private class RawResponse(val code: Int, val body: String)

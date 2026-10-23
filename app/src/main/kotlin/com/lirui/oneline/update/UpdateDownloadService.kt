@@ -29,8 +29,8 @@ import java.net.URL
  * 链路最短。这套取舍在 Hyper MeloLock 上真机验证过，直接沿用。
  *
  * 与它的差别：那边有三层直链级联（asset API → 浏览器直链 → blog 静态源），
- * 本项目只有一个 GitHub 浏览器直链（`browser_download_url`），所以没有级联。
- * 以后加 blog 源时，在这里补一层 try/catch 即可，UI 不用改。
+ * 本项目主源是 GitHub 浏览器直链（`browser_download_url`），blog 静态源作为「下载失败兜底」
+ * （见 [UpdateService.blogFallbackApkUrl]）：主源下载抛异常时再向 blog 源要一次镜像直链重试。
  */
 class UpdateDownloadService : Service() {
 
@@ -74,7 +74,18 @@ class UpdateDownloadService : Service() {
         Thread {
             val target = File(File(filesDir, UPDATE_DIR).apply { mkdirs() }, fileName)
             try {
-                download(url, target)
+                try {
+                    download(url, target)
+                } catch (error: Throwable) {
+                    // 主源（GitHub 资产 CDN）下载失败：多半是被墙。回退 blog 镜像源再试一次。
+                    val mirror = UpdateService.blogFallbackApkUrl()
+                    if (mirror.isNotBlank() && mirror != url) {
+                        Log.w(TAG, "Primary APK download failed (${error.message}); retry via blog mirror")
+                        download(mirror, target)
+                    } else {
+                        throw error
+                    }
+                }
                 if (cancelled) return@Thread
                 notifyDone(target, launchInstall(target))
             } catch (error: Throwable) {

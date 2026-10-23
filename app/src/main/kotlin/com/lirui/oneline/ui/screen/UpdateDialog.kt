@@ -28,8 +28,8 @@ import androidx.compose.material3.ButtonDefaults
  * 发现新版本的弹窗。
  *
  * 版式借鉴 Hyper MeloLock 的 `UpdateDialogHost`：当前版本 / 最新版本 / changelog 三块，
- * 取消 + 下载两个按钮。差别是本项目没有 blog 备用源，也没有"必须下载"的需求，
- * 所以按钮文案会随 `apkUrl` 是否为空切换成「打开发布页」。
+ * 取消 + 下载两个按钮。差别是本项目主源 GitHub、blog 静态源仅在 GitHub 被墙/限流时兜底，
+ * 没有"必须下载"的需求，所以按钮文案会随 `apkUrl` 是否为空切换成「打开发布页」。
  */
 @Composable
 fun UpdateAvailableDialog(
