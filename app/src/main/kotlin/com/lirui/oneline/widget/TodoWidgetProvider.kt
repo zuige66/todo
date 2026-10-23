@@ -38,7 +38,17 @@ class TodoWidgetProvider : AppWidgetProvider() {
         appWidgetIds: IntArray
     ) {
         // 系统 30 分钟一次的兜底刷新（appwidget-info 的 updatePeriodMillis）。
-        appWidgetIds.forEach { WidgetUpdater.updateOne(context, manager, it) }
+        // ★ onUpdate 在主线程；updateOne 里要查 Room —— Room 禁止主线程访问，
+        //   直接跑会抛 IllegalStateException → widget 永远停在 initialLayout（空白）。
+        //   goAsync 把广播生命周期拉到协程结束，查库+刷 UI 全在 IO 上。
+        val pendingResult = goAsync()
+        WidgetUpdater.ioScope.launch {
+            try {
+                appWidgetIds.forEach { WidgetUpdater.updateOne(context, manager, it) }
+            } finally {
+                pendingResult.finish()
+            }
+        }
     }
 
     override fun onAppWidgetOptionsChanged(
@@ -47,8 +57,15 @@ class TodoWidgetProvider : AppWidgetProvider() {
         appWidgetId: Int,
         newOptions: android.os.Bundle
     ) {
-        // 用户拖大了组件：重新按高度算 item 布局与条数。
-        WidgetUpdater.updateOne(context, manager, appWidgetId)
+        // 用户拖大了组件：重新按高度算 item 布局与条数。同样要在 IO 上查库。
+        val pendingResult = goAsync()
+        WidgetUpdater.ioScope.launch {
+            try {
+                WidgetUpdater.updateOne(context, manager, appWidgetId)
+            } finally {
+                pendingResult.finish()
+            }
+        }
     }
 
     companion object {
@@ -105,8 +122,8 @@ object WidgetUpdater {
         rv.setEmptyView(R.id.widget_list, R.id.widget_empty)
 
         // 头部条数（与列表取同一份数据，不会出现"写着 4 条、列着 3 条"）。
-        // runBlocking 只是把 suspend 桥到同步上下文 —— 本方法只在 IO 线程被调用
-        // （onUpdate 在主线程但查询是毫秒级；真要抠就去 onReceive 里 goAsync）。
+        // ★ 调用约定：本方法只允许在 IO 线程跑（onUpdate/COMPLETE 都 goAsync 了），
+        //   runBlocking 桥接 suspend DAO；不要从主线程调这里。
         val dao = AppDatabase.get(context).todoDao()
         val total = runBlocking { dao.getActiveAll().size }
         rv.setTextViewText(
