@@ -38,6 +38,13 @@ object NotificationHelper {
     /** Action ids handled by [NotificationActionReceiver]. */
     const val ACTION_COMPLETE = "com.lirui.oneline.action.COMPLETE"
     const val ACTION_UNDO = "com.lirui.oneline.action.UNDO"
+
+    /**
+     * 「点通知体打开 App」的 action。带 [EXTRA_TODO_ID] —— MainActivity 据此
+     * 滚到对应待办并短暂高亮（v0.9.3 补丁；在此之前这个 extra 没有任何一侧读取）。
+     */
+    const val ACTION_OPEN_TODO = "com.lirui.oneline.OPEN_TODO"
+
     const val EXTRA_TODO_ID = "todoId"
     const val EXTRA_MESSAGE = "message"
 
@@ -249,7 +256,7 @@ object NotificationHelper {
     /** Tapping the notification body opens the app. */
     private fun openAppIntent(context: Context, todoId: Long, done: Boolean): PendingIntent {
         val intent = Intent(context, MainActivity::class.java).apply {
-            action = "com.lirui.oneline.OPEN_TODO"
+            action = ACTION_OPEN_TODO
             // CLEAR_TOP 把已有实例上面的东西清掉；SINGLE_TOP 让"已经在栈顶"时**复用**
             // 而不是销毁重建（只给 CLEAR_TOP 的话，standard 模式下会重建一个新实例，
             // 视觉上闪一下、并且丢失当前会话状态）。MainActivity 现为 singleTask，
@@ -294,8 +301,11 @@ object NotificationHelper {
         )
     }
 
+    // ★ todoId*10+slot 而不是 todoId%100000*10+slot（P3-2）：旧写法下 id 相差 10 万的两条待办，
+    //   通知的打开/完成/撤回 PendingIntent 会互相覆盖 extras（点 A 操作了 B）。
+    //   与 ReminderScheduler 的 requestCode 同构；Room 自增 id 到不了 Int 溢出量级。
     private fun requestCode(todoId: Long, slot: Int): Int =
-        (todoId % 100_000L * 10L + slot).toInt()
+        (todoId * 10L + slot).toInt()
 
     /**
      * 测试通知的动作意图。

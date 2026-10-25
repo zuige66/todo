@@ -58,6 +58,43 @@
 - **提醒/唠叨链的红线**：`ReminderScheduler.scheduleBlocking` 是唯一排 OVERDUE 的入口，
   它依赖 `ReminderEngine.nextOverdueReminder()`；该函数必须**在到期前也返回** `due+interval`。
   一旦加回"未到期返回 null"，新建待办的唠叨链就永远不启动（DUE 触发时 receiver 只续排 OVERDUE）
+
+## 2026-10-24（0.9.3 补丁三 + 合并为时间段）
+
+- **17MB 用户数据之谜**：不是 JSON、不是数据库异常，主因是 `filesDir/update/` 里
+  **只下不清的历史 APK**（每版本 2MB）。启动清理日志实锤（删了 Oneline-v0.8.2.apk）。
+  注意 `dumpsys diskstats` 的 App Data Size **不含/滞后 filesDir 大文件**，别拿它当真相；
+  release 包 + 无 root 时 `/data/data` 不可 ls，`run-as` 也不可用（package not debuggable）。
+- **更新链路清理**：`UpdateDownloadService.cleanupStaleApks`（启动，保留最新一个）+
+  下载成功后 `pruneOldApks`（保留本次 target）。下载中的包 lastModified 最新，天然不会被误删。
+- **Kotlin 局部 fun 的声明顺序坑**：Composable 里的局部 `fun effectiveParses()` 引用
+  **后面**声明的局部 `var mergeMode` → 编译报 "Unresolved reference"（不是警告，直接 e:）。
+  局部变量必须在局部函数之前声明；lambda 可以延迟引用，fun 不行。
+- **Composable 参数不可赋值**：子 composable 收到的 `highlightId` 是 val 参数，
+  "滚动到位后置高亮"必须走回调 `onLocated(id)` 让父层改 state——渲染层只读。
+- **LazyColumn 定位滚动**：滚到某条待办要用**含 header 的 item index**。做法是把分组
+  顺序抽成纯函数 `buildRowOrder()`，渲染与定位共用一份（`ui/screen/TodoListScreen.kt`），
+  否则"定位偏一条 header"这种漂移必然发生。
+- **合并为时间段**：`parser/RangeMerge.kt`（纯函数 + 11 条单测）。「24号25号 出差」
+  默认两条单日；AddSheet 预览卡加「合并为时间段」开关，合并后起止取最小/最大日期
+  （不按出现顺序，防倒挂），时间/详情取第一条，dateError any 传递（不构成绕过校验的后门）。
+- 单测 250 → 261。
+
+## 2026-10-24 续（17MB 结案 + 合并态可编辑）
+
+- **17MB 实锤**：`filesDir/update/Oneline-v0.8.4.apk` = 9.4MB（未开 R8 时期的老包），
+  最后一次应用内更新停在 0.8.4，之后外部安装 → 孤儿包无人清理。清理后 dataDir
+  9.64MB → 0.48MB。数据库本身只有 164KB（几条待办完全正常）。
+- **release 包 + 无 root 查 /data/data 的唯一可行通道**：`StorageDiag.logDataDir()`
+  启动时把目录树打 logcat（`adb logcat -s Oneline[Storage]`）。`run-as`/`du`/`su`/
+  `adb backup`（要设备确认）全部不可用；`dumpsys diskstats` 的 App Data Size
+  不含 filesDir 大文件，别信。
+- **清理策略不能只"保留最新一个"**：单个孤儿包会被永久留下。现行判定：
+  版本旧于本机（Version.isNewer(current, pkgVersion)）或下载超 7 天 → 删。
+- **合并为时间段的编辑权**：合并行 index = 0（第一条），标题/详情/时间/日期全部可点，
+  编辑写第一条 override，RangeMerge 取第一条的 title/detail/time + 全日期 min/max
+  自动重算起止。曾把 index 设 -1 让整行不可点，被用户当 bug 反馈——合并是快捷方式，
+  不是收走编辑权。选择器 initial 值也要读 effective（合并后的），否则"显示 24 存的 25"。
 - **通知栏动作**：`NotificationActionReceiver`（exported=false）处理「完成/撤回」；
   完成必须复用 `TodoRepository.archive()`（与列表圆圈同一入口），不要另写归档逻辑；
   态切换靠**同一 notification id** 重发 + `setOnlyAlertOnce(true)`，requestCode 用 `(todoId, slot)`
@@ -719,3 +756,136 @@ due，`startAtMillis` 原样留着 → `start > due`：列表显示「10月27日
 但「编辑一条重复待办 + 预览卡『+ 时间段』chip」可以造出来。
 
 单测 248 → 250 全绿。P2-2（无日期待办设时间被静默丢弃）未动，等产品预期。
+
+## 2026-10-24 续2（提前提醒带天数，0.9.4）
+
+- 需求（zuige）：通知标题里笼统的「提前提醒」要带上提前多久 → 「提前7天提醒 / 提前3天提醒 / 提前1天提醒」。
+- 红线遵守：**不动 Kind 枚举**（ordinal 是 PendingIntent requestCode 尾数 `todoId*10+ordinal`，
+  插中间会让已排闹钟整体错位、cancel 不掉）。只在 `Reminder` data class 加 `val leadDays: Int = 0`。
+- `gradedReminder` 按距到期天数填 leadDays：days>=30→7、>=7→3、>=2/==1→1；
+  `messageFor(kind, dueWord, leadDays)` 的 GRADED 分支 `leadDays>0 → "提前${leadDays}天提醒"`，否则回退「提前提醒」。
+- 投递侧：`ReminderScheduler.pendingReminder` 把 leadDays 写进 intent extra；`ReminderReceiver` 读出传入 `messageFor`。
+  旧版已排闹钟没有该 extra，`getIntExtra("leadDays", 0)` 回退 0 → 笼统文案，不崩、不显示怪文案。
+- EXACT_PREP 仍是「1小时后到期」（自带时长，不动）；DUE/OVERDUE/START 不受影响。
+- 同步更新：README 通知示例、DESIGN §37/§状态语表、设置页模板预览（"提前3天提醒"）。
+- 测试：ReminderEngineTest 加 4 条 messageFor 覆盖（7/3/1/0），reminder 包全绿。
+
+## 2026-10-24 续3：P1-1 / P2-1 / P3 收尾（0.9.3 round2 未修项）
+
+按 zuige「没动的修一下」把 round2 报告里所有 ⬜ 项清完，单测 268 全绿。
+
+### P1-1 检查更新优先比 versionCode（最关键）
+- 病灶：`check()` 只收 versionName，`Version.isNewer` 比语义化字符串。0.9.3 的 v31→v32 补丁
+  versionName 都是 `0.9.3`，只比字符串 → 老用户永远「已是最新」，补丁发不出去（实测被吞两次）。
+- 改法：`check(currentVersion, currentVersionCode: Long)`；`AppUpdate` 加 `versionCode: Int?`；
+  新增私有 `hasUpdate(remoteCode, currentCode, remoteName, currentName)`：**remoteCode 非空就用整数比**
+  （`remoteCode > currentCode`），为空才退回 `Version.isNewer(versionName)`。
+- versionCode 取值两源都支持：GitHub 从 release body 固定行 `versionCode: 32`（`buildCodeFromBody`，
+  半/全角冒号都认）或 tag 的 `+N` 后缀 `v0.9.3+32`（`buildCodeFromTag`）取，body 优先；
+  blog 的 `latest.json` 直接读 `versionCode` 字段。都没有 → null → 退回 versionName（兼容老 release）。
+- ★ 发版须知：今后每个 release 要带 versionCode（tag `+N` 或 body `versionCode: N`），否则补丁又被吞。
+  已写进 round2 报告「发版须知」。
+- `UpdateDownloadService.pruneApks` 仍按 versionName 比（APK 文件名不带 versionCode，7 天规则兜底），不动。
+
+### P2-1 全角/em-en 破折号时段失效
+- 病灶：`normalize` 把 `—`(em)/`–`(en) 归一成 `-`，而 `rangeConnectors` 收的是原字符 `—`/`–`，
+  导致「10月1日—3日」时段识别不到，`-3日` 漏进标题。
+- 改法：normalize **不再转 `—`/`–`**（全角 `－` U+FF0D 仍转 `-`，它不是连词）；
+  把 `—`/`–` 补进 `num3Re`/`absYearRe` 的分隔符字符类，保证 `2026—10—24` 仍可当年月日解析。
+- 已知取舍：`10月—24日`（月内破折号，罕见写法）现在会被当时段 10/01–10/24 而非单日 ——
+  stripRange 优先于单日期，接受此代价（`X日—Y日` 时段远比它常见）。
+- 安全验证：`2026—10—24` 进 stripRange 时左半 `2026` 解析失败 → 回落 num3Re 当单日，不会被切成假区间。
+
+### P3 一揽子防御性小修
+- P3-1 `TodoRepository.defaultTime`：`mo.coerceIn(0,1439)`，与 `startReminder` 防护风格对齐。
+- P3-2 `NotificationHelper.requestCode`：`todoId%100000*10+slot` → `todoId*10+slot`（与 ReminderScheduler
+  同构；旧写法 id 相差 10 万会互相覆盖 extras）。
+- P3-3 `KeepAliveService.refresh`：`startForegroundService` 包 `runCatching`（与同文件 `start` 同构，
+  Android 12+ 后台调用会抛，设置页不能崩）。
+- P3-4 `MainViewModel.addParsed`：`parsedList.filter { it.cleanTitle.isNotBlank() }` 后再落库（只拦了全空）。
+- P3-5 `TodoRepository.rollForward`：guard 400→4000（走满仍过去会排过去闹钟立即触发；4000 天≈11 年兜底）。
+- P3-6 `ParsedTodo` KDoc：`forceDateError`→`dateError`、`repeatDays null/0`→`0`。
+
+测试：VersionTest +3（buildCodeFromTag/Body）、ParserTest +4（em/en 破折号时段、破折号年月日、全角 － 回归）。
+
+## 2026-10-24 续4：解析器 #2/#3/#7（zuige：「修真bug+小瑕疵，符号不管」）
+
+用探针（ParserProbeTest，已删）喂 100+ 刁钻输入 dump 审查后修的三处：
+
+- **#2 每月N号漏锚点**：`repeatDays` 每月分支补「N号/N日」——吃掉号/日、anchor 走新增的
+  `nextDayOfMonth(day)`（下一个当月/次月该号）。「每月5号还款」此前标题"5号还款"、到期落今天，
+  与「每周三」不一致；现 → 标题"还款"、到期11-05、重复30。正则 `^(\d{1,2}|[一二三…]{1,3})[号日]`。
+- **#3 本月底落今天**：`rollYearMonth` 收尾认 底/末（→月末）、初（→月初）；新增独立分支
+  `monthBoundaryWords`（月底/月末/月初）。「本月底关账」→ 10-31、「月末盘点」→ 10-31、「下个月底」→ 11-30。
+  ★ 故意不收「中」：「本月中奖/中了」的"中"是动词，误判 15 号比不识别更糟（已加守卫测试）。
+- **#7 时刻模糊词漏标题**：`stripLeadingTime` 解析出时刻后调 `stripTimeModifier` 吃掉余首双字词
+  （以前/以后/之前/之后/前后/左右）。「9点以后通知」→"通知"、「记住9点以前的感觉」→"记住的感觉"（内嵌也吃）。
+  只吃双字、不碰单字"前/后"——免伤"前天/后天"。
+- 跳过（说明过）：#5 符号（zuige 不管）、#6「9点整」的整（"整理"误伤风险）、#9 秒（"零8秒"中英混排吃不净、价值低）。
+- 仍开（待拍板）：**#1 时间区间「3点到5点」** 的"到5点"还漏标题——方案A吃掉不显示 / 方案B加 endTime 字段（大功能）。
+  守卫已验证：「3点到位/3点到公司」的"到"保留（要求 connector 后跟有效时刻才吃，修复安全）。
+- 固化测试：ParserTest +7（月底/月初/月中守卫/每月N号/模糊词/内嵌+守卫）。
+
+## 2026-10-25 续5：解析器 #1 时间区间（方案B）+ #8 新档位词 + #4 相对提醒 → 0.10.0
+
+zuige 拍板：**方案B（结束点真落库）**、逾期判定用结束点（**1行**）、**结束点不响提醒（2不响）**。
+单测 275 → 297（+19 +3），`:app:testDebugUnitTest` 全绿。
+
+### #1 时间区间：加 `endAtMillis`（DB v5 → v6）
+- 数据：`Todo.endAtMillis: Long?`（`@ColumnInfo(defaultValue="NULL")`），`MIGRATION_5_6`
+  `ALTER TABLE todos ADD COLUMN endAtMillis INTEGER DEFAULT NULL` + `hasColumn` 幂等
+  （★ `DEFAULT NULL` 必须显式写，0.9.3 的闪退就是漏它）。Room 已导出 `schemas/…/6.json`。
+- 解析：`ParsedTodo.endTime: LocalTime?`。`stripLeadingTime` 解析出**开始**时刻后把余下的字符串
+  交给新增的 `consumeTimeRange(after, startPeriod, acc)`：
+  - 连接词 `timeRangeConnectors = 到/至/~/～/—/–/-`（`-` 也收：`9:00-10:30`、`3点-5点` 都常见；
+    它只在**本列表**里，`rangeConnectors` 仍故意不收 `-`，那是 `2026-10-24` 的分隔符）；
+  - ★ **结束时刻必须继承开始时刻的时段词**（`endAcc.pendingPeriod = startPeriod`），
+    否则「下午3点到5点」的右半 5 点会被读成**凌晨 05:00**。这是方案B能成立的前提；
+  - 守卫：连接词后必须真是时刻（`clockRe`/`hourRe` 都能命中，且 `hourRe` 同样挡「到一点点」），
+    否则走 `stripTimeModifier` 原样返回 —— 「3点到位」「3点到公司」不受影响（老守卫测试已固化）；
+  - 内嵌时刻路径（`embeddedTime`）也要能吃区间：`EmbeddedTime` 加 `period` 字段，
+    「开会下午3点到5点」「开会15点到17点」同样出 15:00~17:00。
+- 落库：`TodoRepository.parsedToEnd()` —— 与 `dueAtMillis` 同一天；**结束早于开始就滚到次日**
+  （「晚上11点到凌晨1点」= 23:00 ~ 次日01:00）。`addFromParsed`/`editFromParsed` 写入；
+  `rollForward`/`undoFromNotification` 的结束点跟着 due **同距平移**（不然会留下 end < due 的倒挂）。
+- 逾期/显示：
+  - `HomeGrouping.boardOf(due, …, end)` 与列表标红都传 `endAtMillis ?: dueAtMillis`
+    （16:00 的「15:00~17:00」是进行中，不标红、不进逾期板块）；
+  - 小组件 `dueLabel` 加 `endAtMillis`：文案「10月23日 15点~17点」，日期段 + 区间组合用
+    「21–23日 15点~17点」；
+  - 列表副行 `Format.weekdayTimeRange(due, end)` → 「周六 15点~17点」；
+    `Format.rangeLine(…, endTimeMillis)` → 日期段 + 区间；
+  - 编辑回填 `Format.editSentence(…, endAtMillis)` 写成「15点到17点」（**24h 裸数字，不拼"下午"**，
+    避免时段歧义，且必须能被解析器原样读回）；`MainViewModel.previewExisting` 反推 `endTime`。
+- 提醒：`ReminderScheduler.scheduleBlocking/scheduleFor` 新增 `endAtMillis` 参数，
+  **只挪逾期唠叨链的锚点**（`nextOverdueReminder(endAtMillis ?: dueAtMillis, …)`），
+  到点/提前提醒仍按开始点响（zuige：结束点不响）。`scheduleAllActiveBlocking`、
+  `reScheduleOverdue`、repository 三处都跟着传。
+- 预览卡：`PreviewRow` 加 `endTime`，时间 chip 显示「15:00~17:00」；手动把开始时刻改到
+  结束点**之后**就清掉结束点（宁可退化成单时刻，也不留"18:00~17:00（次日）"的坏数据）。
+
+### #8 新档位词：周末 / 年底 / 年末 / 年终 / 年初
+- `周末` 锚在**周六**：今天周六=今天，否则下一个周六（周日也算"下周六"，这个周末近尾声了）；
+  「这周末/本周末」同，「下周末」+1 周。这周/下周单独出现仍不是日期（老行为不变）。
+- `年底/年末/年终` → 今年 12-31；`年初` → 下一个 1-1（`nextJan1()`，今天就是 1-1 时取今天）。
+- ★ `rollYearMonth` 里 year 关键字 + 边界要匹配**带「年」的整词**（`年底/年末/年终/年初`），
+  不能只认单字「底/初」—— 吃掉「今年」后余下的是「年底…」不是「底…」。
+  少了这条，「今年年底总结」会被 `peelTitlePrefix` 剥成"标题=今年 + 详情=总结"。
+  单字「底/末/初」的形式（"本月底"）仍走月界分支，两者不冲突。
+
+### #4 相对提醒：马上 / 待会儿 / 稍后 → now + N 分钟
+- `relativeNowWords`（最长优先）：马上/立刻/立即 5，稍等一下/一会儿/等一下/稍等/一会/等下 15，
+  待会儿/待会 30，稍后/迟点/晚点 60。跨午夜（23:50+30）自动滚到明天。
+- 已解析出日期时**只补时刻、不抢日期**（「周五 待会儿聊聊」= 周五 15:00）。
+- 两条防误伤（都是探针 dump 里发现的真误伤）：
+  1. **词尾的相对词不参与 `peelTitlePrefix` 前缀扫描** —— 否则「火车晚点」→ 标题"火车"+15:30 提醒、
+     「看一会儿书」→ 标题"看"+14:45 提醒。它们本就习惯写在句首（"待会儿开会"），句首由
+     `stripLeadingDate` 直接命中，不需要这条兜底路径。
+  2. `relativeNowBlockNext`（现只有 `晚点` → 挡「名」「到」）：「晚点名」「晚点到」是复合词。
+- 相对时刻不能当**日期段/时长**的左半：`stripRange` 与 `stripDuration` 的 `从…起N天` 都加了
+  `relativeNowWords` 前置拦截 —— 否则「马上到周五」会变成"今天→周五"的日期段。
+
+### 测试（+22）
+- 时间区间：裸小时/时段词继承/7 种连接词/冒号+半点/内嵌/带日期/跨午夜/守卫。
+- 新档位词：周末（含"今天就是周六"）、周末变体、年底/年末/年初、year 关键字 + 边界、年终。
+- 相对提醒：各档位词、日期+标题、跨午夜、保留显式日期、复合词守卫、最长优先。

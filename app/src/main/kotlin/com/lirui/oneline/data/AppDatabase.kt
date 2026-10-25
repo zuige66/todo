@@ -10,7 +10,7 @@ import com.lirui.oneline.data.model.Todo
 
 @Database(
     entities = [Todo::class],
-    version = 5,
+    version = 6,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -65,6 +65,18 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Add [Todo.endAtMillis]（时间区间结束点；可空，null = 普通待办）。
+         * 老数据全 null，行为零变化。同样必须带 `DEFAULT NULL`（坑见 [MIGRATION_4_5]）。
+         */
+        private val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                if (!hasColumn(db, "todos", "endAtMillis")) {
+                    db.execSQL("ALTER TABLE todos ADD COLUMN endAtMillis INTEGER DEFAULT NULL")
+                }
+            }
+        }
+
         private fun hasColumn(db: SupportSQLiteDatabase, table: String, column: String): Boolean {
             db.query("PRAGMA table_info($table)").use { cursor ->
                 val nameIndex = cursor.getColumnIndex("name")
@@ -83,7 +95,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "oneline.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                     .build().also { INSTANCE = it }
             }
         }

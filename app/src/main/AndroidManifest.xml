@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!-- Notifications (Android 13+) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -18,21 +19,25 @@
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <!-- 可选常驻服务（设置→后台增强）使用 specialUse 类型。
          不用 dataSync：Android 15 起 BOOT_COMPLETED 不允许启动 dataSync 类型的前台服务。 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
 
-    <!-- 「检查更新」需要联网。只访问 GitHub：读 release 版本号 + 下载 APK。
-         待办数据始终只在本机，不接受任何上传。 -->
-    <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-    <!-- 更新包下载走前台服务（进程被杀会导致"下完不弹安装"，见 UpdateDownloadService）。 -->
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
-    <!-- 安装更新包。仅用于我们自己下载的 APK，不静默安装。 -->
-    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- ★ 本应用不申请任何网络权限（v1.0.0 起）。
+         应用内「检查更新」已下线，全部功能离线可用；关于页的 GitHub / 博客链接走
+         ACTION_VIEW 交给浏览器打开，联网的是浏览器，不是本应用。
+         这是国内应用商店上架的硬性前提之一 —— 同时也是「数据只在本地」这句话的依据。
+
+         ★ tools:node="remove" 是必需的：androidx.work 的 manifest 会自己声明
+         ACCESS_NETWORK_STATE（WorkManager 用它判断联网状态），合并后就会出现在最终包里。
+         本应用不用它的网络感知能力，显式移除，避免审核看到「声明了网络权限却说不联网」。
+         （INTERNET 不会被任何依赖注入，删掉即可，无需 remove。） -->
+    <uses-permission
+        android:name="android.permission.ACCESS_NETWORK_STATE"
+        tools:node="remove" />
 
     <application
         android:name=".OnelineApp"
-        android:allowBackup="true"
+        android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher"
         android:label="@string/app_name"
@@ -83,13 +88,7 @@
             </intent-filter>
         </receiver>
 
-        <!-- 更新包下载：前台服务（dataSync）。不导出，只能由本 App 启动。 -->
-        <service
-            android:name=".update.UpdateDownloadService"
-            android:exported="false"
-            android:foregroundServiceType="dataSync" />
-
-        <!-- 可选常驻服务（设置→后台增强，默认关）。
+        <!-- 可选常驻服务（设置→后台增强，默认开）。
              type=specialUse 的理由：Android 15 / target 35+ 禁止 BOOT_COMPLETED 启动
              dataSync / camera / mediaPlayback 等六种类型的前台服务，specialUse 不在其列。
              <property> 里的 PROPERTY_SPECIAL_USE_FGS_SUBTYPE 是 Android 14+ 对
@@ -129,17 +128,6 @@
             android:name=".widget.TodoWidgetActionReceiver"
             android:exported="false" />
 
-        <!-- 把内部存储里的 update/ 目录以 content:// 交给系统安装器。
-             authority 必须与 UpdateDownloadService 里 "$packageName.fileprovider" 一致。 -->
-        <provider
-            android:name="androidx.core.content.FileProvider"
-            android:authorities="${applicationId}.fileprovider"
-            android:exported="false"
-            android:grantUriPermissions="true">
-            <meta-data
-                android:name="android.support.FILE_PROVIDER_PATHS"
-                android:resource="@xml/file_paths" />
-        </provider>
     </application>
 
 </manifest>

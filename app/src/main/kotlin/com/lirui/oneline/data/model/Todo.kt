@@ -35,6 +35,12 @@ data class Todo(
      * 逾期判定仍只看 [dueAtMillis]（见 Format.isOverdue）。
      */
     val startAtMillis: Long? = null,
+    /**
+     * 时间区间的结束时刻（epoch 毫秒，与 [dueAtMillis] 同一天）。
+     * null = 普通待办；非 null 时 [dueAtMillis] 是开始点（提醒在这响），本字段是结束点，
+     * 用于列表显示「15:00 ~ 17:00」与逾期判定（过了结束点才算逾期，进行中不标红）。
+     */
+    @ColumnInfo(defaultValue = "NULL") val endAtMillis: Long? = null,
     val hasExactTime: Boolean = false,
 
     @ColumnInfo(defaultValue = "0") val repeatDays: Int = 0,

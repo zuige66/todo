@@ -42,6 +42,21 @@ object Format {
         return "%s %s".format(WEEKDAYS_CN[zdt.dayOfWeek.value - 1], timeLabel(zdt.toLocalTime()))
     }
 
+    /**
+     * 星期几 + **时间区间**（#1）：「周六 15点~17点」。
+     * [end] == null（普通单日待办）时退回 [weekdayTime]，老调用零改动。
+     */
+    fun weekdayTimeRange(due: Long, end: Long?): String {
+        if (end == null) return weekdayTime(due)
+        val s = java.time.Instant.ofEpochMilli(due).atZone(AppTime.ZONE)
+        val e = java.time.Instant.ofEpochMilli(end).atZone(AppTime.ZONE)
+        return "%s %s~%s".format(
+            WEEKDAYS_CN[s.dayOfWeek.value - 1],
+            timeLabel(s.toLocalTime()),
+            timeLabel(e.toLocalTime())
+        )
+    }
+
     fun time(due: Long): String {
         val t = java.time.Instant.ofEpochMilli(due).atZone(AppTime.ZONE).toLocalTime()
         return timeLabel(t)
@@ -120,13 +135,18 @@ object Format {
     /**
      * 时间段的一行文案：`10月21日–23日` / `10月21日–11月3日` / `2026年10月21日–2027年1月3日`，
      * 末尾按需带星期与结束时刻。单日退回 [dueLine]。
+     *
+     * [endTimeMillis] 非空（#1 时间区间：「周一到周三 下午3点到5点」）= 末尾渲染成
+     * 「15点~17点」而不是只带结束时刻 —— 日期段 + 时间区间的组合只有编辑一条重复待办
+     * 才造得出来，但一旦出现就得显示对。
      */
     fun rangeLine(
         start: Long?,
         end: Long,
         showWeekday: Boolean = true,
         today: LocalDate = AppTime.today(),
-        showTime: Boolean = true
+        showTime: Boolean = true,
+        endTimeMillis: Long? = null
     ): String {
         if (start == null) return dueLine(end, showWeekday, today, showTime)
         val s = dueAtMillis(start)
@@ -137,7 +157,17 @@ object Format {
             if (showWeekday) append(" ").append(WEEKDAYS_CN[e.dayOfWeek.value - 1])
             if (showTime) {
                 val t = java.time.Instant.ofEpochMilli(end).atZone(AppTime.ZONE).toLocalTime()
-                append(" ").append(if (t.minute == 0) "${t.hour}点" else String.format("%d:%02d", t.hour, t.minute))
+                if (endTimeMillis != null) {
+                    val te = java.time.Instant.ofEpochMilli(endTimeMillis).atZone(AppTime.ZONE).toLocalTime()
+                    append(" ").append(
+                        "%s~%s".format(
+                            if (t.minute == 0) "${t.hour}点" else String.format("%d:%02d", t.hour, t.minute),
+                            if (te.minute == 0) "${te.hour}点" else String.format("%d:%02d", te.hour, te.minute)
+                        )
+                    )
+                } else {
+                    append(" ").append(if (t.minute == 0) "${t.hour}点" else String.format("%d:%02d", t.hour, t.minute))
+                }
             }
         }
         return when {
@@ -177,6 +207,10 @@ object Format {
      * - 时间段写成 [rangeSentence]（`10月24日到26日`），否则开始日会丢、区间退化成单日；
      * - 单日只写日期，**不拼星期**。旧实现拼出「10月26日 周一」，而「周一」会被解析成
      *   本周一（10/19），一点保存就多出一条已经过期的待办。
+     *
+     * [endAtMillis] 非空（#1 时间区间）时，时刻写成「15点到17点」而不是「15点」——
+     * 否则一保存，结束点就丢了（区间退化成普通待办）。用 24 小时制裸数字，不拼「下午」：
+     * 「下午3点到5点」与「15点到17点」解析结果一致，后者没有时段词歧义。
      */
     fun editSentence(
         title: String,
@@ -184,7 +218,8 @@ object Format {
         start: Long?,
         due: Long?,
         hasExactTime: Boolean = true,
-        today: LocalDate = AppTime.today()
+        today: LocalDate = AppTime.today(),
+        endAtMillis: Long? = null
     ): String = buildString {
         append(title)
         if (detail.isNotBlank()) {
@@ -205,8 +240,17 @@ object Format {
         // Pinned zone —— 回填的句子必须和创建时读到的墙钟一致，不受设备时区影响。
         val t = java.time.Instant.ofEpochMilli(due).atZone(AppTime.ZONE).toLocalTime()
         append(" ")
-        append(if (t.minute == 0) "${t.hour}点" else "${t.hour}点${t.minute}分")
+        if (endAtMillis != null) {
+            val te = java.time.Instant.ofEpochMilli(endAtMillis).atZone(AppTime.ZONE).toLocalTime()
+            append(timeWord(t)).append("到").append(timeWord(te))
+        } else {
+            append(timeWord(t))
+        }
     }
+
+    /** 「15点」/「15点30分」—— 回填输入框用，必须能被解析器原样读回（见 [editSentence]）。 */
+    private fun timeWord(t: java.time.LocalTime): String =
+        if (t.minute == 0) "${t.hour}点" else "${t.hour}点${t.minute}分"
 
     /** 右侧紧凑范围：`21–23日` / `10/21–11/3`；单日退回 [monthDay]。 */    fun monthDayRange(start: Long?, end: Long): String {
         if (start == null) return monthDay(dueAtMillis(end))

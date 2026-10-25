@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/zuige66/todo/releases"><img src="https://img.shields.io/badge/release-v0.9.3-3F3F46?style=flat-square" alt="release" /></a>
+  <a href="https://github.com/zuige66/todo/releases"><img src="https://img.shields.io/badge/release-v1.0.0-3F3F46?style=flat-square" alt="release" /></a>
   <img src="https://img.shields.io/badge/platform-Android-3DDC84?style=flat-square" alt="platform" />
   <img src="https://img.shields.io/badge/build-Kotlin%20%2B%20Compose-7F52FF?style=flat-square" alt="build" />
   <img src="https://img.shields.io/badge/storage-Room-4479A1?style=flat-square" alt="storage" />
@@ -20,7 +20,7 @@
 <p align="center">
   <a href="https://github.com/zuige66/todo/releases/latest"><b>下载 APK（GitHub）</b></a>
   &nbsp;·&nbsp;
-  <a href="https://blog.zuiges.com/downloads/oneline/todo-0.9.3.apk"><b>下载 APK（博客源）</b></a>
+  <a href="https://blog.zuiges.com/downloads/oneline/todo-1.0.0.apk"><b>下载 APK（博客源）</b></a>
   &nbsp;·&nbsp;
   <a href="DESIGN.md">设计文档</a>
   &nbsp;·&nbsp;
@@ -116,8 +116,10 @@
 | 纯日号 | 5号、十五号、二号 |
 | 时间段 | `25号到1号`、`10月24日到26日`、`10月28日到11月3日`（跨月自动补上月份；开始日==结束日按单日算） |
 | 数字短日期 | `1.2` / `26.1.2` / `2026.1.2`（分隔符支持 `.` `-` `/`，两位年份按 20yy） |
+| 周末 | 周末（**锚在周六**：今天周六=今天，否则下一个周六；周日算下周六）、这周末 / 本周末 / 下周末（+1 周） |
 | 年份词 | 今年、明年、下一年 |
 | 月份词 | 本月、这个月、下个月（可再接 `X月` / `X日`） |
+| 年/月边界 | 月底 / 月末 / 月初（**月**边界）、年底 / 年末 / 年终 / 年初（**年**边界：12-31 / 下一个 1-1）、`今年年底` `明年初` |
 | 容错 | 全角数字与全角冒号、点号会先归一化（`８：３０` → `8:30`） |
 
 中文数字支持到三十一，`1月二日`、`十二月三十一号` 都能读。
@@ -127,6 +129,10 @@
 - `15:30`、`15：30`
 - `3点`、`下午3点`、`晚上11点`
 - `3点半`、`3点一刻`、`3点三刻`、`3点20分`
+- **时间区间**：`下午3点到5点`、`3点~5点`、`9:00-10:30`（连接词：`到` `至` `~` `～` `—` `–` `-`）
+  - ★ 结束时刻**继承开始时刻的时段词**：「下午3点到5点」是 15:00–17:00，不是 15:00–05:00；
+    跨午夜的写法（「晚上11点到凌晨1点」）结束点落在次日。
+  - 提醒仍只在**开始点**响；**逾期看结束点** —— 16:00 的「15:00~17:00」是进行中，不标红、也不唠叨。
 
 **时段词带默认时刻**，只写时段不写具体时间时用它：
 
@@ -162,7 +168,11 @@
 - **写死了年份、算出来是过去的日期** → 报错。`2026年1月2日` 指的是确定的某一天，它过去了就该提醒你。
 - **只写时刻、今天已过** → 顺延到明天。`3点开会` 下午说的，指的是明天下午 3 点。
 - **显式写了"今天"但时刻已过** → 报错，不静默顺延。你已经指定了是哪一天。
+- **相对提醒**：`马上去开会`（+5 分钟）、`一会儿下楼`（+15）、`待会儿吃饭`（+30）、`稍后回电`（+60）
+  → 以「现在」为锚点给出具体时刻，跨午夜自动滚到明天；已经写了日期时只补时刻（`周五 待会儿聊聊`）。
+  「火车晚点」「看一会儿书」这类**复合词**不会被当成相对提醒（词尾的相对词不参与「文字+日期」扫描）。
 - **一句话里有多个日期** → 生成多条待办，一次性录入。写「明天，后天 开会」，得到两条待办。
+  预览卡片上有「合并为时间段」开关：想把「24号25号 出差」当成**一段**时间（起止取最早/最晚日期）而不是两条单日，点它即可；再点「拆成多条」切回。
 
 ---
 
@@ -209,7 +219,7 @@
 ```
 模板：🚀🚀{提醒}⏳⏳
 到点   → 开组会 🚀🚀该办了⏳⏳
-提前   → 开组会 🚀🚀提前提醒⏳⏳
+提前   → 开组会 🚀🚀提前3天提醒⏳⏳（按提前天数自动显示：7 / 3 / 1 天）
 完成   → 开组会 🎉🎉（走「完成后后缀」，不再用模板）
 ```
 
@@ -301,19 +311,15 @@
 
 ---
 
-## 检查更新
+## 隐私与网络
 
-关于页有「检查更新」：读 GitHub Releases 的最新版本号，与本机 `versionName` 比对（语义化版本，逐段比较）。
-发现新版本弹窗展示更新日志，可以直接下载 APK 并调起系统安装器；没有新版本、仓库还没发过版、网络失败各有独立提示。
+**本应用不申请任何网络权限。**
 
-- 下载源两处并行维护：GitHub Releases（主）与博客镜像 `blog.zuiges.com/downloads/oneline/`
-- 网络请求在 `Dispatchers.IO` + 6s 超时，失败按 DNS / 超时 / TLS / HTTP 状态码分类，不崩溃不卡死
-- 下载走**前台服务**（`UpdateDownloadService`），下完用 `FileProvider` 交给系统安装器；
-  没有「安装未知应用」权限时会跳到对应设置页
-- 检查中按钮禁用 + 函数入口 guard，连点不会重复请求、不会叠出多个弹窗
-- 如果 release 没挂 APK 资产，弹窗按钮会变成「打开发布页」
-
-> 这是应用唯一的联网行为：只访问 GitHub，只发送版本号。待办数据始终只在本机。
+- v1.0.0 起下线了应用内「检查更新」—— 国内应用商店一律禁止应用内下载安装 APK，属必拒项
+- 关于页的 GitHub / 博客链接点击后交给系统浏览器打开 —— 联网的是浏览器，不是本应用
+- 首次启动弹隐私政策同意弹窗；点遮罩和返回键都关不掉，不同意则退出应用
+- 权限申请（通知等）一律在**同意隐私政策之后**才发起
+- 待办数据只在本机，且已关闭系统云备份（`allowBackup=false`）
 
 ---
 
@@ -328,9 +334,9 @@
 | 导航 | 单 Activity，Compose 内部状态切换（4 个 tab） |
 | 最低版本 | Android 8.0（API 26） |
 | 编译 / 目标 | API 36 |
-| 版本 | 0.9.3（versionCode 32） |
+| 版本 | 1.0.0（versionCode 34） |
 | 包名 | `com.lirui.oneline` |
-| 网络 | 仅 `INTERNET` + `ACCESS_NETWORK_STATE`，只用于检查更新与下载 APK |
+| 网络 | **不申请任何网络权限**（v1.0.0 起，检查更新已下线） |
 
 ### 数据模型
 
@@ -366,7 +372,7 @@ NotificationActionReceiver  「完成」/「撤回」→ 复用同一个归档�
 
 ### 测试
 
-250 条单元测试，覆盖解析器、提醒引擎、通知标题、版本比较、格式化、时间与首页分组：
+242 条单元测试，覆盖解析器、提醒引擎、通知标题、版本比较、格式化、时间与首页分组：
 
 ```
 Compose 之外的逻辑全部是纯函数，可以直接测
@@ -415,17 +421,12 @@ app/src/main/kotlin/com/lirui/oneline/
 │   ├── screen/
 │   │   ├── TodoListScreen.kt    首页、归档页、设置页、四 tab 导航
 │   │   ├── AddSheet.kt          输入弹层
-│   │   ├── AboutScreen.kt       关于页（含检查更新）
-│   │   └── UpdateDialog.kt      更新/失败弹窗
+│   │   ├── AboutScreen.kt       关于页（含隐私政策入口）
+│   │   ├── PrivacyScreen.kt     隐私政策页 + 首次启动同意弹窗
 │   └── theme/
 │       ├── Theme.kt             配色与深色卡片
 │       └── Tokens.kt            统一卡片/输入面/按钮语义色
-├── update/
-│   ├── Version.kt               语义化版本比较（纯函数，可单测）
-│   ├── UpdateService.kt         检查更新（GitHub Releases）
-│   ├── UpdateDownloadService.kt 前台服务下载 APK
-│   └── ApkInstaller.kt          下载入口
-└── util/
+├── util/
     ├── AppTime.kt               固定时区
     ├── Format.kt                日期格式化、逾期判定
     ├── HomeGrouping.kt          板块与档位分组
@@ -435,7 +436,6 @@ app/src/main/kotlin/com/lirui/oneline/
 app/src/test/java/com/lirui/oneline/
 ├── parser/ParserTest.kt
 ├── reminder/{ReminderEngineTest,NotificationTitleTest}.kt
-├── update/VersionTest.kt
 └── util/{FormatTest,HomeGroupingTest,AppTimeTest}.kt
 ```
 

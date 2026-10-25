@@ -54,9 +54,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import com.lirui.oneline.parser.ParsedTodo
+import com.lirui.oneline.parser.RangeMerge
 import com.lirui.oneline.ui.theme.actionContainer
 import com.lirui.oneline.ui.theme.actionContent
 import com.lirui.oneline.ui.theme.actionDisabledContainer
@@ -67,6 +69,7 @@ import com.lirui.oneline.ui.theme.fieldSurface
 import com.lirui.oneline.ui.theme.placeholderText
 import com.lirui.oneline.util.AppTime
 import com.lirui.oneline.util.Format
+import com.lirui.oneline.util.SettingsRepo
 
 @OptIn(
     ExperimentalMaterial3Api::class,
@@ -116,6 +119,15 @@ fun AddSheet(
     var detailOverrides by remember { mutableStateOf(mapOf<Int, String?>()) }
     var pickingIndex by remember { mutableIntStateOf(-1) }
     var showDatePicker by remember { mutableStateOf(false) }
+
+    // ── 「合并为时间段」开关（v0.9.3 补丁）──
+    // 「24号25号 出差」默认是两条单日待办（每天各提醒一次，这是对的）；
+    // 但"这一段时间都在出差"的场景需要一条时间段待办。这里只切状态，
+    // 合并语义全在 [RangeMerge]（可单测），UI 不自己算起止。
+    // ★ 必须声明在 effectiveParses() **之前**：局部 fun 引用后声明的局部变量编译不过。
+    var mergeMode by remember { mutableStateOf(false) }
+    // 句子变了（重新解析）就退出合并态：条数和日期都换了，旧的合并结果没有意义。
+    LaunchedEffect(parses) { mergeMode = false }
     // 时间段（有开始日）走"起止同屏"的区间选择器，不再分两个日历（v0.8.9）。
     var showRangePicker by remember { mutableStateOf(false) }
     var showTimePicker by remember { mutableStateOf(false) }
@@ -131,47 +143,62 @@ fun AddSheet(
     val pickerColors = DatePickerDefaults.colors(todayDateBorderColor = Color.Transparent)
 
     /** 句子解析 + 手动覆盖 合并后的最终预览（提交也用它）。 */
-    fun effectiveParses(): List<ParsedTodo> = parses.mapIndexed { index, p ->
-        val date = if (dateOverrides.containsKey(index)) dateOverrides[index] else p.dueDate
-        val startRaw = if (startDateOverrides.containsKey(index)) startDateOverrides[index] else p.startDate
-        val time = timeOverrides[index] ?: p.dueTime
-        val title = titleOverrides[index] ?: p.title
-        val detail = if (detailOverrides.containsKey(index)) detailOverrides[index] else p.detail
-        // 区间归一化（反转对调、结束日没了就清开始日）与预览卡片共用同一个函数 ——
-        // 两处各写一遍正是"卡片显示的和实际存的不一样"的根因。
-        val (start, end) = normalizeRange(startRaw, date)
-        // ★ 用户**真的动过**这个维度，才清掉句子解析出来的 error。
-        //   以前是无条件 `dateError = false`：输入「周一开会」（本周一已过，红字警告），
-        //   只把标题改一个字，日期根本没碰，dateError 就被清了 —— 校验通过，
-        //   列表里多出一条已逾期的待办。改了日期才该重判，改标题不该。
-        val dateTouched = dateOverrides.containsKey(index) || startDateOverrides.containsKey(index)
-        val timeTouched = timeOverrides.containsKey(index)
-        if (end == null && time == null && start == null &&
-            !dateOverrides.containsKey(index) && !startDateOverrides.containsKey(index) &&
-            !titleOverrides.containsKey(index) && !detailOverrides.containsKey(index)
-        ) {
-            p
-        } else {
-            p.copy(
-                title = title,
-                dueDate = end,
-                dueTime = time,
-                detail = detail,
-                startDate = start,
-                // hasExactTime 是计算属性（dueTime != null）：手动选了时刻自动就是精确提醒，
-                // 不需要也不能在 copy 里传。
-                // 覆盖后重新判断"今天已过"：用户把日期/时间改到未来就不该再报 error，
-                // 但没动过的那一维必须保留原判。
-                dateError = if (dateTouched) false else p.dateError,
-                timeError = if (timeTouched) {
-                    time != null && end == today && time.isBefore(
-                        java.time.Instant.ofEpochMilli(nowMillis).atZone(AppTime.ZONE).toLocalTime()
-                    )
-                } else {
-                    p.timeError
-                }
-            )
+    fun effectiveParses(): List<ParsedTodo> {
+        val merged = parses.mapIndexed { index, p ->
+            val date = if (dateOverrides.containsKey(index)) dateOverrides[index] else p.dueDate
+            val startRaw = if (startDateOverrides.containsKey(index)) startDateOverrides[index] else p.startDate
+            val time = timeOverrides[index] ?: p.dueTime
+            val title = titleOverrides[index] ?: p.title
+            val detail = if (detailOverrides.containsKey(index)) detailOverrides[index] else p.detail
+            // 区间归一化（反转对调、结束日没了就清开始日）与预览卡片共用同一个函数 ——
+            // 两处各写一遍正是"卡片显示的和实际存的不一样"的根因。
+            val (start, end) = normalizeRange(startRaw, date)
+            // ★ 用户**真的动过**这个维度，才清掉句子解析出来的 error。
+            //   以前是无条件 `dateError = false`：输入「周一开会」（本周一已过，红字警告），
+            //   只把标题改一个字，日期根本没碰，dateError 就被清了 —— 校验通过，
+            //   列表里多出一条已逾期的待办。改了日期才该重判，改标题不该。
+            val dateTouched = dateOverrides.containsKey(index) || startDateOverrides.containsKey(index)
+            val timeTouched = timeOverrides.containsKey(index)
+            // 时间区间（#1）：结束点默认跟句子解析走。用户手动改了开始时刻时按新值重判 ——
+            // 仍早于结束点就保留区间，改到结束点之后（反序）就丢掉结束点：
+            // 「15:00~17:00」把开始拨到 18:00 存成"18:00~17:00（次日）"比清掉更糟。
+            val endTime = when {
+                !timeTouched -> p.endTime
+                time == null || p.endTime == null -> null
+                time.isBefore(p.endTime) -> p.endTime
+                else -> null
+            }
+            if (end == null && time == null && start == null && endTime == null &&
+                !dateOverrides.containsKey(index) && !startDateOverrides.containsKey(index) &&
+                !titleOverrides.containsKey(index) && !detailOverrides.containsKey(index)
+            ) {
+                p
+            } else {
+                p.copy(
+                    title = title,
+                    dueDate = end,
+                    dueTime = time,
+                    detail = detail,
+                    startDate = start,
+                    endTime = endTime,
+                    // hasExactTime 是计算属性（dueTime != null）：手动选了时刻自动就是精确提醒，
+                    // 不需要也不能在 copy 里传。
+                    // 覆盖后重新判断"今天已过"：用户把日期/时间改到未来就不该再报 error，
+                    // 但没动过的那一维必须保留原判。
+                    dateError = if (dateTouched) false else p.dateError,
+                    timeError = if (timeTouched) {
+                        time != null && end == today && time.isBefore(
+                            java.time.Instant.ofEpochMilli(nowMillis).atZone(AppTime.ZONE).toLocalTime()
+                        )
+                    } else {
+                        p.timeError
+                    }
+                )
+            }
         }
+        // 「合并为时间段」：多条 → 一条（起止取最小/最大日期）。语义在 RangeMerge，
+        // 不满足条件（有条目没日期 / 只有一条）时原样返回，UI 无需特判。
+        return if (mergeMode) RangeMerge.merge(merged) else merged
     }
     // 合并后的结果（预览、红字、提交三处共用同一份，避免"提示和实际校验不一致"）。
     val effective = effectiveParses()
@@ -310,6 +337,8 @@ fun AddSheet(
                     timeOverrides = timeOverrides,
                     titleOverrides = titleOverrides,
                     detailOverrides = detailOverrides,
+                    mergeMode = mergeMode,
+                    onToggleMerge = { mergeMode = !mergeMode },
                     onPickDate = { index ->
                         pickingIndex = index
                         showDatePicker = true
@@ -355,7 +384,12 @@ fun AddSheet(
 
         // ── 日期选择器（v0.7：预览卡片日期 chip 点击弹出）──
         if (showDatePicker && pickingIndex in parses.indices) {
-            val current = dateOverrides[pickingIndex] ?: parses[pickingIndex].dueDate
+            // ★ initial 值读 effective（合并后的结果）而不是原始 parses：合并态下
+            //   打开选择器必须看到合并后的日期，否则"显示 24 号、存的却是 25 号"。
+            //   非合并态 effective[i] 与 parses[i] 逐字相同，两种模式同一份代码。
+            val current = dateOverrides[pickingIndex]
+                ?: effective.getOrNull(pickingIndex)?.dueDate
+                ?: parses[pickingIndex].dueDate
             val pickerState = rememberDatePickerState(
                 // ★ 必须是「UTC 当日 00:00」（见 AppTime.pickerMillis 的说明）。
                 //   以前传本地午夜，日历按 UTC 读出前一天 → 用户看到"日期比实际小 1"。
@@ -394,8 +428,13 @@ fun AddSheet(
         // 以前是「开始 / 结束」两个 chip 各弹一个单日日历，改一条区间要开两次、还得自己保证先后顺序。
         // 现在合成一个 chip，点开就是 DateRangePicker：一次点起点、一次点终点，中间自动涂区间底色。
         if (showRangePicker && pickingIndex in parses.indices) {
-            val start = startDateOverrides[pickingIndex] ?: parses[pickingIndex].startDate
-            val end = dateOverrides[pickingIndex] ?: parses[pickingIndex].dueDate
+            // 同上：初始起止读 effective（合并态 = 合并后的区间）。
+            val start = startDateOverrides[pickingIndex]
+                ?: effective.getOrNull(pickingIndex)?.startDate
+                ?: parses[pickingIndex].startDate
+            val end = dateOverrides[pickingIndex]
+                ?: effective.getOrNull(pickingIndex)?.dueDate
+                ?: parses[pickingIndex].dueDate
             val rangeState = rememberDateRangePickerState(
                 // 同单日选择器：UTC 当日 00:00 口径（见 AppTime.pickerMillis），否则整段少一天。
                 initialSelectedStartDateMillis = start?.let { AppTime.pickerMillis(it) },
@@ -481,9 +520,13 @@ fun AddSheet(
         // ── 时间选择器 ──
         if (showTimePicker && pickingIndex in parses.indices) {
             val current = timeOverrides[pickingIndex] ?: parses[pickingIndex].dueTime
+            // ★ 初始时刻读设置里的「默认提醒时刻」，不再硬编码 9:00。
+            //   两个"默认时刻"是同一个语义（只写日期的待办落哪个点、点「+ 时间」
+            //   从哪儿开始滚），分开写就会出现"设置里改了 21:00、这里还是 9:00"。
+            val defaultMinute = SettingsRepo.defaultMinuteOfDay(LocalContext.current)
             val timeState = rememberTimePickerState(
-                initialHour = current?.hour ?: 9,
-                initialMinute = current?.minute ?: 0,
+                initialHour = current?.hour ?: (defaultMinute / 60),
+                initialMinute = current?.minute ?: (defaultMinute % 60),
                 is24Hour = true
             )
             AlertDialog(
@@ -589,6 +632,9 @@ private fun PreviewCard(
     timeOverrides: Map<Int, java.time.LocalTime>,
     titleOverrides: Map<Int, String>,
     detailOverrides: Map<Int, String?>,
+    /** 「合并为时间段」开关状态（v0.9.3 补丁）。 */
+    mergeMode: Boolean = false,
+    onToggleMerge: () -> Unit = {},
     onPickDate: (Int) -> Unit,
     onPickRange: (Int) -> Unit,
     onPickTime: (Int) -> Unit,
@@ -606,12 +652,39 @@ private fun PreviewCard(
         //   把结束日改到开始日之前 → 卡片显示「10月25日 – 10月23日」，保存后却是 10月23–25；
         //   把结束日选成「无日期」→ 卡片还挂着「开始 10月25日」，保存后开始日却没了。
         val (start, end) = normalizeRange(startRaw, dateRaw)
-        PreviewRow(index, p, start, end, time, title, detail)
+        // 结束点与提交侧同一套规则（见 effectiveParses）：手动改过开始时刻才重判。
+        val endTime = when {
+            !timeOverrides.containsKey(index) -> p.endTime
+            time == null || p.endTime == null -> null
+            time.isBefore(p.endTime) -> p.endTime
+            else -> null
+        }
+        PreviewRow(index, p, start, end, time, endTime, title, detail)
     }.filter { row ->
-        row.date != null || row.time != null || row.start != null ||
+        row.date != null || row.time != null || row.start != null || row.endTime != null ||
             row.p.repeatDays > 0 || row.title.isNotBlank()
     }
     if (items.isEmpty()) return
+
+    // ── 「合并为时间段」（v0.9.3 补丁）──
+    // 只在添加模式、多条、且每条都有日期时可用。
+    // ★ 合并行的 index = **0**（第一条），不是 -1：标题/详情/时间 chip 全部可点，
+    //   编辑写入第一条的 override，而 RangeMerge 正是取第一条的 title/detail/time
+    //   + 全部日期的 min/max —— 点日期 chip 改第一条的结束日，起止会自动重算。
+    //   （曾经把 index 设成 -1 让整行不可点，用户反馈"合并之后预览编辑不可用"——
+    //    合并是快捷方式，不是把编辑权收走。）
+    val canMerge = !editing && items.size > 1 && items.all { it.date != null }
+    val displayRows = if (mergeMode && canMerge) {
+        val sorted = items.sortedBy { it.date }
+        val first = sorted.first()
+        val last = sorted.last()
+        if (first.date == last.date) {
+            // 全部是同一天：合并无意义，按单日显示（start 清掉）。
+            listOf(first.copy(index = 0, start = null))
+        } else {
+            listOf(first.copy(index = 0, start = first.date, date = last.date))
+        }
+    } else items
 
     Surface(
         shape = MaterialTheme.shapes.extraLarge,
@@ -631,25 +704,40 @@ private fun PreviewCard(
             if (items.size > 1) {
                 // 添加模式是"一句多建"，编辑模式却只有第一条会被 update ——
                 // 以前这里两种模式都写「将创建 N 条待办」，编辑时等于承诺了做不到的事。
-                Text(
-                    if (editing) "编辑只保存第一条，其余 ${items.size - 1} 条请单独添加"
-                    else "将创建 ${items.size} 条待办",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = if (editing) MaterialTheme.colorScheme.error
-                    else MaterialTheme.colorScheme.primary
-                )
+                // 合并态改成「1 条时间段待办」，并给一个切换（v0.9.3 补丁）。
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        when {
+                            editing -> "编辑只保存第一条，其余 ${items.size - 1} 条请单独添加"
+                            mergeMode && canMerge -> "将创建 1 条时间段待办"
+                            else -> "将创建 ${items.size} 条待办"
+                        },
+                        style = MaterialTheme.typography.labelLarge,
+                        color = if (editing) MaterialTheme.colorScheme.error
+                        else MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.weight(1f)
+                    )
+                    if (canMerge) {
+                        TextButton(onClick = onToggleMerge) {
+                            Text(if (mergeMode) "拆成多条" else "合并为时间段")
+                        }
+                    }
+                }
             }
-            items.forEachIndexed { i, row ->
+            displayRows.forEachIndexed { i, row ->
                 if (i > 0) {
                     HorizontalDivider(
                         color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
                     )
                 }
+                // 合并行的 index = 0（第一条）：标题/详情/时间/日期全部可编辑，
+                // 写入第一条的 override 后 RangeMerge 会按新值重算起止。
                 PreviewItem(
                     p = row.p,
                     start = row.start,
                     date = row.date,
                     time = row.time,
+                    endTime = row.endTime,
                     title = row.title,
                     detail = row.detail,
                     onPickDate = { onPickDate(row.index) },
@@ -694,6 +782,8 @@ private data class PreviewRow(
     val start: java.time.LocalDate?,
     val date: java.time.LocalDate?,
     val time: java.time.LocalTime?,
+    /** 时间区间结束点（#1）；null = 普通单时刻。 */
+    val endTime: java.time.LocalTime?,
     val title: String,
     val detail: String?
 )
@@ -713,6 +803,8 @@ private fun PreviewItem(
     start: java.time.LocalDate?,
     date: java.time.LocalDate?,
     time: java.time.LocalTime?,
+    /** 时间区间结束点（#1）：时刻 chip 渲染成「15:00~17:00」。 */
+    endTime: java.time.LocalTime?,
     title: String,
     detail: String?,
     onPickDate: () -> Unit,
@@ -745,7 +837,14 @@ private fun PreviewItem(
                 InfoChip("+ 日期", onClick = onPickDate)
             }
             if (time != null) {
-                InfoChip(Format.timeLabel(time), onClick = onPickTime)
+                // 时间区间（#1）：chip 直接显示「15:00~17:00」。点它仍改**开始**时刻
+                // （没有单独的结束时刻选择器）；拨到结束点之后，区间自动取消（见 effectiveParses）。
+                val label = if (endTime != null) {
+                    "${Format.timeLabel(time)}~${Format.timeLabel(endTime)}"
+                } else {
+                    Format.timeLabel(time)
+                }
+                InfoChip(label, onClick = onPickTime)
             } else {
                 InfoChip("+ 时间", onClick = onPickTime)
             }

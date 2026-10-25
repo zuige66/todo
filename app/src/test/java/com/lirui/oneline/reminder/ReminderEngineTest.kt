@@ -231,6 +231,12 @@ class ReminderEngineTest {
         // 0.9.3 的回归测试：START 曾经在 receiver 的 when 里没有分支，落到 else，
         // 用户看到的是「出差 提醒」而不是「出差 今天开始」。
         assertEquals("提前提醒", ReminderEngine.messageFor(ReminderEngine.Reminder.Kind.GRADED))
+        // 0.9.4：提前提醒按提前天数细化。leadDays 由 gradedReminder 按距到期天数填（7/3/1）。
+        assertEquals("提前7天提醒", ReminderEngine.messageFor(ReminderEngine.Reminder.Kind.GRADED, leadDays = 7))
+        assertEquals("提前3天提醒", ReminderEngine.messageFor(ReminderEngine.Reminder.Kind.GRADED, leadDays = 3))
+        assertEquals("提前1天提醒", ReminderEngine.messageFor(ReminderEngine.Reminder.Kind.GRADED, leadDays = 1))
+        // 没带天数（旧版已排的闹钟 / 异常路径）回退到笼统文案，不崩。
+        assertEquals("提前提醒", ReminderEngine.messageFor(ReminderEngine.Reminder.Kind.GRADED, leadDays = 0))
         assertEquals("1小时后到期", ReminderEngine.messageFor(ReminderEngine.Reminder.Kind.EXACT_PREP))
         assertEquals(
             "该办了",

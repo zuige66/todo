@@ -874,6 +874,94 @@ class ParserTest {
         assertEquals(LocalTime.of(15, 0), r.dueTime)
     }
 
+    // P2-1：em/en 破折号当时段连词。normalize 故意不再把 —/– 归一成 -（否则 rangeConnectors
+    // 匹配不到，整段进标题），所以「10月21日—23日」必须和「10月21日到23日」等价。
+    @Test fun range_emDashConnector() {
+        val r = parse("10月21日—23日开会") // — = U+2014
+        assertEquals("开会", r.title)
+        assertEquals(LocalDate.of(2026, 10, 21), r.startDate)
+        assertEquals(LocalDate.of(2026, 10, 23), r.dueDate)
+        assertFalse(r.dateError) // 开始日已过不代表报错
+    }
+
+    @Test fun range_enDashConnector() {
+        val r = parse("10月21日–23日开会") // – = U+2013
+        assertEquals("开会", r.title)
+        assertEquals(LocalDate.of(2026, 10, 21), r.startDate)
+        assertEquals(LocalDate.of(2026, 10, 23), r.dueDate)
+    }
+
+    // P2-1：破折号当年月日分隔时仍解析成单日（num3Re 分隔符类显式收编 —/–），不被当成区间切坏。
+    @Test fun absoluteDate_emDashSeparators() {
+        val r = parse("2026—10—24开会")
+        assertEquals("开会", r.title)
+        assertEquals(LocalDate.of(2026, 10, 24), r.dueDate)
+        assertNull(r.startDate) // 单日，不是区间
+    }
+
+    // 全角 －（U+FF0D）仍归一成 -：这条老行为不能因为上面改动而回归。
+    @Test fun absoluteDate_fullWidthHyphenStillNormalizes() {
+        val r = parse("2026－10－24开会")
+        assertEquals("开会", r.title)
+        assertEquals(LocalDate.of(2026, 10, 24), r.dueDate)
+        assertNull(r.startDate)
+    }
+
+    // ---- 月底/月初 + 每月N号 + 时刻模糊词 修复固化（2026-10-24，#2/#3/#7）----
+    // 固定 now=14:30，让"已过→明天"的判定可复现。
+    private fun parseAt(s: String) = Parser(today, LocalTime.of(14, 30)).parse(s)
+
+    @Test fun monthEnd_viaBenYue() {
+        val r = parse("本月底关账")
+        assertEquals("关账", r.title)
+        assertEquals(LocalDate.of(2026, 10, 31), r.dueDate)
+    }
+
+    @Test fun monthEnd_standalone() {
+        val r = parse("月末盘点")
+        assertEquals("盘点", r.title)
+        assertEquals(LocalDate.of(2026, 10, 31), r.dueDate)
+        assertEquals(LocalDate.of(2026, 11, 30), parse("下个月底").dueDate)
+    }
+
+    @Test fun monthStart() {
+        val r = parse("月初预算")
+        assertEquals("预算", r.title)
+        assertEquals(LocalDate.of(2026, 10, 1), r.dueDate)
+        assertTrue(r.dateError) // 10/1 已过
+    }
+
+    @Test fun monthBoundary_zhongIsNotADate() {
+        // 「中」在"中奖/中了"里是动词，不能当时中边界；今年无显式月 → 无日期。
+        assertNull(parse("今年中奖").dueDate)
+    }
+
+    @Test fun monthlyRepeat_dayOfMonthAnchor() {
+        val r5 = parse("每月5号还款")
+        assertEquals("还款", r5.title)
+        assertEquals(30, r5.repeatDays)
+        assertEquals(LocalDate.of(2026, 11, 5), r5.dueDate) // 5号已过 → 下个月
+        val r25 = parse("每月25号交房租")
+        assertEquals("交房租", r25.title)
+        assertEquals(30, r25.repeatDays)
+        assertEquals(LocalDate.of(2026, 10, 25), r25.dueDate) // 25号未过 → 本月
+    }
+
+    @Test fun timeModifier_stripped() {
+        assertEquals("通知", parseAt("9点以后通知").title)
+        assertEquals("集合", parseAt("9点以前集合").title)
+        assertEquals("到", parseAt("9点左右到").title)
+        assertEquals(LocalTime.of(9, 0), parseAt("9点以后通知").dueTime)
+    }
+
+    @Test fun timeModifier_embeddedAndGuards() {
+        // 内嵌时刻 + 修饰词也要吃掉
+        assertEquals("记住的感觉", parseAt("记住9点以前的感觉").title)
+        // 守卫：「到」后不是有效时刻 → 原样保留，不能被误伤
+        assertEquals("到位", parseAt("3点到位").title)
+        assertEquals("到公司", parseAt("3点到公司").title)
+    }
+
     // ---- 时长写法 ----
     @Test fun duration_withinDays() {
         val r = parse("3天内交方案")
@@ -1113,5 +1201,206 @@ class ParserTest {
         val r = parser().parse("坐1号线")
         assertNull(r.dueDate)
         assertEquals("坐1号线", r.title)
+    }
+
+    // ==================================================================================
+    // 时间区间（#1 方案B）+ 新档位词（#8）+ 相对提醒（#4）—— 2026-10-25
+    //
+    // 约定（zuige 拍板）：
+    // - 逾期按**结束点**判（15:00~17:00 在 16:00 是进行中，不标红）；
+    // - 结束点**不响**提醒（提醒只在开始点）。
+    // 解析器只负责产出 startTime / endTime，落库与提醒由 TodoRepository 决定。
+    // ==================================================================================
+
+    @Test fun timeRange_bareHours() {
+        val r = parseAt("下午3点到5点开会")
+        assertEquals("开会", r.title)
+        assertEquals(LocalTime.of(15, 0), r.dueTime)
+        assertEquals(LocalTime.of(17, 0), r.endTime)
+        assertTrue(r.hasExactTime)
+    }
+
+    @Test fun timeRange_endInheritsStartPeriod() {
+        // ★ 右半的「5点」必须继承左半的「下午」，否则会被读成凌晨 05:00 ——
+        //   这是这次最容易错的一处，也是方案 B 能成立的前提。
+        assertEquals(LocalTime.of(17, 0), parseAt("下午3点到5点开会").endTime)
+        assertEquals(LocalTime.of(11, 0), parseAt("上午9点到11点评审").endTime)
+        // 晚上时段：「晚上8点到10点」→ 20:00~22:00
+        assertEquals(LocalTime.of(20, 0), parseAt("晚上8点到10点健身").dueTime)
+        assertEquals(LocalTime.of(22, 0), parseAt("晚上8点到10点健身").endTime)
+    }
+
+    @Test fun timeRange_connectors() {
+        for (s in listOf("9点到10点开会", "9点至10点开会", "9点~10点开会", "9点～10点开会",
+                "9点—10点开会", "9点–10点开会", "9点-10点开会")) {
+            val r = parseAt(s)
+            assertEquals("connector $s", LocalTime.of(9, 0), r.dueTime)
+            assertEquals("connector $s", LocalTime.of(10, 0), r.endTime)
+            assertEquals("connector $s", "开会", r.title)
+        }
+    }
+
+    @Test fun timeRange_clockFormAndHalfHour() {
+        // 冒号写法 + 半点：结束点也要能带分钟
+        assertEquals(LocalTime.of(15, 0), parseAt("15:00-17:00开会").dueTime)
+        assertEquals(LocalTime.of(17, 0), parseAt("15:00-17:00开会").endTime)
+        assertEquals(LocalTime.of(10, 30), parseAt("9点到10点半开会").endTime)
+        assertEquals(LocalTime.of(21, 30), parseAt("晚上7点到9点半开会").endTime)
+    }
+
+    @Test fun timeRange_embeddedInToken() {
+        // 时刻不在 token 开头（"开会下午3点到5点"）走 embedded 分支，同样要能出区间
+        val r = parseAt("开会下午3点到5点")
+        assertEquals("开会", r.title)
+        assertEquals(LocalTime.of(15, 0), r.dueTime)
+        assertEquals(LocalTime.of(17, 0), r.endTime)
+        val r2 = parseAt("开会15点到17点")
+        assertEquals(LocalTime.of(17, 0), r2.endTime)
+        assertEquals("开会", r2.title)
+    }
+
+    @Test fun timeRange_withDate() {
+        val r = parseAt("明天下午3点到5点组会")
+        assertEquals("组会", r.title)
+        assertEquals(LocalDate.of(2026, 10, 22), r.dueDate)
+        assertEquals(LocalTime.of(15, 0), r.dueTime)
+        assertEquals(LocalTime.of(17, 0), r.endTime)
+        assertNull(r.startDate) // 是"同一天的区间"，不是时间段
+    }
+
+    @Test fun timeRange_overnightExplicitPeriod() {
+        // 「晚上11点到凌晨1点」：结束点在次日（由 TodoRepository.parsedToEnd 滚天）
+        val r = parseAt("晚上11点到凌晨1点值班")
+        assertEquals(LocalTime.of(23, 0), r.dueTime)
+        assertEquals(LocalTime.of(1, 0), r.endTime)
+        assertEquals("值班", r.title)
+    }
+
+    @Test fun timeRange_guardsKeepOrdinaryPhrases() {
+        // 连接词后面不是有效时刻 → 原样留标题（「3点到位」「3点到公司」的老保护不能破）
+        assertNull(parseAt("3点到位").endTime)
+        assertNull(parseAt("3点到公司").endTime)
+        assertNull(parseAt("3点-2").endTime)
+        // 单时刻没有区间
+        assertNull(parseAt("下午3点开会").endTime)
+    }
+
+    // ---- 新档位词（#8）：周末 / 年底 / 年末 / 年初 ----
+    // today = 2026-10-21 周三
+
+    @Test fun weekend_isUpcomingSaturday() {
+        val r = parse("周末大扫除")
+        assertEquals("大扫除", r.title)
+        assertEquals(LocalDate.of(2026, 10, 24), r.dueDate) // 下个周六
+        assertNull(r.startDate)
+    }
+
+    @Test fun weekend_variants() {
+        assertEquals(LocalDate.of(2026, 10, 24), parse("这周末交稿").dueDate)
+        assertEquals(LocalDate.of(2026, 10, 24), parse("本周末交稿").dueDate)
+        assertEquals(LocalDate.of(2026, 10, 31), parse("下周末露营").dueDate)
+        // 这周 / 下周 单独出现仍然不是日期（老行为不变）
+        assertNull(parse("这周把材料整理一下").dueDate)
+    }
+
+    @Test fun weekend_onSaturdayIsToday() {
+        // 今天就是周六 → 取今天（10/24 是周六）
+        val r = Parser(LocalDate.of(2026, 10, 24)).parse("周末大扫除")
+        assertEquals(LocalDate.of(2026, 10, 24), r.dueDate)
+    }
+
+    @Test fun yearEnd_and_yearStart() {
+        assertEquals(LocalDate.of(2026, 12, 31), parse("年底总结").dueDate)
+        assertEquals(LocalDate.of(2026, 12, 31), parse("年末盘点").dueDate)
+        assertEquals(LocalDate.of(2027, 1, 1), parse("年初计划").dueDate)
+        assertEquals("总结", parse("年底总结").title)
+    }
+
+    @Test fun yearBoundary_withYearKeyword() {
+        // 「今年年底」「明年初」：year 关键字 + 年底/初，走 rollYearMonth。
+        // ★ 匹配的是带「年」的整词：吃掉「今年」后余下的是「年底…」而不是「底…」——
+        //   少这一条，「今年年底总结」会被 peel 成"标题=今年 + 详情=总结"。
+        assertEquals(LocalDate.of(2026, 12, 31), parse("今年年底总结").dueDate)
+        assertEquals("总结", parse("今年年底总结").title)
+        assertEquals(LocalDate.of(2027, 12, 31), parse("明年年底总结").dueDate)
+        assertEquals(LocalDate.of(2027, 1, 1), parse("明年初计划").dueDate)
+        assertEquals(LocalDate.of(2027, 1, 1), parse("明年年初计划").dueDate)
+        // 「本月底」仍按**月**边界，不能被年的新分支抢走
+        assertEquals(LocalDate.of(2026, 10, 31), parse("本月底关账").dueDate)
+    }
+
+    @Test fun yearBoundary_nianZhong() {
+        // 「年终总结」是高频写法，属于年边界而不是"月中"
+        assertEquals(LocalDate.of(2026, 12, 31), parse("年终总结").dueDate)
+        assertEquals("总结", parse("年终总结").title)
+    }
+
+    // ---- 相对提醒（#4）：马上 / 待会儿 / 稍后 → now + N 分钟 ----
+    // now = 14:30
+
+    @Test fun relativeNow_words() {
+        assertEquals(LocalTime.of(14, 35), parseAt("马上去开会").dueTime)
+        assertEquals(LocalTime.of(14, 35), parseAt("立刻回电话").dueTime)
+        assertEquals(LocalTime.of(14, 45), parseAt("一会儿下楼").dueTime)
+        assertEquals(LocalTime.of(14, 45), parseAt("等一下就到").dueTime)
+        assertEquals(LocalTime.of(15, 0), parseAt("待会儿吃饭").dueTime)
+        assertEquals(LocalTime.of(15, 30), parseAt("稍后回电").dueTime)
+    }
+
+    @Test fun relativeNow_setsDateAndTitle() {
+        val r = parseAt("待会儿开会")
+        assertEquals("开会", r.title)
+        assertEquals(today, r.dueDate)
+        assertEquals(LocalTime.of(15, 0), r.dueTime)
+        assertTrue(r.hasExactTime)
+        assertFalse(r.timeError)
+    }
+
+    @Test fun relativeNow_rollsPastMidnight() {
+        // 23:50 + 30 分钟 → 次日 00:20（跨午夜自动滚天，不能留在"今天已过"）
+        val r = Parser(today, LocalTime.of(23, 50)).parse("待会儿睡觉")
+        assertEquals(LocalDate.of(2026, 10, 22), r.dueDate)
+        assertEquals(LocalTime.of(0, 20), r.dueTime)
+        assertFalse(r.timeError)
+    }
+
+    @Test fun relativeNow_keepsExplicitDate() {
+        // 已经解析出日期时只补时刻，不抢日期（"周五 待会儿" = 周五的那一刻）
+        val r = parseAt("周五 待会儿聊聊")
+        assertEquals(LocalDate.of(2026, 10, 23), r.dueDate)
+        assertEquals(LocalTime.of(15, 0), r.dueTime)
+    }
+
+    @Test fun relativeNow_guards() {
+        // 「晚点名」「晚点到」是复合词，不是"晚点 + 名/到"
+        assertEquals("晚点名", parseAt("晚点名").title)
+        assertNull(parseAt("晚点名").dueTime)
+        assertEquals("晚点到", parseAt("晚点到").title)
+        assertNull(parseAt("晚点到").dueTime)
+        // 相对时刻不能当日期段的左半：「马上到周五」不是今天→周五的区间
+        val r2 = parseAt("马上到周五")
+        assertNull(r2.startDate)
+        assertEquals(LocalTime.of(14, 35), r2.dueTime)
+    }
+
+    @Test fun relativeNow_notPeeledFromTitleTail() {
+        // ★ 相对时刻词在**词尾**时是复合词，不能被 peelTitlePrefix 当成"文字 + 日期"：
+        //   曾经「火车晚点」→ 标题"火车" + 15:30 提醒，「看一会儿书」→ 标题"看" + 14:45 提醒。
+        val r1 = parseAt("火车晚点")
+        assertEquals("火车晚点", r1.title)
+        assertNull(r1.dueTime)
+        val r2 = parseAt("看一会儿书")
+        assertEquals("看一会儿书", r2.title)
+        assertNull(r2.dueTime)
+        // 句首的相对词照常命中（这才是它们的常见位置）
+        assertEquals(LocalTime.of(15, 0), parseAt("待会儿开会").dueTime)
+    }
+
+    @Test fun relativeNow_longestFirst() {
+        // 最长优先：「稍等一下」(15) 不能被「稍等」抢，两者都是 15 分钟但「一下」不能漏进标题
+        assertEquals(LocalTime.of(14, 45), parseAt("稍等一下过去").dueTime)
+        assertEquals("过去", parseAt("稍等一下过去").title)
+        assertEquals(LocalTime.of(15, 0), parseAt("待会儿过去").dueTime)
+        assertEquals("过去", parseAt("待会儿过去").title)
     }
 }

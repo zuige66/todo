@@ -8,10 +8,10 @@ import java.time.LocalTime
  *
  * @param title  the description with date/time tokens removed (trimmed)
  * @param dueDate  the parsed due date; null if no date token was given (=> no-date group)
- * @param forceDateError  when true, a date token was recognized but resolved to a past date
+ * @param dateError  when true, a date token was recognized but resolved to a past date
  *                        and should not be used. This is an *error* per DESIGN §3.2 / user decision.
  * @param dueTime  the parsed time-of-day; null if only a date was given (=> default 09:00)
- * @param repeatDays  repeat step in days when the item is completed. null/0 = no repeat.
+ * @param repeatDays  repeat step in days when the item is completed. 0 = no repeat.
  *                    1 = daily, 7 = weekly, 28/30 ≈ monthly. Driven by 每天/每周/每月/每周X.
  * @param detail  the free text after the event, i.e. everything after the first space in the
  *                remainder ("组会 要带笔记本去" -> title 组会, detail 要带笔记本去).
@@ -25,7 +25,9 @@ data class ParsedTodo(
     val dateError: Boolean = false,  // true if a date was recognized but already past
     val detail: String? = null,     // free-text detail after the event title
     /** 时间段的开始日；null = 单日（[dueDate] 即唯一日期）。 */
-    val startDate: LocalDate? = null
+    val startDate: LocalDate? = null,
+    /** 时间区间的结束时刻（与 [dueTime] 同一天）；null = 无结束时刻。「下午3点到5点」→ 15:00~17:00。 */
+    val endTime: LocalTime? = null
 ) {
     /** The sanitized remainder after removing recognized tokens. */
     val cleanTitle: String get() = title.trim()

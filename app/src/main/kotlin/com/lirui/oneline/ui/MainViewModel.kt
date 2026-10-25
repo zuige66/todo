@@ -66,6 +66,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val start = todo.startAtMillis?.let {
             java.time.Instant.ofEpochMilli(it).atZone(AppTime.ZONE).toLocalDate()
         }
+        // 时间区间（#1）：结束点反推成 endTime。跨午夜存的是次日时刻，取 LocalTime 即可
+        // （回库时 parsedToEnd 会按"结束早于开始"再滚回次日）。
+        val end = todo.endAtMillis?.let {
+            java.time.Instant.ofEpochMilli(it).atZone(AppTime.ZONE).toLocalTime()
+        }
         val parsed = ParsedTodo(
             title = todo.title,
             dueDate = zoned?.toLocalDate(),
@@ -75,7 +80,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             dueTime = if (todo.hasExactTime) zoned?.toLocalTime() else null,
             repeatDays = todo.repeatDays,
             detail = todo.detail.ifBlank { null },
-            startDate = start
+            startDate = start,
+            endTime = if (todo.hasExactTime) end else null
         )
         lastParse = parsed
         lastParses = listOf(parsed)
@@ -98,7 +104,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         lastParse = parsedList.firstOrNull()
         // One todo per parsed date ("明天后天晚上开会" -> two reminders).
         viewModelScope.launch {
-            parsedList.forEach { repo.addFromParsed(it) }
+            // 过滤空标题（P3-4）：入口只拦了"全空"，部分空标题会建出无名待办。
+            // parseAll 共享 title 实际不可达（标题编辑器禁空保存），属防御。
+            parsedList.filter { it.cleanTitle.isNotBlank() }.forEach { repo.addFromParsed(it) }
             WidgetUpdater.refreshAsync(getApplication())
         }
         return AddResult.Success

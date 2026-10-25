@@ -218,7 +218,14 @@ fun TodoApp(
     onSetDefaultMinuteOfDay: (Int) -> Unit,
     autoRepeat: Boolean,
     onSetAutoRepeat: (Boolean) -> Unit,
-    onRescheduleReminders: () -> Unit
+    onRescheduleReminders: () -> Unit,
+    /**
+     * 从通知点进来的待办 id（>0 有效）。见 [TodoAppContent] 里的定位逻辑。
+     * -1 = 没有待定位的待办。
+     */
+    pendingTodoId: Long = -1L,
+    /** 定位完成（滚动 + 高亮已安排）后的回调，调用方应把 [pendingTodoId] 复位。 */
+    onPendingTodoHandled: () -> Unit = {}
 ) {
     val uiState by vm.state.collectAsState()
     // v0.4：关于页升级成第四个导航项，不再做覆盖层。
@@ -255,7 +262,9 @@ fun TodoApp(
         onSetDefaultMinuteOfDay = onSetDefaultMinuteOfDay,
         autoRepeat = autoRepeat,
         onSetAutoRepeat = onSetAutoRepeat,
-        onRescheduleReminders = onRescheduleReminders
+        onRescheduleReminders = onRescheduleReminders,
+        pendingTodoId = pendingTodoId,
+        onPendingTodoHandled = onPendingTodoHandled
     )
 }
 
@@ -292,7 +301,11 @@ private fun TodoAppContent(
     onSetDefaultMinuteOfDay: (Int) -> Unit,
     autoRepeat: Boolean,
     onSetAutoRepeat: (Boolean) -> Unit,
-    onRescheduleReminders: () -> Unit
+    onRescheduleReminders: () -> Unit,
+    /** 从通知点进来的待办 id（>0 有效）；-1 = 无。见下方「通知定位」段。 */
+    pendingTodoId: Long = -1L,
+    /** 定位完成后的回调（调用方复位 [pendingTodoId]，防止旋屏/重组重复触发）。 */
+    onPendingTodoHandled: () -> Unit = {}
 ) {
     var showAdd by remember { mutableStateOf(false) }
     var editTarget by remember { mutableStateOf<Todo?>(null) }
@@ -301,6 +314,40 @@ private fun TodoAppContent(
     val context = androidx.compose.ui.platform.LocalContext.current
     // 归档中的 id 集合由 ViewModel 持有，行被回收也不会丢 —— 见 MainViewModel.requestArchive。
     val pendingArchive by vm.pendingArchive.collectAsState()
+
+    // ── 通知定位（v0.9.3 补丁，P2-4）──
+    // 通知的 contentIntent 一直带着 todoId（NotificationHelper.EXTRA_TODO_ID），但
+    // 以前 MainActivity 从不读取 —— 点通知只是打开 App 首页，用户还得自己找是哪一条。
+    // 现在：Activity 把 id 透进来 → 这里决定去哪个 tab → 交给列表滚动 + 短暂高亮。
+    //
+    // ★ 为什么等 active/archived 非空才消费：冷启动时 DB Flow 的首帧是 emptyList，
+    //   此刻判定"找不到这条"会把用户晾在首页。数据到了（状态变化）就重试。
+    var scrollToTodoId by remember { mutableStateOf(-1L) }
+    var highlightId by remember { mutableStateOf(-1L) }
+    LaunchedEffect(pendingTodoId, active, archived) {
+        val id = pendingTodoId
+        if (id <= 0L) return@LaunchedEffect
+        if (active.isEmpty() && archived.isEmpty()) return@LaunchedEffect
+        when {
+            active.any { it.id == id } -> {
+                tab = TAB_TODO
+                scrollToTodoId = id
+            }
+            archived.any { it.id == id } -> {
+                tab = TAB_ARCHIVED
+                scrollToTodoId = id
+            }
+            else -> Unit // 待办已被删除：不切 tab，直接放弃（和旧行为一致）
+        }
+        onPendingTodoHandled()
+    }
+    // 高亮只保留 3 秒：它是"我在这里"的指示，不是常驻标记。
+    LaunchedEffect(highlightId) {
+        if (highlightId > 0L) {
+            delay(3_000)
+            highlightId = -1L
+        }
+    }
 
     // ── 沉浸式顶栏 ──
     // ★ 不用 M3 的 enterAlwaysScrollBehavior。它是"先消费滚动去收标题栏、剩下的才给列表"，
@@ -461,14 +508,22 @@ private fun TodoAppContent(
                             vm.previewExisting(todo)
                             showAdd = true
                         },
-                        listState = todoListState
+                        listState = todoListState,
+                        scrollToTodoId = scrollToTodoId,
+                        highlightId = highlightId,
+                        onScrollHandled = { scrollToTodoId = -1L },
+                        onLocated = { highlightId = it }
                     )
                     TAB_ARCHIVED -> ArchivedList(
                         archived,
                         onRestore = { vm.unarchive(it) },
                         onDelete = { vm.delete(it) },
                         listState = archivedListState,
-                        topInset = statusBarDp
+                        topInset = statusBarDp,
+                        scrollToTodoId = scrollToTodoId,
+                        highlightId = highlightId,
+                        onScrollHandled = { scrollToTodoId = -1L },
+                        onLocated = { highlightId = it }
                     )
                     TAB_SETTINGS -> SettingsScreen(
                         themeMode = themeMode,
@@ -656,7 +711,8 @@ private fun TodoAppContent(
             initialText = editTarget?.let {
                 // 回填句子的规则（含"为什么不能拼星期""为什么不能带默认时刻"）见 Format.editSentence。
                 Format.editSentence(
-                    it.title, it.detail, it.startAtMillis, it.dueAtMillis, it.hasExactTime
+                    it.title, it.detail, it.startAtMillis, it.dueAtMillis, it.hasExactTime,
+                    endAtMillis = it.endAtMillis
                 )
             } ?: "",
             onDismiss = {
@@ -831,7 +887,15 @@ private fun TodoList(
      * 状态栏高度。列表视口从屏幕顶端开始（浮层顶栏不占布局位），所以首项要让出
      * `状态栏 + 顶栏主体`；两者必须由同一个值算出，不能一半靠 Scaffold 一半靠常量。
      */
-    topInset: Dp = 0.dp
+    topInset: Dp = 0.dp,
+    /** 要滚动定位的待办 id（通知点进来）；-1 = 无。见 [TodoAppContent] 的「通知定位」。 */
+    scrollToTodoId: Long = -1L,
+    /** 需要高亮的待办 id（定位后短暂高亮）；-1 = 无。只读，见下方 LaunchedEffect 注释。 */
+    highlightId: Long = -1L,
+    /** 定位动作完成（无论找没找到）后的回调，调用方据此把 [scrollToTodoId] 复位。 */
+    onScrollHandled: () -> Unit = {},
+    /** 滚动到位后的回调（参数 = 定位到的待办 id），调用方据此置高亮。 */
+    onLocated: (Long) -> Unit = {}
 ) {
     val empty = todos.isEmpty()
     // 空状态自己淡入淡出；下面仍是 `if (!empty)` 的原始分支，只是不再用 if/else 二选一，
@@ -858,12 +922,29 @@ private fun TodoList(
         }
         val today = AppTime.today()
 
-        // Board membership and red marking share [HomeGrouping.boardOf] → [Format.isOverdue],
-        // so a row can never sit under 逾期 without being red.
-        val byBoard = todos.groupBy {
-            HomeGrouping.boardOf(it.dueAtMillis, today, now, it.hasExactTime)
+        // ★ 渲染顺序与定位滚动共用同一份 [buildRowOrder]：以前"滚到第几条"要另写一遍
+        //   分组逻辑，两处迟早漂移（症状：滚到别的位置 / 定位偏一条 header）。
+        val rows = remember(todos, boardOrder, hiddenBoards, enabledBuckets, today, now) {
+            buildRowOrder(todos, HomeGrouping.visibleBoards(boardOrder, hiddenBoards), enabledBuckets, today, now)
         }
-        val boards = HomeGrouping.visibleBoards(boardOrder, hiddenBoards)
+
+        // 通知定位：按 item index 滚过去（index 含 header），到位后回调调用方置高亮。
+        // animateScrollToItem 是挂起函数：滚动中被新定位请求打断也安全（协程取消即可）。
+        // ★ highlightId 是调用方（TodoAppContent）的 state，这里只读不写 ——
+        //   列表是纯渲染层，"高亮谁"归导航层管，3 秒后也由它清。
+        LaunchedEffect(scrollToTodoId, rows) {
+            val id = scrollToTodoId
+            if (id <= 0L) {
+                onScrollHandled()
+                return@LaunchedEffect
+            }
+            val index = rows.indexOfFirst { row -> row is RowItem.Entry && row.todo.id == id }
+            if (index >= 0) {
+                listState.animateScrollToItem(index)
+                onLocated(id)
+            }
+            onScrollHandled()
+        }
 
         LazyColumn(
             // state 提升到外层，顶栏靠它算收起量（见 TodoAppContent）。
@@ -877,55 +958,93 @@ private fun TodoList(
                 bottom = 8.dp
             )
         ) {
-            for (board in boards) {
-                val boardItems = byBoard[board].orEmpty().sortedWith(
-                    compareBy({ it.dueAtMillis ?: Long.MAX_VALUE }, { it.createdAt })
-                )
-                if (boardItems.isEmpty()) continue
-
-                // 「有日期」不显示板块标题：里面本来就是今日/明天/… 这些档位标题，
-                // 再叠一层"有日期"纯属噪音；平铺时靠上下的板块标题形成分隔就够了。
-                if (board != HomeBoard.DATED) {
-                    item(key = "board_${board.id}") { BoardHeader(board, Modifier.animateItem()) }
-                }
-                // Only 有日期 gets sub-grouped, and only when at least one bucket is enabled.
-                // An empty selection means "flat list" by design (see HomeGrouping).
-                if (board != HomeBoard.DATED || enabledBuckets.isEmpty()) {
-                    items(boardItems, key = { it.id }) { todo ->
-                        TodoListRow(
-                            todo, today, now, todo.id in pendingArchive, gestures,
-                            onCircleTap, onSwipeArchive, onTodoEdit,
-                            Modifier.animateItem()
-                        )
+            for (row in rows) {
+                when (row) {
+                    is RowItem.BoardTitle -> item(key = "board_${row.board.id}") {
+                        BoardHeader(row.board, Modifier.animateItem())
                     }
-                    continue
-                }
-
-                // Resolve each todo onto a rendered bucket, keeping bucket declaration order.
-                val grouped = HashMap<HomeBucket, MutableList<Todo>>()
-                for (todo in boardItems) {
-                    // 时间段的"结束日"就是 dueAtMillis；只有开始日的脏数据按开始日归档，
-                    // 绝不能 continue —— 那样这条待办会从列表里彻底消失。
-                    val end = todo.dueAtMillis ?: todo.startAtMillis ?: continue
-                    // 时间段：进行中归「今日」，未开始按开始日分桶（见 bucketOfRange）。
-                    val natural = HomeGrouping.bucketOfRange(todo.startAtMillis, end, today)
-                    val target = HomeGrouping.resolveBucket(natural, enabledBuckets) ?: continue
-                    grouped.getOrPut(target) { mutableListOf() } += todo
-                }
-                for (bucket in HomeBucket.all) {
-                    val list = grouped[bucket] ?: continue
-                    item(key = "bucket_${bucket.id}") { BucketHeader(bucket, Modifier.animateItem()) }
-                    items(list, key = { it.id }) { todo ->
+                    is RowItem.BucketTitle -> item(key = "bucket_${row.bucket.id}") {
+                        BucketHeader(row.bucket, Modifier.animateItem())
+                    }
+                    is RowItem.Entry -> item(key = row.todo.id) {
                         TodoListRow(
-                            todo, today, now, todo.id in pendingArchive, gestures,
+                            row.todo, today, now, row.todo.id in pendingArchive, gestures,
                             onCircleTap, onSwipeArchive, onTodoEdit,
-                            Modifier.animateItem()
+                            highlighted = row.todo.id == highlightId,
+                            modifier = Modifier.animateItem()
                         )
                     }
                 }
             }
         }
     }
+}
+
+/** LazyColumn 的一行：板块标题 / 档位标题 / 待办本体。 */
+private sealed interface RowItem {
+    data class BoardTitle(val board: HomeBoard) : RowItem
+    data class BucketTitle(val bucket: HomeBucket) : RowItem
+    data class Entry(val todo: Todo) : RowItem
+}
+
+/**
+ * 把待办列表拍平成 LazyColumn 的 item 顺序（含 header）。
+ *
+ * 分组规则与 [HomeGrouping] 一一对应，**顺序**即渲染顺序：
+ * 板块按 [boards] 声明序；「有日期」内部按 [HomeBucket.all] 的档位序；
+ * 每档/每板块内 dueAtMillis 升序（null 垫底）、同刻按 createdAt。
+ *
+ * 抽成纯函数是为了让「通知定位滚动」和「渲染」用同一个真相源 ——
+ * 以前定位要另算一遍下标，分组规则一改定位就偏。
+ */
+private fun buildRowOrder(
+    todos: List<Todo>,
+    boards: List<HomeBoard>,
+    enabledBuckets: Set<HomeBucket>,
+    today: java.time.LocalDate,
+    now: Long
+): List<RowItem> {
+    val byBoard = todos.groupBy {
+        // end = 时间区间结束点（#1）：进行中的区间进「有日期」，过了结束点才进逾期。
+        HomeGrouping.boardOf(it.dueAtMillis, today, now, it.hasExactTime, it.endAtMillis)
+    }
+    val rows = ArrayList<RowItem>(todos.size + 8)
+    for (board in boards) {
+        val boardItems = byBoard[board].orEmpty().sortedWith(
+            compareBy({ it.dueAtMillis ?: Long.MAX_VALUE }, { it.createdAt })
+        )
+        if (boardItems.isEmpty()) continue
+
+        // 「有日期」不显示板块标题：里面本来就是今日/明天/… 这些档位标题，
+        // 再叠一层"有日期"纯属噪音；平铺时靠上下的板块标题形成分隔就够了。
+        if (board != HomeBoard.DATED) {
+            rows += RowItem.BoardTitle(board)
+        }
+        // Only 有日期 gets sub-grouped, and only when at least one bucket is enabled.
+        // An empty selection means "flat list" by design (see HomeGrouping).
+        if (board != HomeBoard.DATED || enabledBuckets.isEmpty()) {
+            boardItems.forEach { rows += RowItem.Entry(it) }
+            continue
+        }
+
+        // Resolve each todo onto a rendered bucket, keeping bucket declaration order.
+        val grouped = HashMap<HomeBucket, MutableList<Todo>>()
+        for (todo in boardItems) {
+            // 时间段的"结束日"就是 dueAtMillis；只有开始日的脏数据按开始日归档，
+            // 绝不能 continue —— 那样这条待办会从列表里彻底消失。
+            val end = todo.dueAtMillis ?: todo.startAtMillis ?: continue
+            // 时间段：进行中归「今日」，未开始按开始日分桶（见 bucketOfRange）。
+            val natural = HomeGrouping.bucketOfRange(todo.startAtMillis, end, today)
+            val target = HomeGrouping.resolveBucket(natural, enabledBuckets) ?: continue
+            grouped.getOrPut(target) { mutableListOf() } += todo
+        }
+        for (bucket in HomeBucket.all) {
+            val list = grouped[bucket] ?: continue
+            rows += RowItem.BucketTitle(bucket)
+            list.forEach { rows += RowItem.Entry(it) }
+        }
+    }
+    return rows
 }
 
 /** One todo row; extracted so the board/bucket branches don't duplicate the overdue logic. */
@@ -939,10 +1058,13 @@ private fun TodoListRow(
     onCircleTap: (Todo) -> Unit,
     onSwipeArchive: (Todo) -> Unit,
     onTodoEdit: (Todo) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    /** 通知定位后的短暂高亮（3 秒），底色向主色偏一档。 */
+    highlighted: Boolean = false
 ) {
     // 到点即逾期并标红——与板块归属同一个判定函数。
-    val overdue = Format.isOverdue(todo.dueAtMillis, today, now, todo.hasExactTime)
+    // 时间区间（#1）看结束点：15:00~17:00 在 16:00 是进行中，不标红。
+    val overdue = Format.isOverdue(todo.endAtMillis ?: todo.dueAtMillis, today, now, todo.hasExactTime)
     TodoRow(
         todo,
         overdue = overdue,
@@ -953,6 +1075,7 @@ private fun TodoListRow(
         onCircleTap = { onCircleTap(todo) },
         onSwipeArchive = { onSwipeArchive(todo) },
         onTodoEdit = { onTodoEdit(todo) },
+        highlighted = highlighted,
         modifier = modifier
     )
 }
@@ -988,12 +1111,35 @@ private fun ArchivedList(
     onRestore: (Long) -> Unit,
     onDelete: (Long) -> Unit,
     listState: LazyListState,
-    topInset: Dp = 0.dp
+    topInset: Dp = 0.dp,
+    /** 要滚动定位的待办 id（通知点进来）；-1 = 无。 */
+    scrollToTodoId: Long = -1L,
+    /** 需要高亮的待办 id；-1 = 无。 */
+    highlightId: Long = -1L,
+    /** 定位完成后的回调（调用方复位 [scrollToTodoId]）。 */
+    onScrollHandled: () -> Unit = {},
+    /** 滚动到位后的回调（参数 = 定位到的待办 id），调用方据此置高亮。 */
+    onLocated: (Long) -> Unit = {}
 ) {
     // 待确认删除的那一条。删除是**硬删除、不可恢复**，所以必须先问一次 ——
     // 归档页每一条都已经完成过，用户很容易把"清掉一条旧记录"和"就这么留着"看混。
     var deleteTarget by remember { mutableStateOf<Todo?>(null) }
     val empty = archived.isEmpty()
+
+    // 通知定位：归档页是平铺列表，item index 就是列表下标。
+    LaunchedEffect(scrollToTodoId, archived) {
+        val id = scrollToTodoId
+        if (id <= 0L) {
+            onScrollHandled()
+            return@LaunchedEffect
+        }
+        val index = archived.indexOfFirst { it.id == id }
+        if (index >= 0) {
+            listState.animateScrollToItem(index)
+            onLocated(id)
+        }
+        onScrollHandled()
+    }
 
     AnimatedVisibility(
         visible = empty,
@@ -1021,7 +1167,18 @@ private fun ArchivedList(
                     .fillMaxWidth()
                     .padding(horizontal = 12.dp, vertical = 3.dp)
                     .clip(RoundedCornerShape(20.dp))
-                    .background(MaterialTheme.colorScheme.cardBackground)
+                    // 定位高亮与首页同一套：底色向主色偏一档（见 TodoRow）。
+                    .background(
+                        if (todo.id == highlightId) {
+                            androidx.compose.ui.graphics.lerp(
+                                MaterialTheme.colorScheme.cardBackground,
+                                MaterialTheme.colorScheme.primary,
+                                0.18f
+                            )
+                        } else {
+                            MaterialTheme.colorScheme.cardBackground
+                        }
+                    )
                     .padding(horizontal = 14.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -1835,7 +1992,7 @@ private fun NotificationTitleEditor(
                 )
                 PreviewLine(
                     "提前提醒",
-                    NotificationHelper.composeTitle("开组会", "提前提醒", false, draftStyle)
+                    NotificationHelper.composeTitle("开组会", "提前3天提醒", false, draftStyle)
                 )
                 PreviewLine(
                     "已完成",
@@ -2618,7 +2775,9 @@ private fun TodoRow(
     onCircleTap: () -> Unit,
     onSwipeArchive: () -> Unit,
     onTodoEdit: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    /** 通知定位高亮：底色向主色偏 18%（不透明混合，深色/浅色主题都成立）。 */
+    highlighted: Boolean = false
 ) {
     // 填充弧线时长必须和 ViewModel 里的 delay 同值，否则会出现"还没填满就消失"
     // 或"填满了干等一会儿"。
@@ -2663,7 +2822,13 @@ private fun TodoRow(
     }
 
     val cs = MaterialTheme.colorScheme
-    val cardColor = cs.cardBackground
+    // 高亮 = 卡片底色向主色偏一档。用 lerp 而不是半透明叠加：半透明会透出下层
+    // Scaffold 的 surface，深浅主题下对比度都不稳定；lerp 出来的是不透明色。
+    val cardColor = if (highlighted) {
+        androidx.compose.ui.graphics.lerp(cs.cardBackground, cs.primary, 0.18f)
+    } else {
+        cs.cardBackground
+    }
     val hintContainer = cs.secondaryContainer
     val hintContent = cs.onSecondaryContainer
 
@@ -2802,9 +2967,9 @@ private fun TodoRow(
                 todo.dueAtMillis?.let { due ->
                     Text(
                         if (todo.startAtMillis != null) {
-                            Format.rangeLine(todo.startAtMillis, due)
+                            Format.rangeLine(todo.startAtMillis, due, endTimeMillis = todo.endAtMillis)
                         } else {
-                            Format.weekdayTime(due)
+                            Format.weekdayTimeRange(due, todo.endAtMillis)
                         },
                         style = MaterialTheme.typography.bodySmall,
                         color = if (overdue) cs.error else cs.onSurfaceVariant

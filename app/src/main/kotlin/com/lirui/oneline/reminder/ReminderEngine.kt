@@ -28,7 +28,14 @@ object ReminderEngine {
     /** One reminder point: a concrete wall-clock instant to fire a notification at. */
     data class Reminder(
         val fireAtMillis: Long,
-        val kind: Kind
+        val kind: Kind,
+        /**
+         * 提前多少天提醒（仅 [Kind.GRADED] 有意义，其余为 0）。
+         * 用来在通知上显示「提前N天提醒」而不是笼统的「提前提醒」。
+         * ★ 带默认值 0：所有旧的 `Reminder(fireMs, kind)` 构造仍成立；
+         *   且旧版已排的闹钟没有这个字段时（receiver 读不到）回退到 0 →「提前提醒」，不会崩。
+         */
+        val leadDays: Int = 0
     ) {
         /**
          * ★ 新增 kind 只能往后追加。ordinal 就是 PendingIntent 的 requestCode 尾数
@@ -54,8 +61,12 @@ object ReminderEngine {
      * @param kind null = 闹钟里躺着此版本不认识的 ordinal（新版排的闹钟被旧版收到），
      *   返回最通用的「提醒」而不是崩。
      */
-    fun messageFor(kind: Reminder.Kind?, dueWord: String = DEFAULT_DUE_WORD): String = when (kind) {
-        Reminder.Kind.GRADED -> "提前提醒"
+    fun messageFor(
+        kind: Reminder.Kind?,
+        dueWord: String = DEFAULT_DUE_WORD,
+        leadDays: Int = 0
+    ): String = when (kind) {
+        Reminder.Kind.GRADED -> if (leadDays > 0) "提前${leadDays}天提醒" else "提前提醒"
         Reminder.Kind.EXACT_PREP -> "1小时后到期"
         Reminder.Kind.DUE -> dueWord
         Reminder.Kind.OVERDUE -> "还没完成，别忘了哦"
@@ -214,10 +225,10 @@ object ReminderEngine {
         zone: ZoneId
     ): Reminder? {
         return when {
-            days >= 30 -> atDayTime(due.minusDays(7), 21, 0, now, zone, Reminder.Kind.GRADED)
-            days >= 7 -> atDayTime(due.minusDays(3), 21, 0, now, zone, Reminder.Kind.GRADED)
-            days >= 2 -> atDayTime(due.minusDays(1), 21, 0, now, zone, Reminder.Kind.GRADED)
-            days == 1L -> atDayTime(due.minusDays(1), 12, 0, now, zone, Reminder.Kind.GRADED)
+            days >= 30 -> atDayTime(due.minusDays(7), 21, 0, now, zone, Reminder.Kind.GRADED, 7)
+            days >= 7 -> atDayTime(due.minusDays(3), 21, 0, now, zone, Reminder.Kind.GRADED, 3)
+            days >= 2 -> atDayTime(due.minusDays(1), 21, 0, now, zone, Reminder.Kind.GRADED, 1)
+            days == 1L -> atDayTime(due.minusDays(1), 12, 0, now, zone, Reminder.Kind.GRADED, 1)
             days == 0L -> null // today: handled immediately by caller
             else -> null // overdue
         }
@@ -229,7 +240,8 @@ object ReminderEngine {
         minute: Int,
         now: ZonedDateTime,
         zone: ZoneId,
-        kind: Reminder.Kind
+        kind: Reminder.Kind,
+        leadDays: Int = 0
     ): Reminder? {
         val fire = ZonedDateTime.of(
             target.toLocalDate().atTime(hour, minute), zone
@@ -237,7 +249,7 @@ object ReminderEngine {
         val fireMs = fire.toInstant().toEpochMilli()
         // Only now-or-future points fire (>= so an exact-now target isn't dropped).
         return if (fireMs >= now.toInstant().toEpochMilli()) {
-            Reminder(fireMs, kind)
+            Reminder(fireMs, kind, leadDays)
         } else null
     }
 

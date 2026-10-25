@@ -91,6 +91,26 @@ class Parser(
     private val yearMonthKeywords = listOf("下一年", "下个月", "下月", "明年", "今年", "本月")
 
     /**
+     * 月底 / 月初 的独立写法 → 目标日；-1 = 月末（按当月实际长度）。#3
+     * 故意不收「月中」：单字「中」在「本月中奖 / 中了」里是动词，误判成 15 号比不识别更糟。
+     */
+    private val monthBoundaryWords = listOf("月底" to -1, "月末" to -1, "月初" to 1)
+
+    /**
+     * 年底 / 年末 / 年终 / 年初（#8）：→ 今年 12-31 / 明年 1-1。
+     * true = 12-31（今天就在 12-31 时就是今天），false = 下一个 1-1。
+     */
+    private val yearBoundaryWords = listOf(
+        "年底" to true, "年末" to true, "年终" to true, "年初" to false
+    )
+
+    /**
+     * 周末（#8）：锚在**周六** —— 今天就是周六则取今天，否则取下一个周六（周日也算"下周六"，
+     * 因为这个周末已经接近尾声）。「这周末/本周末」同「周末」，「下周末」再顺延一周。
+     */
+    private val weekendWords = listOf("这周末" to 0L, "本周末" to 0L, "下周末" to 1L, "周末" to 0L)
+
+    /**
      * 日期里的"数字位"：ASCII 1-2 位，或中文数字（一 / 十二 / 三十一）。
      *
      * 「1月二日」「十二月三十一号」这类中文数字写法在日常输入里非常常见。之前只认 `\d`，
@@ -104,9 +124,12 @@ class Parser(
     // numeric date prefixes (lookingAt; no trailing anchor so a trailing title stays)
     // `(?:[日号])?` is required: "2026年10月24日开会" would otherwise leave a stray "日"
     // at the head of the title ("日开会").
-    private val num3Re = Pattern.compile("^((?:19|20)?\\d{2})[-./](\\d{1,2})[-./](\\d{1,2})(?:[日号])?")
+    // 分隔符字符类里的 `—`/`–`（em/en dash）：normalize 故意**不**把它们归一成 `-`
+    // （否则 `10月1日—3日` 的时段连词就匹配不到了，P2-1），所以这里要显式收编，
+    // 保证 `2026—10—24` 这类用破折号当年月日分隔的写法仍可解析。
+    private val num3Re = Pattern.compile("^((?:19|20)?\\d{2})[-./—–](\\d{1,2})[-./—–](\\d{1,2})(?:[日号])?")
     private val absYearRe =
-        Pattern.compile("^((?:19|20)\\d{2})[年\\-/.]($numPat)[月\\-/.]($numPat)(?:[日号])?")
+        Pattern.compile("^((?:19|20)\\d{2})[年\\-/—–]($numPat)[月\\-/—–]($numPat)(?:[日号])?")
     private val monthDayRe = Pattern.compile("^($numPat)[月\\-/.]($numPat)(?:[日号])?")
     private val dayOnlyRe = Pattern.compile("^($numPat)(?:[日号])")
     private val monthOnlyRe = Pattern.compile("^($numPat)月")
@@ -130,6 +153,33 @@ class Parser(
         "傍晚" to 18, "晚上" to 18,
         "夜里" to 22
     )
+
+    /** 时刻后的**双字**模糊修饰词，解析出时刻后吃掉、不留标题（#7）。见 [stripTimeModifier]。 */
+    private val timeModifiers = listOf("以前", "以后", "之前", "之后", "前后", "左右")
+
+    /**
+     * 时间区间连接词（#1）：开始时刻后接这些 + 一个有效时刻 = 时间区间。见 [consumeTimeRange]。
+     *
+     * `-` 也收（`9:00-10:30` / `3点-5点`），但**只在本列表**里：[rangeConnectors] 故意不收 `-`，
+     * 因为它是 `2026-10-24` 的日期分隔符。这里安全是因为右半必须匹配出时刻才会吃掉
+     * （`3点-2` / `3点-5号` 右半都不是时刻，原样留下）。
+     */
+    private val timeRangeConnectors = listOf("到", "至", "~", "～", "—", "–", "-")
+
+    /** 相对现在的词 → 加多少分钟（#4）：待会儿/稍后/马上… 生成一个临近提醒。最长优先匹配。 */
+    private val relativeNowWords = linkedMapOf(
+        "稍等一下" to 15L,
+        "一会儿" to 15L, "等一下" to 15L, "待会儿" to 30L,
+        "马上" to 5L, "立刻" to 5L, "立即" to 5L,
+        "稍等" to 15L, "待会" to 30L, "一会" to 15L,
+        "等下" to 15L, "稍后" to 60L, "迟点" to 60L, "晚点" to 60L
+    )
+
+    /**
+     * 相对词是常见名词前缀时的**挡字表**（#4）：「晚点名」不是"晚点 + 名"。
+     * 只收确认会误伤的组合；宁漏不错 —— 漏了只是不进标题当提醒，错了是把标题吃掉。
+     */
+    private val relativeNowBlockNext = mapOf("晚点" to setOf('名', '到'))
 
     // Optional day-period in front of a clock: "晚上11:50" must read as 23:50, not as
     // a bare "晚上" (18:00) plus a leftover "11:50" in the title.
@@ -159,6 +209,8 @@ class Parser(
         /** 时间段的开始日；null = 单日。 */
         var startDate: LocalDate? = null,
         var time: LocalTime? = null,
+        /** 时间区间的结束时刻（同一天）；null = 无区间。「下午3点到5点」→ endTime 17:00。 */
+        var endTime: LocalTime? = null,
         var repeatDays: Int = 0,
         var dateError: Boolean = false,
         var timeError: Boolean = false,
@@ -237,7 +289,8 @@ class Parser(
             timeError = acc.timeError || todayTimePast,
             dateError = acc.dateError,
             detail = parts.drop(1).joinToString(" ").trim().ifBlank { null },
-            startDate = acc.startDate
+            startDate = acc.startDate,
+            endTime = acc.endTime
         )
     }
 
@@ -295,7 +348,8 @@ class Parser(
                 repeatDays = acc.repeatDays,
                 timeError = d == today && time != null && time.isBefore(now),
                 dateError = d.isBefore(today),
-                detail = detail
+                detail = detail,
+                endTime = acc.endTime
             )
         }
     }
@@ -328,7 +382,11 @@ class Parser(
      * 只在真的含全角字符时才建新字符串，正常输入零开销。
      */
     private fun normalize(input: String): String {
-        if (input.none { it in '０'..'９' || it in "：．－—–／　" }) return input
+        // ★ `—`/`–`（em/en dash）**不在**归一表里：它们是 [rangeConnectors] 的时段连词，
+        //   一旦转成 `-` 就再也匹配不到（P2-1：「10月1日—3日」整段进标题）。
+        //   代价：`2026—10—24` 要由 num3Re/absYearRe 的分隔符类显式收编（见上）。
+        //   全角 `－`（U+FF0D）仍转 `-`，它不是时段连词。
+        if (input.none { it in '０'..'９' || it in "：．－／　" }) return input
         return buildString(input.length) {
             for (c in input) {
                 append(
@@ -336,7 +394,7 @@ class Parser(
                         in '０'..'９' -> '0' + (c - '０')
                         '：' -> ':'
                         '．' -> '.'
-                        '－', '—', '–' -> '-'
+                        '－' -> '-'
                         '／' -> '/'
                         '　' -> ' '
                         else -> c
@@ -371,12 +429,53 @@ class Parser(
             }
         }
 
+        // 1.2) 相对现在的时刻（#4）：马上 / 一会儿 / 待会儿 / 稍后 → now + N 分钟，连日期一起给。
+        // 「待会儿开会」= 现在起 30 分钟后；跨午夜（23:50 + 15 分）自动滚到明天。
+        for ((w, mins) in relativeNowWords) {
+            if (!rest.startsWith(w)) continue
+            // 少数词是常见名词的前缀：「晚点名」不是"晚点+名"。挡住这一个字，其余照常。
+            val blocked = relativeNowBlockNext[w]
+            if (blocked != null && rest.getOrNull(w.length) in blocked) continue
+            val t = now.plusMinutes(mins)
+            // 已显式解析出日期（"周五 待会儿"）时只补时间、不抢日期。
+            if (acc.date == null) acc.setDate(if (t.isBefore(now)) today.plusDays(1) else today, today)
+            acc.time = t
+            acc.night = false
+            acc.pendingPeriod = null
+            return rest.substring(w.length)
+        }
+
         // 1.5) year / month keywords (今年 / 明年 / 下一年 / 本月 / 下个月 [+ X月 + X日])
         val ymKey = yearMonthKeywords.firstOrNull { rest.startsWith(it) }
         if (ymKey != null) {
             val remain = rollYearMonth(ymKey, rest, acc)
             if (remain != null) return remain
             // No concrete date (e.g. bare 今年/明年) -> fall through and keep text.
+        }
+
+        // 1.6) 月底 / 月末 / 月初 / 月中（不带"本月"前缀的独立写法）#3
+        for ((w, bd) in monthBoundaryWords) {
+            if (rest.startsWith(w)) {
+                val lastDay = today.lengthOfMonth()
+                acc.setDate(today.withDayOfMonth(if (bd < 0) lastDay else bd), today)
+                return rest.substring(w.length)
+            }
+        }
+
+        // 1.65) 年底 / 年末 / 年初（不带"今年"前缀的独立写法）#8
+        for ((w, dec31) in yearBoundaryWords) {
+            if (rest.startsWith(w)) {
+                acc.setDate(if (dec31) yearEnd() else nextJan1(), today)
+                return rest.substring(w.length)
+            }
+        }
+
+        // 1.7) 周末 / 这周末 / 本周末 / 下周末（#8）：周末锚在周六。
+        for ((w, extraWeeks) in weekendWords) {
+            if (rest.startsWith(w)) {
+                acc.setDate(nextSaturday().plusWeeks(extraWeeks), today)
+                return rest.substring(w.length)
+            }
         }
 
         // 2) 下周X / 下下周X
@@ -565,6 +664,9 @@ class Parser(
             (acc.date ?: today) to RangeShift.NONE
         } else {
             if (repeatDays(left) != null) return null // 重复 + 范围不支持
+            // 相对时刻（#4：马上/待会儿/稍后…）是**时间**不是日期，不能当日期段的左半：
+            // 「马上到周五」应是"待办：到周五"，不是今天→周五的日期段。
+            if (relativeNowWords.keys.any { left.startsWith(it) }) return null
             resolveRangeLeft(left) ?: return null
         }
 
@@ -648,6 +750,11 @@ class Parser(
         if (stripLeadingDate(token, Acc()).length < token.length) return null
         for (i in 1 until token.length) {
             val tail = token.substring(i)
+            // ★ 相对时刻词（#4）不参与"文字 + 日期"的前缀扫描：它们在**词尾**往往是复合词
+            //   （「火车晚点」「看一会儿书」），剥成前缀会把标题吃成「火车」「看」还倒贴一个
+            //   15 分钟后的提醒。它们本就习惯写在句首（"待会儿开会"），句首由 stripLeadingDate
+            //   直接命中，不需要这条兜底路径。
+            if (relativeNowWords.keys.any { tail.startsWith(it) }) continue
             val probe = Acc()
             if (stripLeadingDate(tail, probe).length >= tail.length) continue
             if (probe.date == null) continue
@@ -675,6 +782,8 @@ class Parser(
             if (m.lookingAt()) {
                 val n = numOf(m.group(2)!!) ?: return null
                 if (n <= 0) return null
+                // 同 stripRange：相对时刻（#4）不是日期，不能当时长锚点。
+                if (relativeNowWords.keys.any { m.group(1)!!.startsWith(it) }) return null
                 val anchorAcc = Acc()
                 stripLeadingDate(m.group(1)!!, anchorAcc)
                 val anchor = anchorAcc.date ?: return null
@@ -786,11 +895,37 @@ class Parser(
                 s = s.substring(m.end())
             }
         }
+        // 年底 / 年初（#8）：year 关键字已定年、还没落到具体月份时，「年底/年末/年终/年初」
+        // 指**年的**边界：「今年年底」→ 12-31，「明年初」→ 次年 1-1，「明年年初」→ 次年 1-1。
+        // ★ 匹配的是带「年」的整词 —— 关键吃掉「今年」后余下的是「年底…」，不是「底…」。
+        //   少了这一条，「今年年底总结」会整段判负 → 被 peelTitlePrefix 剥成"标题=今年"。
+        // 单字「底/末/初」的形式（"本月底"）走下面的月界分支，两者不冲突。
+        if (month == null && day == null) {
+            yearBoundaryWords.firstOrNull { s.startsWith(it.first) }?.let { (w, dec31) ->
+                acc.setDate(if (dec31) safeDate(year, 12, 31) else safeDate(year, 1, 1), today)
+                return s.substring(w.length)
+            }
+        }
+        // optional 月底/月初 修饰（#3）。此时「月」已被关键字吃掉，余首是单个 底/初/末：
+        // 「本月底」→ 本月最后一天；「下个月初」→ 次月 1 号。
+        // 故意不收「中」—— 「本月中奖 / 中了」的「中」是动词，误判成 15 号比不识别更糟。
+        var boundary: Int? = null // -1 = 月末, 1 = 月初
+        if (day == null) {
+            when {
+                s.startsWith("底") || s.startsWith("末") -> { boundary = -1; s = s.substring(1) }
+                s.startsWith("初") -> { boundary = 1; s = s.substring(1) }
+            }
+        }
 
         val m = month ?: return null // no concrete date (bare 今年/明年) -> not a date
         val y = year
         val lastDay = LocalDate.of(y, m, 1).lengthOfMonth()
-        val d = if (day != null) day.coerceIn(1, lastDay) else today.dayOfMonth.coerceAtMost(lastDay)
+        val d = when {
+            day != null -> day.coerceIn(1, lastDay)
+            boundary == -1 -> lastDay
+            boundary != null -> boundary
+            else -> today.dayOfMonth.coerceAtMost(lastDay)
+        }
 
         acc.setDate(safeDate(y, m, d), today)
         return s
@@ -800,15 +935,17 @@ class Parser(
     private fun stripLeadingTime(rest: String, acc: Acc): String {
         clockRe.matcher(rest).let { m ->
             if (m.lookingAt()) {
+                val startPeriod = m.group(1) ?: acc.pendingPeriod
                 acc.time = clockMatchTime(m, acc)
-                return rest.substring(m.end())
+                return consumeTimeRange(rest.substring(m.end()), startPeriod, acc)
             }
         }
         hourRe.matcher(rest).let { m ->
             // 「一点点」：后面紧跟的还是一个「点」，说明这不是时间（"一点" 只是"一点点"的前缀）。
             if (m.lookingAt() && rest.getOrNull(m.end()) != '点') {
+                val startPeriod = m.group(1) ?: acc.pendingPeriod
                 acc.time = hourMatchTime(m, acc)
-                return rest.substring(m.end())
+                return consumeTimeRange(rest.substring(m.end()), startPeriod, acc)
             }
         }
 
@@ -820,7 +957,7 @@ class Parser(
                 acc.pendingPeriod = word
                 acc.time = LocalTime.of(hour, 0)
                 acc.night = false
-                return rest.substring(word.length)
+                return stripTimeModifier(rest.substring(word.length))
             }
         }
 
@@ -830,12 +967,70 @@ class Parser(
             acc.time = e.time
             acc.night = false
             acc.pendingPeriod = null
-            return (rest.substring(0, e.start) + rest.substring(e.end)).trim()
+            val after = rest.substring(0, e.start) +
+                consumeTimeRange(rest.substring(e.end), e.period, acc)
+            return after.trim()
         }
         return rest
     }
 
-    private data class EmbeddedTime(val start: Int, val end: Int, val time: LocalTime)
+    /**
+     * 时刻后面跟「到 / 至 / ~ …」+ 又一个有效时刻 → 记成**时间区间**（#1 方案B）。
+     *
+     * 「下午3点到5点」→ 15:00 ~ 17:00：结束时刻**继承开始时刻的时段词**，
+     * 否则右半的「5点」会被读成凌晨 05:00。
+     *
+     * 守卫：连接词后面必须真是时刻，否则原样返回（stripTimeModifier 兜底）——
+     * 「3点到位」「3点到公司」「9点以后」都不受影响。
+     */
+    private fun consumeTimeRange(after: String, startPeriod: String?, acc: Acc): String {
+        for (conn in timeRangeConnectors) {
+            if (!after.startsWith(conn)) continue
+            val tail = after.substring(conn.length).trimStart()
+            // 右半用一个"继承时段词"的临时 acc 解析，避免污染左半已落定的状态。
+            val endAcc = Acc().also { it.pendingPeriod = startPeriod }
+            var end: LocalTime? = null
+            var endLen = 0
+            clockRe.matcher(tail).let { m ->
+                if (m.lookingAt()) {
+                    end = clockMatchTime(m, endAcc)
+                    endLen = m.end()
+                }
+            }
+            if (end == null) {
+                hourRe.matcher(tail).let { m ->
+                    // 同 stripLeadingTime：挡住「到一点点」这类假时刻。
+                    if (m.lookingAt() && tail.getOrNull(m.end()) != '点') {
+                        end = hourMatchTime(m, endAcc)
+                        endLen = m.end()
+                    }
+                }
+            }
+            if (end != null) {
+                acc.endTime = end
+                return stripTimeModifier(tail.substring(endLen))
+            }
+        }
+        return stripTimeModifier(after)
+    }
+
+    /**
+     * 吃掉时刻后面的**双字**模糊修饰词（#7）：「9点以前 / 9点以后 / 9点左右 / 9点前后…」。
+     * 只吃双字词，不碰单字「前 / 后」—— 免伤「前天 / 后天 / 上前」里的单字用法。
+     * 只在刚解析出一个时刻后调用，所以不会误伤标题里独立出现的「以前 / 左右」。
+     */
+    private fun stripTimeModifier(s: String): String {
+        for (mod in timeModifiers) if (s.startsWith(mod)) return s.substring(mod.length).trimStart()
+        return s
+    }
+
+    private data class EmbeddedTime(
+        val start: Int,
+        val end: Int,
+        val time: LocalTime,
+        /** 命中时刻自带的时段词（「晚上9点」→ "晚上"），供 [consumeTimeRange] 继承给结束时刻。 */
+        val period: String? = null
+    )
 
     /**
      * 时段词后面紧跟这些字时是寒暄或名词，不该当时间：
@@ -856,14 +1051,14 @@ class Parser(
         clockFindRe.matcher(token).let { m ->
             while (m.find()) {
                 if (m.start() > 0) {
-                    return EmbeddedTime(m.start(), m.end(), clockMatchTime(m, Acc()))
+                    return EmbeddedTime(m.start(), m.end(), clockMatchTime(m, Acc()), m.group(1))
                 }
             }
         }
         hourFindRe.matcher(token).let { m ->
             while (m.find()) {
                 if (m.start() > 0) {
-                    return EmbeddedTime(m.start(), m.end(), hourMatchTime(m, Acc()))
+                    return EmbeddedTime(m.start(), m.end(), hourMatchTime(m, Acc()), m.group(1))
                 }
             }
         }
@@ -871,7 +1066,7 @@ class Parser(
         for ((word, hour) in periodDefaults) {
             val i = token.lastIndexOf(word)
             if (i > 0 && (best == null || i > best.start)) {
-                best = EmbeddedTime(i, i + word.length, LocalTime.of(hour, 0))
+                best = EmbeddedTime(i, i + word.length, LocalTime.of(hour, 0), word)
             }
         }
         return best
@@ -950,6 +1145,14 @@ class Parser(
     private fun safeDate(y: Int, m: Int, d: Int): LocalDate? =
         try { LocalDate.of(y, m, d) } catch (_: Exception) { null }
 
+    /** 下一个「当月或次月」的 [day] 号（每月N号 的重复锚点）。当天未过就这个月，已过就下个月。 */
+    private fun nextDayOfMonth(day: Int): LocalDate {
+        val d = day.coerceIn(1, 31)
+        fun at(base: LocalDate) = base.withDayOfMonth(d.coerceAtMost(base.lengthOfMonth()))
+        val candidate = at(today)
+        return if (candidate.isBefore(today)) at(today.plusMonths(1)) else candidate
+    }
+
     private data class Repeat(val match: String, val days: Int, val anchor: LocalDate?)
 
     /** Detect a leading repeat prefix: 每天/每日(1), 每周/每个星期(7), 每周X(7, anchored), 每月(≈30). */
@@ -973,6 +1176,14 @@ class Parser(
             }
             rest.startsWith("每月") || rest.startsWith("每个月") -> {
                 val m = if (rest.startsWith("每月")) "每月" else "每个月"
+                // 月日锚点：「每月5号 / 每月10日」——把号/日吃进来当锚点（#2）。
+                // 否则「5号」漏标题、到期落今天，而「每周三」却正确，不一致。
+                val after = rest.substring(m.length)
+                val dm = Regex("""^(\d{1,2}|[零一二三四五六七八九十]{1,3})\s*[号日]""").find(after)
+                val day = dm?.groupValues?.get(1)?.let { numOf(it) }
+                if (dm != null && day != null) {
+                    return Repeat(m + dm.value, 30, nextDayOfMonth(day))
+                }
                 Repeat(m, 30, today)
             }
             else -> null
@@ -986,6 +1197,24 @@ class Parser(
         val offset = if (target >= cur) target - cur else target - cur + 7
         return today.plusDays(offset.toLong())
     }
+
+    /**
+     * 「周末」的锚点（#8）：今天就是周六则今天，否则下一个周六。
+     * 注意**不含周日→今天**：周日的"周末"已近尾声，按下周六算更符合"安排事情"的直觉。
+     */
+    private fun nextSaturday(): LocalDate {
+        val dow = today.dayOfWeek.value // 1=Mon .. 7=Sun
+        return today.plusDays(((6 - dow + 7) % 7).toLong())
+    }
+
+    /** 「年初」：下一个 1 月 1 日（今天就是 1-1 时取今天）。 */
+    private fun nextJan1(): LocalDate {
+        val jan1 = LocalDate.of(today.year, 1, 1)
+        return if (jan1.isBefore(today)) jan1.plusYears(1) else jan1
+    }
+
+    /** 「年底 / 年末」：今年的 12 月 31 日（永不为过去，年内任何一天都成立）。 */
+    private fun yearEnd(): LocalDate = LocalDate.of(today.year, 12, 31)
 
     /** First due occurrence given a repeat step — today unless already past, then next step. */
     private fun nextOccurrence(days: Int, anchor: LocalDate): LocalDate {

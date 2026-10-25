@@ -23,6 +23,7 @@ class ReminderReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val todoId = intent.getLongExtra("todoId", -1L)
         val kind = intent.getIntExtra("kind", 0)
+        val leadDays = intent.getIntExtra("leadDays", 0)
         if (todoId < 0L) return
 
         val pending = goAsync()
@@ -38,7 +39,7 @@ class ReminderReceiver : BroadcastReceiver() {
                     //   when，漏了 START 分支 → 时间段开始日那天用户看到的是「出差 提醒」。
                     val dueWord = SettingsRepo.notificationStyle(appContext).dueWord
                     val reminderKind = ReminderEngine.Reminder.Kind.entries.getOrNull(kind)
-                    val message = ReminderEngine.messageFor(reminderKind, dueWord)
+                    val message = ReminderEngine.messageFor(reminderKind, dueWord, leadDays)
                     NotificationHelper.postReminder(appContext, todo.id, todo.title, message)
                     // OVERDUE: reschedule the next nag so a still-unfinished todo keeps nagging.
                     if (reminderKind == ReminderEngine.Reminder.Kind.OVERDUE) {

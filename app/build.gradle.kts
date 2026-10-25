@@ -28,6 +28,9 @@ android {
                 keyAlias = keyAliasVal
                 keyPassword = keyPasswordVal
             }
+            // ★ 显式开 v3：0.10.0 的包只带 v2（apksigner 实测 v3 = false）。
+            //   v3 带密钥轮换信息，部分商店的加固/重签流程更认它。v1 仍关（minSdk 26）。
+            enableV3Signing = true
         }
     }
 
@@ -181,8 +184,31 @@ android {
         //            `Migration didn't properly handle: todos(...)` → onCreate 里秒崩。
         //            编译期完全看不出来。现在补上 DEFAULT NULL，并加幂等判断（列已存在就跳过）。
         //            versionName 仍 0.9.3，只把 versionCode 推到 32，便于确认装的是修复版。
-        versionCode = 32
-        versionName = "0.9.3"
+        //         ⑧ 0.10.0（2026-10-25）—— 解析器三件事，都是"用户真的会这么打"的写法：
+        //            · 时间区间「下午3点到5点开会」：以前右半「5点」整段漏进标题（"到5点开会"）。
+        //              加 endAtMillis（方案 B，结束点真落库）：结束时刻**继承左半的时段词**
+        //              （否则「下午3点到5点」的 5 点会被读成凌晨 05:00）；
+        //              逾期按**结束点**判（16:00 是进行中，不标红），结束点**不响**提醒，
+        //              逾期唠叨链的锚点也跟着挪到结束点。DB v5 → v6。
+        //            · 新档位词：周末（锚周六）/ 年底 / 年末 / 年终 / 年初，以及「今年年底」「明年初」。
+        //            · 相对提醒：马上 / 待会儿 / 稍后 / 一会儿… → now + N 分钟，跨午夜自动滚天；
+        //              已解析出日期时只补时刻不抢日期；「火车晚点」「看一会儿书」这类复合词
+        //              不会被剥成"标题 + 15 分钟后的提醒"（词尾的相对词不参与前缀扫描）。
+        // 1.0.0（2026-10-25）—— 应用商店首发版，与 0.10.x 相比是**减法**：
+        //   · 应用名 Todo → 「一句话待办」（vivo 规范 2.2.3 禁纯功能词；2.2.5 要求与软著一致）
+        //   · 应用内自更新整体下线：删 update 包（UpdateService / UpdateDownloadService /
+        //     ApkInstaller / StorageDiag / Version）+ UpdateDialog + file_paths.xml；
+        //     移除 INTERNET / ACCESS_NETWORK_STATE / REQUEST_INSTALL_PACKAGES /
+        //     FOREGROUND_SERVICE_DATA_SYNC 四个权限，以及 UpdateDownloadService 的
+        //     <service> 与 FileProvider 的 <provider>。理由：国内商店一律把
+        //     「应用内下载安装 APK」视为绕过商店分发，属必拒项。
+        //   · 新增隐私政策（首次启动同意弹窗 + 关于页入口）。★ 通知权限申请挪到
+        //     「同意隐私政策之后」，之前是 onCreate 里直接申请 —— 顺序违规。
+        //   · allowBackup=false（数据不再进系统云备份，与「数据只在本地」一致）
+        //   · 关于页新增备案号展示位（拿到号后填）
+        //   解析器与提醒逻辑与 0.10.0 完全一致，无功能删减（除检查更新）。
+        versionCode = 34
+        versionName = "1.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

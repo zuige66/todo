@@ -302,7 +302,8 @@ object WidgetUpdater {
                 due,
                 todo.hasExactTime,
                 showTime = !dateOnly,
-                startAtMillis = todo.startAtMillis
+                startAtMillis = todo.startAtMillis,
+                endAtMillis = todo.endAtMillis
             )
             rv.setTextViewText(R.id.widget_due, label)
             rv.setTextColor(
@@ -371,23 +372,41 @@ object TodoWidgetRepo {
  * 组件里**不带「周几」**（zuige 2026-10-23：只要日期），所以这里恒传 `showWeekday = false`；
  * App 列表仍用 `Format.dueLine` 的默认值（带星期）。
  * [showTime]=false 时只到日期（「10月23日」）—— 对应设置里的「只显示日期」开关。
+ * [endAtMillis] 非空 = 时间区间（#1）：文案变成「15点~17点」，逾期看结束点。
  */
 internal fun dueLabel(
     dueAtMillis: Long?,
     hasExactTime: Boolean,
     showTime: Boolean = true,
-    startAtMillis: Long? = null
+    startAtMillis: Long? = null,
+    endAtMillis: Long? = null
 ): Pair<String, Boolean> {
     if (dueAtMillis == null) return "" to false
     val today = AppTime.today()
     val now = AppTime.nowMillis()
-    val overdue = Format.isOverdue(dueAtMillis, today, now, hasExactTime)
-    // 时间段用紧凑范围（21–23日，末尾带结束时刻），单日仍是原来的 dueLine。
-    val label = if (startAtMillis != null) {
-        val range = Format.monthDayRange(startAtMillis, dueAtMillis)
-        if (showTime) "$range ${Format.time(dueAtMillis)}" else range
-    } else {
-        Format.dueLine(dueAtMillis, showWeekday = false, showTime = showTime)
+    val overdue = Format.isOverdue(endAtMillis ?: dueAtMillis, today, now, hasExactTime)
+    val label = when {
+        !showTime -> if (startAtMillis != null) {
+            Format.monthDayRange(startAtMillis, dueAtMillis)
+        } else {
+            Format.dueLine(dueAtMillis, showWeekday = false, showTime = false)
+        }
+        // 时间段（日期段）用紧凑范围（21–23日），时间区间再接「15点~17点」。
+        startAtMillis != null -> {
+            val range = Format.monthDayRange(startAtMillis, dueAtMillis)
+            val t = if (endAtMillis != null) {
+                "${Format.time(dueAtMillis)}~${Format.time(endAtMillis)}"
+            } else {
+                Format.time(dueAtMillis)
+            }
+            "$range $t"
+        }
+        // 同一天的时间区间：「10月23日 15点~17点」。
+        endAtMillis != null -> {
+            val d = Format.dueLine(dueAtMillis, showWeekday = false, showTime = false)
+            "$d ${Format.time(dueAtMillis)}~${Format.time(endAtMillis)}"
+        }
+        else -> Format.dueLine(dueAtMillis, showWeekday = false, showTime = true)
     }
     return label to overdue
 }

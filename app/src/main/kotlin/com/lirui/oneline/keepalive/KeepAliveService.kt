@@ -196,8 +196,12 @@ object KeepAlive {
     fun refresh(context: Context) {
         if (!isRunning) return
         val intent = Intent(context, KeepAliveService::class.java)
-        if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(intent)
-        else context.startService(intent)
+        // 与上面的 [start] 同构：Android 12+ 从后台 startForegroundService 会抛
+        // ForegroundServiceStartNotAllowedException，调用点（设置页）不能崩（P3-3）。
+        runCatching {
+            if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(intent)
+            else context.startService(intent)
+        }
     }
 
     fun stop(context: Context) {

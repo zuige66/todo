@@ -68,16 +68,22 @@ enum class HomeBucket(val id: String, val label: String) {
  */
 object HomeGrouping {
 
-    /** Which board a todo belongs to. [due] null = 无日期 (never overdue, never dated). */
+    /**
+     * Which board a todo belongs to. [due] null = 无日期 (never overdue, never dated).
+     *
+     * [end] = 时间区间的结束点（#1，`endAtMillis`）：非空时逾期判定看结束点而不是开始点 ——
+     * 「下午3点到5点」在 16:00 是**进行中**，不该进逾期板块，也不该标红。
+     */
     fun boardOf(
         due: Long?,
         today: LocalDate = AppTime.today(),
         nowMillis: Long = AppTime.nowMillis(),
-        hasExactTime: Boolean = true
+        hasExactTime: Boolean = true,
+        end: Long? = null
     ): HomeBoard = when {
         due == null -> HomeBoard.UNDATED
         // Same single source of truth the red marking uses.
-        Format.isOverdue(due, today, nowMillis, hasExactTime) -> HomeBoard.OVERDUE
+        Format.isOverdue(end ?: due, today, nowMillis, hasExactTime) -> HomeBoard.OVERDUE
         else -> HomeBoard.DATED
     }
 

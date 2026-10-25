@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Todo</string>
+    <!-- ★ 商店上架名（v1.0.0 起）：必须与软著名称、商店后台填写的应用名称完全一致。
+         vivo 审核规范 2.2.3 禁止纯功能词（"Todo" 属功能词，会被打回）；
+         2.2.5 / 3.1.4 要求应用名与软著名称一致，改名等于重做软著 —— 所以这里改一次就定死。 -->
+    <string name="app_name">一句话待办</string>
 
     <!-- Groups -->
     <string name="group_today">今天</string>

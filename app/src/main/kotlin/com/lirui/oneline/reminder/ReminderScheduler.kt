@@ -27,16 +27,20 @@ object ReminderScheduler {
      * are checked and fall back to inexact if not granted.
      *
      * @param startAtMillis 时间段开始日（null = 单日待办），决定要不要额外排一条「今天开始」。
+     * @param endAtMillis 时间区间结束点（#1，null = 普通待办）。只影响**逾期唠叨链**的锚点：
+     *   「15:00~17:00」在 16:00 是进行中（列表不标红），此时不该开始唠叨 —— 所以链从
+     *   结束点起算；到点/提前提醒仍然按开始点 [dueAtMillis] 响（zuige：结束点不响）。
      */
     fun scheduleFor(
         context: Context,
         todoId: Long,
         dueAtMillis: Long,
         hasExactTime: Boolean,
-        startAtMillis: Long? = null
+        startAtMillis: Long? = null,
+        endAtMillis: Long? = null
     ) {
         scope.launch {
-            scheduleBlocking(context, todoId, dueAtMillis, hasExactTime, startAtMillis)
+            scheduleBlocking(context, todoId, dueAtMillis, hasExactTime, startAtMillis, endAtMillis)
         }
     }
 
@@ -45,7 +49,8 @@ object ReminderScheduler {
         todoId: Long,
         dueAtMillis: Long,
         hasExactTime: Boolean,
-        startAtMillis: Long? = null
+        startAtMillis: Long? = null,
+        endAtMillis: Long? = null
     ) {
         // Cancel any previously set reminders for this todo.
         cancelForId(context, todoId)
@@ -69,8 +74,11 @@ object ReminderScheduler {
         val nagInterval = SettingsRepo.overdueIntervalHours(context)
 
         // 逾期反复叮嘱：若已到期，调度下一个 OVERDUE 提醒（触发后由 receiver 继续排程）。
+        // 锚点是**结束点**（#1）：区间进行中不唠叨，与"进行中不标红"是同一条判定。
         if (nagEnabled) {
-            ReminderEngine.nextOverdueReminder(dueAtMillis, nagIntervalHours = nagInterval)?.let { nag ->
+            ReminderEngine.nextOverdueReminder(
+                endAtMillis ?: dueAtMillis, nagIntervalHours = nagInterval
+            )?.let { nag ->
                 val pi = pendingReminder(context, todoId, ReminderEngine.Reminder.Kind.OVERDUE.ordinal)
                 if (canScheduleExact(context)) {
                     am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, nag.fireAtMillis, pi)
@@ -90,7 +98,7 @@ object ReminderScheduler {
             }
             if (!allowed) return@forEach
 
-            val pi = pendingReminder(context, todoId, r.kind.ordinal)
+            val pi = pendingReminder(context, todoId, r.kind.ordinal, r.leadDays)
             if (canScheduleExact(context)) {
                 am.setExactAndAllowWhileIdle(
                     AlarmManager.RTC_WAKEUP, r.fireAtMillis, pi
@@ -116,7 +124,9 @@ object ReminderScheduler {
         val dao = AppDatabase.get(context).todoDao()
         dao.getActiveAll().forEach { todo ->
             todo.dueAtMillis?.let { due ->
-                scheduleBlocking(context, todo.id, due, todo.hasExactTime, todo.startAtMillis)
+                scheduleBlocking(
+                    context, todo.id, due, todo.hasExactTime, todo.startAtMillis, todo.endAtMillis
+                )
             }
         }
     }
@@ -140,16 +150,26 @@ object ReminderScheduler {
     fun reScheduleOverdue(context: Context, todo: com.lirui.oneline.data.model.Todo) {
         scope.launch {
             todo.dueAtMillis?.let { due ->
-                scheduleBlocking(context, todo.id, due, todo.hasExactTime, todo.startAtMillis)
+                scheduleBlocking(
+                    context, todo.id, due, todo.hasExactTime, todo.startAtMillis, todo.endAtMillis
+                )
             }
         }
     }
 
-    private fun pendingReminder(context: Context, todoId: Long, kindOrdinal: Int): PendingIntent {
+    private fun pendingReminder(
+        context: Context,
+        todoId: Long,
+        kindOrdinal: Int,
+        leadDays: Int = 0
+    ): PendingIntent {
         val intent = Intent(context, ReminderReceiver::class.java).apply {
             action = "com.lirui.oneline.REMINDER"
             putExtra("todoId", todoId)
             putExtra("kind", kindOrdinal)
+            // 提前天数：投递侧据此把「提前提醒」细化成「提前N天提醒」。
+            // 默认值 0 = 旧版已排的闹钟没有这个 extra 时，回退到笼统的「提前提醒」。
+            putExtra("leadDays", leadDays)
         }
         return PendingIntent.getBroadcast(
             context,

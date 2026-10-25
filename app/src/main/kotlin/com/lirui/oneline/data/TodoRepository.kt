@@ -27,16 +27,18 @@ class TodoRepository(private val context: Context) {
     suspend fun addFromParsed(parsed: ParsedTodo): Long {
         val due = parsedToDue(parsed)
         val start = parsedToStart(parsed)
+        val end = parsedToEnd(parsed)
         val id = dao.insert(Todo(
             title = parsed.cleanTitle,
             detail = parsed.detail.orEmpty(),
             dueAtMillis = due?.first,
             startAtMillis = start,
+            endAtMillis = end,
             hasExactTime = parsed.hasExactTime,
             repeatDays = parsed.repeatDays
         ))
         due?.let { (epoch, exact) ->
-            ReminderScheduler.scheduleBlocking(context, id, epoch, exact, start)
+            ReminderScheduler.scheduleBlocking(context, id, epoch, exact, start, end)
         }
         return id
     }
@@ -67,9 +69,25 @@ class TodoRepository(private val context: Context) {
         return date.atStartOfDay(AppTime.ZONE).toInstant().toEpochMilli()
     }
 
+    /**
+     * 时间区间的结束点 epoch（#1 方案B）；[ParsedTodo.endTime] == null 返回 null。
+     *
+     * 与 [dueAtMillis]（开始点，提醒在这响）**同一天**；跨午夜的写法（「晚上11点到1点」）
+     * 结束点落在次日 —— 用户写的就是这个意思，显示与逾期判定都按结束点走。
+     */
+    private fun parsedToEnd(parsed: ParsedTodo): Long? {
+        val end = parsed.endTime ?: return null
+        val date = parsed.dueDate ?: return null
+        val start = parsed.dueTime
+        val d = if (start != null && end.isBefore(start)) date.plusDays(1) else date
+        return ZonedDateTime.of(d, end, AppTime.ZONE).toInstant().toEpochMilli()
+    }
+
     /** Default time-of-day for a date-only todo — the user-configurable default. */
     private fun defaultTime(date: LocalDate?): LocalTime {
-        val mo = SettingsRepo.defaultMinuteOfDay(context)
+        // coerceIn 与 ReminderEngine.startReminder 的防护风格对齐：脏设置值不会炸 LocalTime.of。
+        // 当前写入路径只有设置页 4 个固定档位（实际不可达），属防御（P3-1）。
+        val mo = SettingsRepo.defaultMinuteOfDay(context).coerceIn(0, 1439)
         return LocalTime.of(mo / 60, mo % 60)
     }
 
@@ -143,20 +161,28 @@ class TodoRepository(private val context: Context) {
         do {
             next = next.plusDays(todo.repeatDays.toLong())
             guard++
-        } while ((next.isBefore(today) || (next == today && curTime.isBefore(nowTime))) && guard < 400)
+        // guard 400→4000（P3-5）：走满后若仍在过去，会排一个过去时刻的闹钟（立即触发）。
+        // 4000 天 ≈ 11 年，足够覆盖"待办due 陈年老旧"的真实场景，循环本身是廉价的天数加法。
+        } while ((next.isBefore(today) || (next == today && curTime.isBefore(nowTime))) && guard < 4000)
         val nextEpoch = ZonedDateTime.of(next, curTime, zone).toInstant().toEpochMilli()
         // 顺延时开始日同步平移（重复任务通常没有开始日，这里是防御性处理）。
         val nextStart = todo.startAtMillis?.let { it + (nextEpoch - due) }
+        // 结束点同距平移（#1）：重复 + 时间区间（「每天下午3点到5点」编辑保存后才可能出现）
+        // 只平移 due 会留下 endAtMillis < dueAtMillis 的坏数据，显示成「17:00 ~ 15:00」。
+        val nextEnd = todo.endAtMillis?.let { it + (nextEpoch - due) }
         dao.updateContent(
             id = todo.id,
             title = todo.title,
             detail = todo.detail,
             dueAtMillis = nextEpoch,
             startAtMillis = nextStart,
+            endAtMillis = nextEnd,
             hasExactTime = todo.hasExactTime,
             repeatDays = todo.repeatDays
         )
-        ReminderScheduler.scheduleBlocking(context, todo.id, nextEpoch, todo.hasExactTime, nextStart)
+        ReminderScheduler.scheduleBlocking(
+            context, todo.id, nextEpoch, todo.hasExactTime, nextStart, nextEnd
+        )
     }
 
     suspend fun unarchive(id: Long) {
@@ -168,7 +194,9 @@ class TodoRepository(private val context: Context) {
         dao.getById(id)?.let {
             dao.update(it.copy(archived = false, completedAt = null))
             it.dueAtMillis?.let { due ->
-                ReminderScheduler.scheduleFor(context, id, due, it.hasExactTime, it.startAtMillis)
+                ReminderScheduler.scheduleFor(
+                    context, id, due, it.hasExactTime, it.startAtMillis, it.endAtMillis
+                )
             }
         }
     }
@@ -194,12 +222,14 @@ class TodoRepository(private val context: Context) {
     suspend fun editFromParsed(id: Long, parsed: ParsedTodo) {
         val due = parsedToDue(parsed)
         val start = parsedToStart(parsed)
+        val end = parsedToEnd(parsed)
         dao.updateContent(
             id = id,
             title = parsed.cleanTitle,
             detail = parsed.detail.orEmpty(),
             dueAtMillis = due?.first,
             startAtMillis = start,
+            endAtMillis = end,
             hasExactTime = parsed.hasExactTime,
             repeatDays = parsed.repeatDays
         )
@@ -207,7 +237,7 @@ class TodoRepository(private val context: Context) {
         if (due != null) {
             val archivedTodo = dao.getById(id)
             if (archivedTodo?.archived == false) {
-                ReminderScheduler.scheduleBlocking(context, id, due.first, due.second, start)
+                ReminderScheduler.scheduleBlocking(context, id, due.first, due.second, start, end)
             }
         } else {
             ReminderScheduler.cancelForId(context, id)
@@ -254,17 +284,20 @@ class TodoRepository(private val context: Context) {
                 // 解析器一句里不支持（Parser.stripRange 有拦截），所以这条路径很窄，
                 // 但一旦踩到就是坏数据。
                 val prevStart = todo.startAtMillis?.let { it - (cur - prev) }
+                // 结束点回退同样幅度（#1），理由同 rollForward：不能留下 end < due 的倒挂。
+                val prevEnd = todo.endAtMillis?.let { it - (cur - prev) }
                 dao.updateContent(
                     id = todo.id,
                     title = todo.title,
                     detail = todo.detail,
                     dueAtMillis = prev,
                     startAtMillis = prevStart,
+                    endAtMillis = prevEnd,
                     hasExactTime = todo.hasExactTime,
                     repeatDays = todo.repeatDays
                 )
                 ReminderScheduler.scheduleBlocking(
-                    context, todo.id, prev, todo.hasExactTime, prevStart
+                    context, todo.id, prev, todo.hasExactTime, prevStart, prevEnd
                 )
             }
             // No-date repeat: there is no period to roll back, nothing to do.
