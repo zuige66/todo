@@ -99,22 +99,25 @@ class MainActivity : androidx.activity.ComponentActivity() {
             // ── 未同意隐私政策：只渲染弹窗，主界面完全不组合 ──
             // 这样能保证「同意之前不申请任何权限、不排任何闹钟、不产生任何系统副作用」。
             if (!accepted) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(MaterialTheme.colorScheme.surface)
-                ) {}
-                PrivacyConsentDialog(
-                    onAgree = {
-                        SettingsRepo.setPrivacyAccepted(appContext)
-                        accepted = true
-                    },
-                    // 不同意就真的退出 —— 不能只关弹窗然后继续用（审核明确要求）。
-                    onDisagree = { finish() },
-                    onViewPolicy = { showPolicy = true }
-                )
                 if (showPolicy) {
+                    // 看政策时把同意弹窗整个撤掉，两个 Dialog 不叠着显示：
+                    // 叠着会让返回键归属含糊，而且关掉政策页后弹窗重新出现，语义更清楚。
                     PrivacyPolicyScreen(onBack = { showPolicy = false })
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(MaterialTheme.colorScheme.surface)
+                    ) {}
+                    PrivacyConsentDialog(
+                        onAgree = {
+                            SettingsRepo.setPrivacyAccepted(appContext)
+                            accepted = true
+                        },
+                        // 不同意就真的退出 —— 不能只关弹窗然后继续用（审核明确要求）。
+                        onDisagree = { finish() },
+                        onViewPolicy = { showPolicy = true }
+                    )
                 }
                 return@setContent
             }

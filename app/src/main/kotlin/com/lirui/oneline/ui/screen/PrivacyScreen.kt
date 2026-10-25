@@ -2,12 +2,9 @@
 
 package com.lirui.oneline.ui.screen
 
-import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -26,6 +23,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -36,6 +34,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 
 /**
@@ -127,97 +126,108 @@ private val POLICY_SECTIONS = listOf(
 private const val POLICY_EFFECTIVE_DATE = "2026 年 10 月 25 日"
 
 /**
- * 隐私政策全屏页。作为覆盖层使用（不进导航栈），返回键 / 左上角箭头都能退出。
+ * 隐私政策全屏页。
+ *
+ * ★ 为什么外面套一层 [Dialog] 而不是普通 Composable：
+ *   1. 首次启动时它要盖在同意弹窗（本身也是 Dialog）之上 —— 同一 composition 里的
+ *      普通 Composable 属于 Activity 窗口，z 序**永远低于**任何 Dialog 窗口，
+ *      会变成「隐私政策出现在弹窗下方」（真机踩过）。
+ *   2. 从关于页打开时，它要盖住 Scaffold 的底部导航栏 —— 那也在 tab 内容区之外。
+ *   全屏 Dialog（usePlatformDefaultWidth = false）同时解决这两件事。
+ *
+ * 返回键交给 Dialog 的 dismissOnBackPress（默认 true），走 onDismissRequest → onBack，
+ * 不再自己挂 BackHandler，避免两个返回处理叠加。
  */
 @Composable
 fun PrivacyPolicyScreen(onBack: () -> Unit) {
     val cs = MaterialTheme.colorScheme
     val listState = rememberLazyListState()
 
-    // 覆盖层没有导航栈，返回键必须自己接住，否则会直接退出应用。
-    BackHandler { onBack() }
-
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(cs.surface)
+    Dialog(
+        onDismissRequest = onBack,
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            dismissOnClickOutside = false
+        )
     ) {
-        Column(Modifier.fillMaxSize()) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .statusBarsPadding()
-                    .padding(horizontal = 4.dp, vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(onClick = onBack) {
-                    Icon(
-                        Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "返回",
-                        tint = cs.onSurface
-                    )
-                }
-                Text(
-                    "隐私政策",
-                    fontSize = 19.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = cs.onSurface
-                )
-            }
-
-            LazyColumn(
-                state = listState,
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 40.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                item {
-                    Text(
-                        "一句话待办",
-                        fontSize = 26.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = cs.onSurface,
-                        modifier = Modifier.padding(top = 8.dp)
-                    )
-                    Text(
-                        "生效日期：$POLICY_EFFECTIVE_DATE",
-                        fontSize = 13.sp,
-                        color = cs.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 6.dp, bottom = 10.dp)
-                    )
-                    Text(
-                        "本应用深知个人信息对你的重要性，并承诺不收集、不上传、不共享你的任何个人信息。" +
-                            "本政策说明本应用如何处理你的数据，以及你享有的权利。",
-                        fontSize = 15.sp,
-                        lineHeight = 24.sp,
-                        color = cs.onSurface,
-                        modifier = Modifier.padding(bottom = 8.dp)
-                    )
-                }
-                items(POLICY_SECTIONS) { section ->
-                    Column(Modifier.padding(top = 16.dp)) {
-                        Text(
-                            section.title,
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = cs.primary
+        Surface(modifier = Modifier.fillMaxSize(), color = cs.surface) {
+            Column(Modifier.fillMaxSize()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .statusBarsPadding()
+                        .padding(horizontal = 4.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(onClick = onBack) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "返回",
+                            tint = cs.onSurface
                         )
+                    }
+                    Text(
+                        "隐私政策",
+                        fontSize = 19.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = cs.onSurface
+                    )
+                }
+
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 40.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    item {
                         Text(
-                            section.body,
-                            fontSize = 15.sp,
-                            lineHeight = 24.sp,
+                            "一句话待办",
+                            fontSize = 26.sp,
+                            fontWeight = FontWeight.Bold,
                             color = cs.onSurface,
                             modifier = Modifier.padding(top = 8.dp)
                         )
+                        Text(
+                            "生效日期：$POLICY_EFFECTIVE_DATE",
+                            fontSize = 13.sp,
+                            color = cs.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 6.dp, bottom = 10.dp)
+                        )
+                        Text(
+                            "本应用深知个人信息对你的重要性，并承诺不收集、不上传、不共享你的任何个人信息。" +
+                                "本政策说明本应用如何处理你的数据，以及你享有的权利。",
+                            fontSize = 15.sp,
+                            lineHeight = 24.sp,
+                            color = cs.onSurface,
+                            modifier = Modifier.padding(bottom = 8.dp)
+                        )
                     }
-                }
-                item {
-                    Text(
-                        "X ICP 备 XXXXXXXX 号-XX",
-                        fontSize = 13.sp,
-                        color = cs.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 32.dp)
-                    )
+                    items(POLICY_SECTIONS) { section ->
+                        Column(Modifier.padding(top = 16.dp)) {
+                            Text(
+                                section.title,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = cs.primary
+                            )
+                            Text(
+                                section.body,
+                                fontSize = 15.sp,
+                                lineHeight = 24.sp,
+                                color = cs.onSurface,
+                                modifier = Modifier.padding(top = 8.dp)
+                            )
+                        }
+                    }
+                    item {
+                        Text(
+                            "X ICP 备 XXXXXXXX 号-XX",
+                            fontSize = 13.sp,
+                            color = cs.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 32.dp)
+                        )
+                    }
                 }
             }
         }
