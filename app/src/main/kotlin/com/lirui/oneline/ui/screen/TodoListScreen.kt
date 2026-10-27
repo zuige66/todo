@@ -1039,7 +1039,11 @@ private fun TodoList(
             // 并继续往上滚到状态栏底下 —— 那个观感才是"沉浸"。
             contentPadding = PaddingValues(
                 top = topInset + TOP_BAR_BODY_HEIGHT + 8.dp,
-                bottom = 8.dp
+                // 底部留白 = M3E 大 FAB（80dp）+ 16dp。
+                // Scaffold 不会为 FAB 预留内容空间，FAB 是浮在列表上的；
+                // 原来按 56dp 的 FAB 只留了 8dp，滚到底时最后一条的右半边会被那颗 + 盖住，
+                // FAB 一换成 80dp 就更明显了。
+                bottom = 96.dp
             )
         ) {
             for (row in rows) {
