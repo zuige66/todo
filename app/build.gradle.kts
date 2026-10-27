@@ -207,8 +207,23 @@ android {
         //   · allowBackup=false（数据不再进系统云备份，与「数据只在本地」一致）
         //   · 关于页新增备案号展示位（拿到号后填）
         //   解析器与提醒逻辑与 0.10.0 完全一致，无功能删减（除检查更新）。
-        versionCode = 34
-        versionName = "1.0.0"
+        // 1.0.1（2026-10-26）—— 专注计时：
+        //   · 首页顶栏加一个秒表图标（**不是第五个 tab**），点开是整页专注界面，
+        //     页内「计时 / 统计」两态。
+        //   · 计时：15/25/45/60 分钟预设，圆环倒计时，可暂停/继续/中途结束。
+        //     计时只依赖时间戳（记 startedAt，UI 每秒做差），不靠协程累加 ——
+        //     息屏/后台/进程被回收都不会让时长变短。
+        //   · 保活不用前台服务：常驻通知走系统 chronometer 倒计时（进程死了也继续走），
+        //     到点由 AlarmManager 精确闹钟拉起 FocusAlarmReceiver 落库。
+        //     因此**没有新增任何权限**，也没有 FGS 类型审核材料。
+        //   · 中途结束的口径：≥60 秒直接记入（completed=false），
+        //     1~59 秒弹窗问「要记下来吗」，0 秒不留痕。
+        //   · 统计：今日 / 本周 / 累计 / 连续天数、最近 7 天柱状、近 15 周热力图、记录列表。
+        //   · 数据：Room v6 → v7，新增 focus_sessions 表（纯建表，不动 todos）。
+        //   · 专注与待办**完全独立**：不绑定 todoId，删待办不会带走历史时长。
+        // 2026-10-27：M3E 视觉改版（形状阶 / 字阶 / 大 FAB），versionCode 36。
+        versionCode = 36
+        versionName = "1.0.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

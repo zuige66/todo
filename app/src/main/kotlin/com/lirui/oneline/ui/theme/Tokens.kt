@@ -1,10 +1,12 @@
 package com.lirui.oneline.ui.theme
 
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ColorScheme
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.unit.dp
 
 /**
  * 全应用语义色（design tokens）。
@@ -63,6 +65,22 @@ val ColorScheme.cardPlaceholder: Color
 /** 卡片描边（需要"虚线框"语义时用，比如拖拽占位的边界）。 */
 val ColorScheme.cardBorder: Color
     get() = outlineVariant.copy(alpha = if (isLight()) 0.55f else 0.42f)
+
+// ── 形状 ─────────────────────────────────────────────────────────────────────
+
+/**
+ * 卡片圆角，全应用统一（2026-10-27 加，M3E 化）。
+ *
+ * 以前每处各写一个 `RoundedCornerShape(20.dp)`，改成 28 之后还得挨个找 ——
+ * 现在收成一个 token：`Modifier.clip(CardShape)`。
+ *
+ * 为什么是 28：M3E 的 extraLarge 就是 28dp，卡片用这一档；
+ * 小控件（徽标、芯片）继续用小一档，层次才分得开，不会整页糊成一片圆。
+ */
+val CardShape = RoundedCornerShape(28.dp)
+
+/** 卡片里再套的小方（提示条、徽标、输入面）：比 [CardShape] 小一档。 */
+val CardShapeSmall = RoundedCornerShape(20.dp)
 
 // ── 输入面 ───────────────────────────────────────────────────────────────────
 

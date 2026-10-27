@@ -73,9 +73,10 @@ import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
-import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.MediumFloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
@@ -144,6 +145,7 @@ import com.lirui.oneline.ui.theme.actionContainer
 import com.lirui.oneline.ui.theme.actionContent
 import com.lirui.oneline.ui.theme.actionDisabledContainer
 import com.lirui.oneline.ui.theme.actionDisabledContent
+import com.lirui.oneline.ui.theme.CardShape
 import com.lirui.oneline.ui.theme.cardBackground
 import com.lirui.oneline.ui.theme.cardDragging
 import com.lirui.oneline.ui.theme.cardPlaceholder
@@ -225,7 +227,13 @@ fun TodoApp(
      */
     pendingTodoId: Long = -1L,
     /** 定位完成（滚动 + 高亮已安排）后的回调，调用方应把 [pendingTodoId] 复位。 */
-    onPendingTodoHandled: () -> Unit = {}
+    onPendingTodoHandled: () -> Unit = {},
+    /**
+     * 从专注通知点进来（true = 直接打开专注页）。见 [FocusScreen]。
+     * 与 [pendingTodoId] 同构：消费完由调用方复位。
+     */
+    pendingFocus: Boolean = false,
+    onPendingFocusHandled: () -> Unit = {}
 ) {
     val uiState by vm.state.collectAsState()
     // v0.4：关于页升级成第四个导航项，不再做覆盖层。
@@ -264,7 +272,9 @@ fun TodoApp(
         onSetAutoRepeat = onSetAutoRepeat,
         onRescheduleReminders = onRescheduleReminders,
         pendingTodoId = pendingTodoId,
-        onPendingTodoHandled = onPendingTodoHandled
+        onPendingTodoHandled = onPendingTodoHandled,
+        pendingFocus = pendingFocus,
+        onPendingFocusHandled = onPendingFocusHandled
     )
 }
 
@@ -305,12 +315,25 @@ private fun TodoAppContent(
     /** 从通知点进来的待办 id（>0 有效）；-1 = 无。见下方「通知定位」段。 */
     pendingTodoId: Long = -1L,
     /** 定位完成后的回调（调用方复位 [pendingTodoId]，防止旋屏/重组重复触发）。 */
-    onPendingTodoHandled: () -> Unit = {}
+    onPendingTodoHandled: () -> Unit = {},
+    /** 从专注通知点进来 → 直接打开专注页。 */
+    pendingFocus: Boolean = false,
+    onPendingFocusHandled: () -> Unit = {}
 ) {
     var showAdd by remember { mutableStateOf(false) }
     var editTarget by remember { mutableStateOf<Todo?>(null) }
     var justCompleted by remember { mutableStateOf<Todo?>(null) }
     var tab by remember { mutableStateOf(TAB_TODO) }
+    // 专注页是覆盖层，不是第五个 tab —— 理由见 FocusScreen 的类注释。
+    var showFocus by remember { mutableStateOf(false) }
+
+    // 从专注通知点进来：直接把专注页铺开，用户不用自己找入口。
+    LaunchedEffect(pendingFocus) {
+        if (pendingFocus) {
+            showFocus = true
+            onPendingFocusHandled()
+        }
+    }
     val context = androidx.compose.ui.platform.LocalContext.current
     // 归档中的 id 集合由 ViewModel 持有，行被回收也不会丢 —— 见 MainViewModel.requestArchive。
     val pendingArchive by vm.pendingArchive.collectAsState()
@@ -460,8 +483,18 @@ private fun TodoAppContent(
                     enter = scaleIn(initialScale = 0.6f) + fadeIn(),
                     exit = scaleOut(targetScale = 0.6f) + fadeOut()
                 ) {
-                    FloatingActionButton(onClick = { showAdd = true }) {
-                        Icon(Icons.Default.Add, contentDescription = "添加")
+                    // M3E 的 FAB 比经典 M3 大一档（80dp，方圆角），是整个页面里
+                    // 唯一的「大动作」入口。经典 56dp 那颗在小屏上更像一个普通按钮，
+                    // 压不住整页卡片。图标跟着放大到 30dp，否则大圆角里会显得空。
+                    MediumFloatingActionButton(
+                        onClick = { showAdd = true },
+                        shape = MaterialTheme.shapes.large
+                    ) {
+                        Icon(
+                            Icons.Default.Add,
+                            contentDescription = "添加",
+                            modifier = Modifier.size(30.dp)
+                        )
                     }
                 }
             }
@@ -696,7 +729,16 @@ private fun TodoAppContent(
                             colors = TopAppBarDefaults.topAppBarColors(
                                 // 与底部导航栏同一个容器色，上下呼应。
                                 containerColor = MaterialTheme.colorScheme.surfaceContainer
-                            )
+                            ),
+                            // ★ 专注入口放在这里，**不是第五个 tab**（见 FocusScreen 类注释）。
+                            //   只在首页出现：归档 / 设置 / 关于 页没有"开始专注"这个语境。
+                            actions = {
+                                if (tab == TAB_TODO) {
+                                    IconButton(onClick = { showFocus = true }) {
+                                        FocusGlyph(MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                }
+                            }
                         )
                     }
                 }
@@ -756,6 +798,12 @@ private fun TodoAppContent(
             initialRepeatDays = editTarget?.repeatDays ?: 0
             )
         }
+
+        // 专注页覆盖层：和 AddSheet 同级，因此画在 Scaffold（含底部导航）和浮层顶栏之上。
+        // 专注时界面应该是整页的 —— 底下还露着四个 tab 会让人以为随时可以切走。
+        if (showFocus) {
+            FocusScreen(onClose = { showFocus = false })
+        }
     }
 }
 
@@ -766,6 +814,42 @@ private fun TodoAppContent(
  * 这里原本是本文件 private 的属性，导致 AddSheet / 通知预览只能各自写
  * `surfaceContainerHigh` 之类的灰 —— 同一张卡片在三个页面是三种颜色。
  */
+
+/**
+ * 顶栏上的专注入口图标（一只秒表）。
+ *
+ * ★ 为什么自己画而不是用 `Icons.Default.Timer`：`material-icons-core` 里**没有** Timer /
+ *   Hourglass 这类图标，只有 Add / Check / Close 那一小撮；为了一个图标引入
+ *   `material-icons-extended`（几万个矢量 + 几 MB）不划算 —— R8 能裁掉，但构建时间会明显变长。
+ *   两条线 + 一个圆就够了，而且粗细能和顶栏其他元素对上。
+ */
+@Composable
+private fun FocusGlyph(tint: Color) {
+    Canvas(Modifier.size(22.dp)) {
+        val stroke = 1.8.dp.toPx()
+        val radius = size.minDimension / 2f - stroke / 2f
+        val cx = size.width / 2f
+        val cy = size.height / 2f
+
+        drawCircle(color = tint, radius = radius, style = Stroke(width = stroke))
+        // 分针（指向 12 点）
+        drawLine(
+            color = tint,
+            start = Offset(cx, cy),
+            end = Offset(cx, cy - radius * 0.58f),
+            strokeWidth = stroke,
+            cap = StrokeCap.Round
+        )
+        // 时针（指向 3 点）
+        drawLine(
+            color = tint,
+            start = Offset(cx, cy),
+            end = Offset(cx + radius * 0.42f, cy),
+            strokeWidth = stroke,
+            cap = StrokeCap.Round
+        )
+    }
+}
 
 /**
  * Navigation tab：外层 Box 保住等宽点击热区，内层胶囊由文字自己撑开。
@@ -815,7 +899,7 @@ private fun CompletedBar(title: String, onUndo: () -> Unit, onDismiss: () -> Uni
     // (surfaceContainerHigh used to be a flat grey that broke the palette).
     Surface(
         modifier = modifier,
-        shape = RoundedCornerShape(20.dp),
+        shape = CardShape,
         color = MaterialTheme.colorScheme.cardBackground,
         shadowElevation = 6.dp
     ) {
@@ -1166,7 +1250,7 @@ private fun ArchivedList(
                     .animateItem()
                     .fillMaxWidth()
                     .padding(horizontal = 12.dp, vertical = 3.dp)
-                    .clip(RoundedCornerShape(20.dp))
+                    .clip(CardShape)
                     // 定位高亮与首页同一套：底色向主色偏一档（见 TodoRow）。
                     .background(
                         if (todo.id == highlightId) {
@@ -2842,7 +2926,7 @@ private fun TodoRow(
         Row(
             modifier = Modifier
                 .matchParentSize()
-                .clip(RoundedCornerShape(20.dp))
+                .clip(CardShape)
                 .background(hintContainer)
                 .graphicsLayer {
                     val progressToThreshold = (dragX / thresholdPx).coerceIn(0f, 1f)
@@ -2886,7 +2970,7 @@ private fun TodoRow(
                         scaleY = scale
                     }
                 }
-                .clip(RoundedCornerShape(20.dp))
+                .clip(CardShape)
                 .background(cardColor)
                 // 右滑：水平方向独立抢占，垂直滚动仍然是 LazyColumn 的
                 // （detectHorizontalDragGestures 只在水平超过 touch slop 后消费事件）。

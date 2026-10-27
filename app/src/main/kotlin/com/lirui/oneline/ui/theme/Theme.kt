@@ -1,10 +1,13 @@
 package com.lirui.oneline.ui.theme
 
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.MaterialExpressiveTheme
 import androidx.compose.material3.MotionScheme
+import androidx.compose.material3.Shapes
+import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.expressiveLightColorScheme
 import androidx.compose.material3.lightColorScheme
@@ -12,6 +15,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 
 /**
  * One selectable colour palette.
@@ -144,6 +150,53 @@ private fun darkScheme(p: Palette, cardStyle: DarkCardStyle): ColorScheme {
     )
 }
 
+/**
+ * M3E 形状阶（2026-10-27 加）。
+ *
+ * 原来直接用 `MaterialTheme` 默认形状（extraSmall 4 / small 8 / medium 12 / large 16 /
+ * extraLarge 28）。默认那套是 Material 3 **经典**规格，圆角很克制 —— 页面里真正在用的
+ * 卡片、按钮、下拉面板又全是手写 `RoundedCornerShape(20.dp)`，两套并存，
+ * 结果是"有的地方很圆、有的地方像直角"，整体读起来不像 Expressive。
+ *
+ * 这里按 M3E 的比例整体上调一档，并把它交给 `MaterialExpressiveTheme`，
+ * 于是所有**吃主题形状**的组件（Button / Card / TextField / BottomSheet / FAB /
+ * DropdownMenu …）自动跟上，不用逐个改。
+ */
+private val OneShapes = Shapes(
+    extraSmall = RoundedCornerShape(8.dp),
+    small = RoundedCornerShape(12.dp),
+    medium = RoundedCornerShape(16.dp),
+    large = RoundedCornerShape(24.dp),
+    extraLarge = RoundedCornerShape(28.dp)
+)
+
+/**
+ * M3E 字阶（2026-10-27 加）。
+ *
+ * 只改「重量 / 字距」，不改字号 —— 字号一改，所有写死高度的行（待办行、设置项、
+ * 底栏）都要重新对一遍行高，风险远大于收益。Expressive 的字感本来也主要来自：
+ *   1. 标题更重（Bold / ExtraBold），层级一眼分得开；
+ *   2. 大字号收紧字距（tracking 负值），小标签放开字距；
+ *   3. 正文不动，保证可读性。
+ */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+private val OneTypography: Typography = Typography().let { t ->
+    t.copy(
+        displayLarge = t.displayLarge.copy(fontWeight = FontWeight.Bold, letterSpacing = (-1).sp),
+        displayMedium = t.displayMedium.copy(fontWeight = FontWeight.Bold, letterSpacing = (-0.5).sp),
+        displaySmall = t.displaySmall.copy(fontWeight = FontWeight.Bold, letterSpacing = (-0.25).sp),
+        headlineLarge = t.headlineLarge.copy(fontWeight = FontWeight.Bold, letterSpacing = (-0.5).sp),
+        headlineMedium = t.headlineMedium.copy(fontWeight = FontWeight.Bold, letterSpacing = (-0.25).sp),
+        headlineSmall = t.headlineSmall.copy(fontWeight = FontWeight.SemiBold),
+        titleLarge = t.titleLarge.copy(fontWeight = FontWeight.Bold),
+        titleMedium = t.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+        titleSmall = t.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+        labelLarge = t.labelLarge.copy(fontWeight = FontWeight.SemiBold, letterSpacing = 0.2.sp),
+        labelMedium = t.labelMedium.copy(fontWeight = FontWeight.SemiBold, letterSpacing = 0.4.sp),
+        labelSmall = t.labelSmall.copy(fontWeight = FontWeight.SemiBold, letterSpacing = 0.5.sp)
+    )
+}
+
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun OnelineTheme(
@@ -162,7 +215,9 @@ fun OnelineTheme(
 
     MaterialExpressiveTheme(
         colorScheme = colorScheme,
-        motionScheme = MotionScheme.expressive()
+        motionScheme = MotionScheme.expressive(),
+        shapes = OneShapes,
+        typography = OneTypography
     ) {
         content()
     }
