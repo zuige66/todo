@@ -3365,3 +3365,21 @@ release/vivo-store   404e8b6  国内合规（vivo 商店上架）版，1.0.0 / v
 - 校验 `AndroidManifest.xml` 权限清单与共同祖先逐行一致：无 `INTERNET`、
   无 `REQUEST_INSTALL_PACKAGES`、无自更新组件 —— 上架改造的删减没被带回来的权限破坏
 
+### 45.6 隐私政策与权限清单对齐（2026-11-04，仅合规分支）
+
+45.5 只处理了「专注统计」的字面冲突，漏了更早的存量问题：`docs/PRIVACY.md` 的权限表
+还列着一行 `INTERNET / ACCESS_NETWORK_STATE`，第四节整段写「检查更新」GET
+`blog.zuiges.com/.../latest.json`、并称服务器访问日志会记录 IP —— 但上架改造（v1.0.0）
+早已把 `INTERNET`、`REQUEST_INSTALL_PACKAGES` 与自更新组件全部删掉，`PrivacyScreen`
+也明写「不申请网络权限」。也就是**代码没联网，政策却自述联网**；`STORE-PLAN.md` 里那条
+「隐私政策里『不联网』与实际声明 INTERNET 矛盾 —— 权限已彻底移除」只修了 Manifest，没修文案。
+
+本次只改合规分支的文档（不动 `main`、不动代码）：
+- `docs/PRIVACY.md`：删权限表那一行，「本应用不申请」清单里显式补上网络权限；
+  第四节整段重写为「不申请网络权限、不发起任何网络请求」，并说明「关于」页外链走系统
+  `ACTION_VIEW`，联网的是浏览器 / 应用市场，不是本应用
+- 口径与 `PrivacyScreen`、`AboutScreen`、`AndroidManifest.xml` 三处一致
+
+★ 通用教训：**改权限清单时必须同时扫隐私政策全文**。删权限只是让系统侧不再联网，
+  政策里那段「本应用唯一的请求」会变成审核员眼里的自证材料。
+
