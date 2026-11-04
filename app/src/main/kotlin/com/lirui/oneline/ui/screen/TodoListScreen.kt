@@ -73,7 +73,7 @@ import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
-import androidx.compose.material3.MediumFloatingActionButton
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -483,18 +483,11 @@ private fun TodoAppContent(
                     enter = scaleIn(initialScale = 0.6f) + fadeIn(),
                     exit = scaleOut(targetScale = 0.6f) + fadeOut()
                 ) {
-                    // M3E 的 FAB 比经典 M3 大一档（80dp，方圆角），是整个页面里
-                    // 唯一的「大动作」入口。经典 56dp 那颗在小屏上更像一个普通按钮，
-                    // 压不住整页卡片。图标跟着放大到 30dp，否则大圆角里会显得空。
-                    MediumFloatingActionButton(
-                        onClick = { showAdd = true },
-                        shape = MaterialTheme.shapes.large
-                    ) {
-                        Icon(
-                            Icons.Default.Add,
-                            contentDescription = "添加",
-                            modifier = Modifier.size(30.dp)
-                        )
+                    // 2026-11-05 按 zuige 要求「改回去」：还原经典 M3 的 56dp FAB（0.9.3 观感）。
+                    // M3E 的 80dp Medium FAB 只试了一版，视觉上过重；形状阶 / 字阶的其余改动保留。
+                    // 图标回默认 24dp，列表底部留白同步从 96dp 收回 8dp（见下方 contentPadding）。
+                    FloatingActionButton(onClick = { showAdd = true }) {
+                        Icon(Icons.Default.Add, contentDescription = "添加")
                     }
                 }
             }
@@ -1039,11 +1032,10 @@ private fun TodoList(
             // 并继续往上滚到状态栏底下 —— 那个观感才是"沉浸"。
             contentPadding = PaddingValues(
                 top = topInset + TOP_BAR_BODY_HEIGHT + 8.dp,
-                // 底部留白 = M3E 大 FAB（80dp）+ 16dp。
-                // Scaffold 不会为 FAB 预留内容空间，FAB 是浮在列表上的；
-                // 原来按 56dp 的 FAB 只留了 8dp，滚到底时最后一条的右半边会被那颗 + 盖住，
-                // FAB 一换成 80dp 就更明显了。
-                bottom = 96.dp
+                // Scaffold 不会为 FAB 预留内容空间，FAB 浮在列表上；经典 56dp FAB 留
+                // 8dp 余量即可，滚到底时最后一条不会被那颗 + 压住。
+                // 2026-11-05 FAB 从 80dp 回退到 56dp，这里同步从 96dp 收回 8dp。
+                bottom = 8.dp
             )
         ) {
             for (row in rows) {
