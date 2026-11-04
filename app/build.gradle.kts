@@ -207,8 +207,16 @@ android {
         //   · allowBackup=false（数据不再进系统云备份，与「数据只在本地」一致）
         //   · 关于页新增备案号展示位（拿到号后填）
         //   解析器与提醒逻辑与 0.10.0 完全一致，无功能删减（除检查更新）。
-        versionCode = 34
-        versionName = "1.0.0"
+        // 1.0.1（2026-11-04）—— 合入主开发线的「专注计时 + 统计」与解析器修复：
+        //   · 顶栏秒表入口 → 整页专注界面（计时 / 统计）；不新增权限、不用前台服务，
+        //     倒计时由系统 chronometer 渲染，到点由 AlarmManager 拉起 receiver 落库。
+        //   · Room v6 → v7：纯建 focus_sessions 表，不动 todos。
+        //   · 隐私政策与政策页补充说明：专注记录仅存本机、不上传，
+        //     本地「统计视图」不等于「收集统计数据」。
+        //   · 解析器修复「今晚9:30 / 今晚的9点」被读成上午的漏洞（见 DESIGN.md §45）。
+        //   ★ 保留上架改造的全部删减（无自更新 / 无网络权限 / 隐私弹窗 / allowBackup=false）。
+        versionCode = 35
+        versionName = "1.0.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

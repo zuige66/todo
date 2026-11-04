@@ -6,15 +6,17 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.lirui.oneline.data.model.FocusSession
 import com.lirui.oneline.data.model.Todo
 
 @Database(
-    entities = [Todo::class],
-    version = 6,
+    entities = [Todo::class, FocusSession::class],
+    version = 7,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun todoDao(): TodoDao
+    abstract fun focusDao(): FocusDao
 
     companion object {
         @Volatile
@@ -77,6 +79,33 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * 新增 [FocusSession] 表（v1.0.1 专注计时）。
+         *
+         * 纯建表，**不动 todos** —— 老用户的待办一条都不会少，也不存在列默认值那种坑
+         * （见 [MIGRATION_4_5]）。`IF NOT EXISTS` 是幂等保险：迁移中途失败但没回滚的设备
+         * 再跑一次不会抛 "table already exists"。
+         *
+         * ★ 列定义必须和实体逐字对齐（类型、NOT NULL、主键自增），否则 Room 迁移后校验
+         *   不通过会直接抛 `Migration didn't properly handle: focus_sessions(...)` ——
+         *   和 0.9.3 那次闪退是同一类错误，只是这次错在建表而不是加列。
+         */
+        private val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `focus_sessions` (" +
+                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`label` TEXT NOT NULL, " +
+                        "`startedAtMillis` INTEGER NOT NULL, " +
+                        "`endedAtMillis` INTEGER NOT NULL, " +
+                        "`plannedSeconds` INTEGER NOT NULL, " +
+                        "`actualSeconds` INTEGER NOT NULL, " +
+                        "`completed` INTEGER NOT NULL, " +
+                        "`createdAt` INTEGER NOT NULL)"
+                )
+            }
+        }
+
         private fun hasColumn(db: SupportSQLiteDatabase, table: String, column: String): Boolean {
             db.query("PRAGMA table_info($table)").use { cursor ->
                 val nameIndex = cursor.getColumnIndex("name")
@@ -95,7 +124,10 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "oneline.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                    .addMigrations(
+                        MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4,
+                        MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7
+                    )
                     .build().also { INSTANCE = it }
             }
         }

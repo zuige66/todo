@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/zuige66/todo/releases"><img src="https://img.shields.io/badge/release-v1.0.0-3F3F46?style=flat-square" alt="release" /></a>
+  <a href="https://github.com/zuige66/todo/releases"><img src="https://img.shields.io/badge/release-v1.0.1-3F3F46?style=flat-square" alt="release" /></a>
   <img src="https://img.shields.io/badge/platform-Android-3DDC84?style=flat-square" alt="platform" />
   <img src="https://img.shields.io/badge/build-Kotlin%20%2B%20Compose-7F52FF?style=flat-square" alt="build" />
   <img src="https://img.shields.io/badge/storage-Room-4479A1?style=flat-square" alt="storage" />
@@ -63,6 +63,7 @@
 - [首页](#首页)
 - [提醒](#提醒)
 - [完成与重复](#完成与重复)
+- [专注](#专注)
 - [外观](#外观)
 - [设置项一览](#设置项一览)
 - [技术实现](#技术实现)
@@ -257,6 +258,66 @@
 
 ---
 
+## 专注
+
+首页顶栏右侧的秒表图标 → 整页专注界面，页内「计时 / 统计」两态。
+
+**它不是第五个 tab。** 专注是一个临时模式（25 分钟就退），底部导航那四项是常驻浏览页。
+把专注塞进去，等于把它和「关于」这种低频页摆在同一层级，四个已有入口的语义一起变糊。
+用覆盖层还有一个好处：专注页能整页铺满、盖住底部导航，视觉上和列表页彻底分开。
+
+### 计时
+
+两种模式，随时切换，上次用的会记住：
+
+| 模式 | 说明 |
+|---|---|
+| **倒计时** | 15 / 25 / 45 / 60 分钟预设，走到 0 自动结束并响一次 |
+| **正计时** | 从 00:00 往上数，没有终点，什么时候结束你说了算 |
+
+两种模式都可暂停、可继续、可中途结束。环是**波浪圆**（照应用图标那枚印章的形状，
+9 瓣），进度沿波浪路径截取，不是拿一个圆环盖在波浪底上。
+
+暂停 / 结束两个按钮钉在**屏幕最下面**：视线在环上、手在底部，不用来回找。
+
+计时**只依赖时间戳**：开始时记下 `startedAt`，显示时用「现在 − startedAt」做差，
+UI 每秒只是重绘。所以掉帧、卡顿、被系统冻结都不会让专注时长变短 ——
+用协程 `delay` 累加是这套东西最常见的错法，息屏回来就少几十分钟。
+
+保活也**不用前台服务**：倒计时交给系统渲染，到点由 AlarmManager 精确闹钟拉起接收器。
+代价是没新增任何权限，也没有前台服务类型的审核材料。
+
+> 正计时不排闹钟 —— 它没有终点。通知栏的 `chronometer` 从倒计时改成往上数。
+
+### 中途结束怎么算
+
+| 已过时长 | 处理 |
+|---|---|
+| ≥ 60 秒 | 直接记入统计，标记「提前结束」 |
+| 1–59 秒 | 弹窗问「要记下来吗」，用户自己决定 |
+| 0 秒 | 什么都不留 |
+
+40 分钟的提前结束不该因为"没走完"就白干；30 秒既可能是误触、也可能是真的开了个头，
+只有用户自己知道 —— 所以短的问一句，长的直接算。
+
+> 通知栏上点「结束」不弹窗：那里弹不出对话框，口径退化成「够长就记、太短当没发生」。
+
+### 统计
+
+- 今日 / 本周 / 累计（时长 + 次数），**本周从周一起算**
+- 连续专注天数 —— 今天还没记时从昨天往前数，早上打开 App 不会看到清零
+- 最近 7 天柱状图、近 15 周热力图（一格一天，五档深浅）、记录列表（最近 100 条）
+
+跨午夜的专注整段算在**开始那天**：23:50 开始、00:20 结束的 30 分钟算前一天，
+不会被劈成两半。
+
+### 和待办的关系
+
+**完全独立**，不绑定任何待办。删掉待办也不会带走历史时长 ——
+时长记的是"我坐了多久"，不是"这条待办花了多久"。
+
+---
+
 ## 外观
 
 基于 Material 3 Expressive，支持浅色、深色、跟随系统三种模式。
@@ -329,12 +390,12 @@
 |---|---|
 | 语言 | Kotlin |
 | UI | Jetpack Compose + Material 3 Expressive |
-| 存储 | Room（schema v5）+ SharedPreferences |
+| 存储 | Room（schema v7）+ SharedPreferences |
 | 提醒 | AlarmManager 精确闹钟 + BroadcastReceiver |
-| 导航 | 单 Activity，Compose 内部状态切换（4 个 tab） |
+| 导航 | 单 Activity，Compose 内部状态切换（4 个 tab + 专注覆盖层） |
 | 最低版本 | Android 8.0（API 26） |
 | 编译 / 目标 | API 36 |
-| 版本 | 1.0.0（versionCode 34） |
+| 版本 | 1.0.1（versionCode 35） |
 | 包名 | `com.lirui.oneline` |
 | 网络 | **不申请任何网络权限**（v1.0.0 起，检查更新已下线） |
 
@@ -372,16 +433,18 @@ NotificationActionReceiver  「完成」/「撤回」→ 复用同一个归档�
 
 ### 测试
 
-242 条单元测试，覆盖解析器、提醒引擎、通知标题、版本比较、格式化、时间与首页分组：
+318 条单元测试，覆盖解析器、提醒引擎、专注计时与统计、通知标题、版本比较、格式化、时间与首页分组：
 
 ```
 Compose 之外的逻辑全部是纯函数，可以直接测
-ParserTest            147 条
+ParserTest            184 条
 FormatTest             29 条
 HomeGroupingTest       28 条
 ReminderEngineTest     26 条
+FocusRulesTest         17 条
+RangeMergeTest         11 条
+FocusStatsTest         11 条
 NotificationTitleTest   9 条
-VersionTest             8 条
 AppTimeTest             3 条
 ```
 
@@ -394,10 +457,13 @@ app/src/main/kotlin/com/lirui/oneline/
 ├── MainActivity.kt              入口，主题与设置状态
 ├── OnelineApp.kt                Application：初始化数据库与通知渠道
 ├── data/
-│   ├── AppDatabase.kt           Room 数据库与迁移
+│   ├── AppDatabase.kt           Room 数据库与迁移（v7）
 │   ├── TodoDao.kt
 │   ├── TodoRepository.kt        唯一的数据入口
-│   └── model/Todo.kt
+│   ├── FocusDao.kt
+│   ├── FocusRepository.kt       专注记录的读写入口
+│   ├── model/Todo.kt
+│   └── model/FocusSession.kt    一次已结束的专注
 ├── parser/
 │   ├── Parser.kt                自然语言解析（规则引擎）
 │   └── ParsedTodo.kt
@@ -413,14 +479,24 @@ app/src/main/kotlin/com/lirui/oneline/
 ├── keepalive/
 │   ├── KeepAliveService.kt      后台常驻通知
 │   └── DeviceCompat.kt          各 ROM 自启动 / 电池优化兼容
+├── focus/
+│   ├── FocusRules.kt            计时纯函数：elapsed / 剩余 / 格式化 / 取消阈值
+│   ├── FocusStore.kt            进行中的专注落盘（进程被杀能恢复）
+│   ├── FocusEngine.kt           专注状态机：开始 / 暂停 / 继续 / 完成 / 中途结束
+│   ├── FocusNotifier.kt         倒计时与完成通知（系统 chronometer，不用前台服务）
+│   ├── FocusScheduler.kt        到点精确闹钟
+│   ├── FocusAlarmReceiver.kt    闹钟 → 落库 + 完成通知
+│   └── FocusActionReceiver.kt   通知条上的暂停 / 继续 / 结束
 ├── widget/
 │   ├── TodoWidgetProvider.kt    桌面小组件
 │   └── TodoWidgetActionReceiver.kt  组件行首圆圈 → 直接完成
 ├── ui/
 │   ├── MainViewModel.kt         状态与归档状态机（pendingArchive）
+│   ├── FocusViewModel.kt        专注页状态（显示时钟由 UI 驱动，页面关掉不空转）
 │   ├── screen/
 │   │   ├── TodoListScreen.kt    首页、归档页、设置页、四 tab 导航
 │   │   ├── AddSheet.kt          输入弹层
+│   │   ├── FocusScreen.kt       全屏专注页（计时 / 统计两态）
 │   │   ├── AboutScreen.kt       关于页（含隐私政策入口）
 │   │   ├── PrivacyScreen.kt     隐私政策页 + 首次启动同意弹窗
 │   └── theme/
@@ -430,13 +506,15 @@ app/src/main/kotlin/com/lirui/oneline/
     ├── AppTime.kt               固定时区
     ├── Format.kt                日期格式化、逾期判定
     ├── HomeGrouping.kt          板块与档位分组
+    ├── FocusStats.kt            专注统计聚合（今日/本周/累计/连续/热力图）
     ├── Quotes.kt                通知文案池
     └── SettingsRepo.kt          设置持久化（含通知标题模板与旧数据迁移）
 
 app/src/test/java/com/lirui/oneline/
-├── parser/ParserTest.kt
+├── parser/{ParserTest,RangeMergeTest}.kt
 ├── reminder/{ReminderEngineTest,NotificationTitleTest}.kt
-└── util/{FormatTest,HomeGroupingTest,AppTimeTest}.kt
+├── focus/FocusRulesTest.kt
+└── util/{FormatTest,HomeGroupingTest,AppTimeTest,FocusStatsTest}.kt
 ```
 
 ---
@@ -460,6 +538,18 @@ adb install -r app/build/outputs/apk/release/app-release.apk
 ```
 
 如果想在同一台设备上覆盖安装，签名必须一致；debug 包与 release 包不通用。
+
+### 分支
+
+| 分支 | 用途 |
+|---|---|
+| `main` | 主开发线，最新功能都在这里 |
+| `release/vivo-store` | 国内合规 / vivo 商店上架版，含隐私政策页、软著与申报材料 |
+
+两条线从 `e7fb97e`（1.0.0 上架改造）分叉，**功能改动要在两边各落一次**，不能只推 main。
+合规分支的 `versionCode` 必须独立递增；涉及新数据存储、通知或权限时，同步更新
+`docs/PRIVACY.md` 与 `PrivacyScreen`（该分支宣称「不收集统计数据」，本地统计要写清楚不上传）。
+上架流程见 `docs/STORE-APPLY.md`。
 
 ---
 

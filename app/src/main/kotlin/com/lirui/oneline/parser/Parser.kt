@@ -963,7 +963,7 @@ class Parser(
 
         // Chinese input often runs words together, so the time may sit *inside* the token
         // instead of at its start: "开会晚上" (18:00) / "开会晚上9点" (21:00).
-        embeddedTime(rest)?.let { e ->
+        embeddedTime(rest, acc)?.let { e ->
             acc.time = e.time
             acc.night = false
             acc.pendingPeriod = null
@@ -1047,18 +1047,23 @@ class Parser(
      * A rightmost bare period wins ("下午开会晚上" -> 晚上/18:00), since the trailing
      * word is usually the intended time.
      */
-    private fun embeddedTime(token: String): EmbeddedTime? {
+    private fun embeddedTime(token: String, acc: Acc): EmbeddedTime? {
+        // ★ 必须把 night 语义传下去：句首的「今晚」把 acc.night 置 true 后，时间词可能
+        //   嵌在句中（「约今晚9点开会」/「今晚的9点半」），用全新 Acc() 会把 night 丢掉，
+        //   裸 9 点就落成上午 09:00 —— 表现为「明明写了今晚，却识别成今早，还不报错」。
+        //   用副本而非真 acc：探测函数不该让内部的跨天/重置副作用污染解析状态。
+        val probe = Acc(night = acc.night, pendingPeriod = acc.pendingPeriod)
         clockFindRe.matcher(token).let { m ->
             while (m.find()) {
                 if (m.start() > 0) {
-                    return EmbeddedTime(m.start(), m.end(), clockMatchTime(m, Acc()), m.group(1))
+                    return EmbeddedTime(m.start(), m.end(), clockMatchTime(m, probe), m.group(1))
                 }
             }
         }
         hourFindRe.matcher(token).let { m ->
             while (m.find()) {
                 if (m.start() > 0) {
-                    return EmbeddedTime(m.start(), m.end(), hourMatchTime(m, Acc()), m.group(1))
+                    return EmbeddedTime(m.start(), m.end(), hourMatchTime(m, probe), m.group(1))
                 }
             }
         }
@@ -1080,7 +1085,13 @@ class Parser(
         // 而预览是每敲一个字符就 parse 一次 —— 等于打字打到一半 App 崩溃（审计 §28.1）。
         val minute = m.group(3)!!.toInt().coerceIn(0, 59)
         val period = prefix ?: acc.pendingPeriod
-        var hour = if (period != null) applyPeriod(period, rawHour) else rawHour
+        // ★ night 语义必须和 hourMatchTime 保持一致：「今晚9:30」是 21:30，不是 09:30。
+        //   此前 clockRe 分支漏了这一档，只有「今晚9点」(hourRe) 会转 PM，冒号写法会漏。
+        var hour = when {
+            period != null -> applyPeriod(period, rawHour)
+            acc.night && rawHour in 1..11 -> rawHour + 12
+            else -> rawHour
+        }
         // 晚上12:xx rolls past midnight -> next day.
         if (hour >= 24) {
             acc.date?.let { acc.setDate(it.plusDays(1), today) }
