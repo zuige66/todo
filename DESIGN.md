@@ -3009,3 +3009,337 @@ LaunchedEffect(activeListState, immersiveTopBar) {
 ### 42.4 验证
 
 `:app:testDebugUnitTest` **297/297 全绿**（新增 22 条：时间区间 8、新档位词 5、相对提醒 6、其它 3）。
+
+---
+
+## 43. v1.0.1 变更记录（2026-10-26）：专注计时 + 统计
+
+### 43.1 为什么是覆盖层，不是第五个 tab
+
+这是这个功能唯一真正需要拍板的地方，其余都是实现。
+
+三个候选位置：
+
+| 方案 | 位置 | 结论 |
+|---|---|---|
+| A | 底部导航加第 5 项「专注」 | ✗ |
+| B | 首页顶栏图标 → 全屏覆盖页 | ✓ |
+| C | 长按待办 → 专注这一条 | ✗（本期） |
+
+否掉 A 的理由不是"位置不够"（M3 `NavigationBar` 支持 3–5 项），而是**语义错位**：
+底部四项（Todo / 归档 / 设置 / 关于）都是**常驻浏览页** —— 用户在里面待着、翻、找。
+专注是**临时模式**：25 分钟一到就退，进去不是为了"浏览专注"。把两者摆在同一层，
+直接后果是「专注」和「关于」并列，而「关于」是几乎没人点的一次性页面。
+再叠一层：这个应用的立身之本是"输入框是唯一入口"，导航每多一项，那句话就淡一分。
+
+否掉 C 的理由是**手势已经满了**：点圆圈 = 完成、右滑 = 归档、长按 = 编辑、双击 = 编辑，
+再加一个长按语义会打架；而且专注被绑死成"只能专注列表里已有的待办"，
+用户想临时专注一会儿就没有入口。本期按 zuige 的决定，专注**完全独立**，不绑 todoId。
+
+B 的形态：顶栏右侧一个秒表图标（只在 Todo tab 出现），点开是整页覆盖层 ——
+和 `AddSheet` / `PrivacyScreen` 同一套模式，画在 `Scaffold` 之上，因此能盖住底部导航。
+专注时界面应该是整页的，底下还露着四个 tab 会让人以为随时能切走。
+
+图标是 `Canvas` 画的（一个圆 + 两条指针），不是 `Icons.Default.Timer`：
+`material-icons-core` 里没有 Timer，为一个图标引 `material-icons-extended` 不划算。
+
+### 43.2 计时只依赖时间戳
+
+**这是整个功能最容易写错的一处。**
+
+错法：`LaunchedEffect { while(true) { delay(1000); seconds++ } }`。
+息屏、切后台、进程被回收，协程就挂了 —— 用户回来一看，25 分钟的专注只记了 3 分钟。
+更隐蔽的是它"大部分时候是对的"：前台放着不动完全正常，只有真的用起来才露馅。
+
+现在的模型（`FocusRun`）：
+
+```kotlin
+data class FocusRun(
+    val plannedSeconds: Int,
+    val accumulatedMillis: Long,   // 之前各运行段累计
+    val segmentStartMillis: Long,  // 当前运行段起点
+    val paused: Boolean,
+    val startedAtMillis: Long,     // 整次专注的真正开始（统计按它归日）
+    val label: String
+)
+elapsed = accumulated + if (paused) 0 else (now - segmentStart)
+```
+
+UI 每秒只是**重绘**，不负责计时。暂停 = 把当前段折进 `accumulated` 并置 `paused`；
+继续 = 开一个新段。两个动作都是纯数据操作，不碰任何协程生命周期 ——
+所以"暂停 10 分钟再继续"不会多算那 10 分钟（`FocusRulesTest` 里钉死了）。
+
+`elapsedMillis` 还被 `coerceAtMost(plannedMillis)` 截断：闹钟被系统拖晚几秒，
+不会记成"超时 3 秒"。
+
+### 43.3 保活不用前台服务
+
+直觉做法是 `startForeground` + 每秒 `notify()` 更新通知。两条都不必要：
+
+1. **倒计时交给系统**：`setUsesChronometer(true)` + `setChronometerCountDown(true)` +
+   `setWhen(now + remaining)`。系统自己渲染倒计时，**进程死不死都继续走**。
+   自己每秒 notify 反而更耗电，而且被冻结时就不更新了。
+2. **到点交给 AlarmManager**：`setExactAndAllowWhileIdle` 排到结束时刻，
+   由 system_server 拉起 `FocusAlarmReceiver`。进程被回收照样响。
+
+结果是：**没有新增任何权限**，没有 `FOREGROUND_SERVICE_SPECIAL_USE` 的第二份审核材料，
+也不存在"后台服务被国产 ROM 杀掉"。代价只有一条 —— 暂停/结束按钮点了之后，
+通知不能自己变，得靠 `FocusActionReceiver` 被点一下（它本来就在被点）。
+
+对比 `KeepAliveService`：那个服务存在的理由是"让通知栏的完成按钮点下去快一点"，
+是可选增强；专注的倒计时是**核心功能**，核心功能不能依赖一个会被杀的进程。
+
+### 43.4 状态必须落盘
+
+`FocusStore` 把 `FocusRun` 写进 SharedPreferences，不是放内存。
+
+专注一开就是 25 分钟，这期间进程被回收、被一键清理、被划掉都是常态。
+状态只要在内存里，用户切回来看到的就是"什么都没在计时"，而通知栏的倒计时还在走 ——
+两边对不上，这一次专注也就永远不落库。
+
+落盘之后三件事同时成立：通知继续走（系统渲染）、闹钟继续响（system_server 持有）、
+重开 App 读回来的是同一个 run（`FocusStore.active`）。
+
+闹钟条目不落盘，所以冷启动 / 开机 / 升级后要 `FocusEngine.restore()` 重新挂上
+（`MainActivity` 的启动 `LaunchedEffect` 与 `BootReceiver` 各调一次）。
+这条和提醒那边的 `scheduleAllActive` 是同一个教训。
+
+### 43.5 防重复落库：takeActive
+
+结束一次专注有**两个**触发源：
+
+1. `FocusAlarmReceiver`（闹钟到点，用户可能不在 App 里）；
+2. `FocusViewModel.tick()`（用户正看着计时器，没必要等闹钟）。
+
+两者可能同时发生。所以 `FocusStore.takeActive()` 是 `@Synchronized` 的
+"读出来并清掉"—— 谁先拿到 run 谁写库，后到的拿到 `null` 就什么都不做。
+没有这个闸门，同一次专注会在列表里出现两条。
+
+同进程内 `@Synchronized` 足够：Receiver 和 ViewModel 都在 App 进程里
+（manifest 没给 `FocusAlarmReceiver` 指定 `process`）。
+
+### 43.6 中途结束的口径
+
+zuige 定的：**太短就问，够长就算**。
+
+| 已过时长 | 处理 |
+|---|---|
+| ≥ 60 秒（`ASK_THRESHOLD_SECONDS`） | 直接记入，`completed = false` |
+| 1–59 秒 | 弹窗问「要把这段时间记进统计吗」 |
+| 0 秒 | 什么都不留 |
+
+为什么不是"短的一律丢弃"：40 分钟的提前结束绝不该因为"没走完"就白干；
+而 30 秒既可能是误触、也可能是真的开了个头，只有用户自己知道。
+
+**通知栏上的「结束」不弹窗** —— 那里弹不出对话框。口径退化成
+"够长就记、太短当没发生"（`FocusRules.shouldRecordSilently`）。
+这不是不一致：UI 里的弹窗是"用户看着计时器做的决定"，通知栏的结束是"我要收手"。
+
+### 43.7 数据与统计口径
+
+新表 `focus_sessions`（Room v6 → v7，**纯建表，不动 todos**）：
+
+```kotlin
+@Entity(tableName = "focus_sessions")
+data class FocusSession(
+    val id: Long, val label: String,
+    val startedAtMillis: Long, val endedAtMillis: Long,
+    val plannedSeconds: Int, val actualSeconds: Int,
+    val completed: Boolean, val createdAt: Long
+)
+```
+
+三个刻意的决定：
+
+1. **单独一张表，不往 `todos` 里加列**。专注是完全独立的（43.1），
+   把时长挂到待办上，删掉待办会连历史一起没了。
+2. **存 `startedAtMillis`，归日按开始那一刻**。23:50 开始、00:20 结束的 30 分钟
+   整段算前一天 —— 按结束时刻归日会被劈成两半，两边各 10 分钟，热力图和"今日时长"
+   都变得莫名其妙。
+3. **聚合全在 `FocusStats` 里做纯函数**，不在 SQL 里做日期运算。
+   输入 `List<FocusSession>` + 一个"今天"，输出数字 —— 口径能被单元测试钉死，
+   也不用为了"今日 / 本周 / 热力图"写三条不同的 GROUP BY。
+
+「本周」从**周一起算**（`weekStart`）。「连续天数」今天还没记时从昨天往前数 ——
+早上起来打开 App 看到连续天数被清零，是把用户推走的做法。
+
+### 43.8 迁移的坑（重复一遍，因为踩过两次）
+
+`MIGRATION_6_7` 的建表语句必须和实体**逐字对齐**（类型、NOT NULL、主键自增）。
+Room 迁移完会拿 `PRAGMA table_info` 读到的实际定义跟实体期望的比对，不匹配就抛
+`Migration didn't properly handle: focus_sessions(...)` → 启动即崩，**编译期完全看不出来**。
+0.9.3 那次闪退（`ALTER TABLE ... ADD COLUMN` 少了 `DEFAULT NULL`）是同一类错误，
+只是那次错在加列。已核对生成的 `app/schemas/.../7.json` 里的 `createSql`。
+
+`CREATE TABLE IF NOT EXISTS` 是幂等保险：迁移中途失败但没回滚的设备再跑一次
+不会抛 "table already exists"。
+
+### 43.9 验证
+
+`:app:testDebugUnitTest` **311/311 全绿**（新增 26 条：`FocusRulesTest` 15、`FocusStatsTest` 11）。
+`assembleDebug` 通过；Room schema v7 已导出并核对。
+
+### 43.10 追加（同日）：正计时 · 波浪环 · 按钮下沉
+
+四件事，都是试用后的直接反馈：
+
+**① 正计时。** `FocusRun` 加 `countUp`，`plannedSeconds = 0`。
+
+三个分支必须一起改，否则会互相打架：
+
+| 函数 | 倒计时 | 正计时 |
+|---|---|---|
+| `elapsedMillis` | 截到 `plannedMillis`（闹钟晚几秒不算超时） | **不截** —— 截了就永远停在 0 |
+| `remainingMillis` | planned − elapsed | 恒 0 |
+| `remainingFraction` | 剩余 / planned | 恒 1（环整圈亮着当装饰） |
+| `isFinished` | elapsed ≥ planned | **恒 false**（只能手动结束） |
+
+`remainingFraction` 恒 1 是刻意的：硬凑一个进度（比如按 60 分钟算百分比）
+等于替用户编了一个他没设过的目标。环就整圈亮着，中心数字往上走。
+
+配套：`FocusEngine.start` 在正计时下**不排闹钟**（没有终点），`resume` 也不重排；
+通知栏 `chronometer` 从 `setChronometerCountDown(true)` 换成 `false`，
+`setWhen` 给的是"起点"（`now − elapsed`）而不是终点。
+
+落库时 `completed = run.countUp`：正计时点结束就是正常结束，不该被标成「提前结束」。
+
+**② 返回箭头。** 左上角原来是 ✕，改成 `Icons.AutoMirrored.Filled.ArrowBack`。
+它是个覆盖层，返回语义比关闭更贴切（`BackHandler` 本来就是同一个动作）。
+
+**③ 波浪环。** 对齐应用图标那枚印章：半径按 `1 + 0.055·cos(9θ)` 起伏，
+从 12 点开始顺时针，480 段折线逼近。
+
+关键是**进度也走这条路径**：`PathMeasure.getSegment(0, length·fraction)` 截一段再描边。
+第一直觉是"波浪底环 + 圆形进度弧"，但那样两圈形状对不上，进度会从波峰穿到波谷，
+看起来像画歪了。
+
+**④ 按钮下沉。** 暂停 / 结束（空闲态是模式 + 时长 + 说明 + 开始）全部贴到屏幕底部，
+中间 `weight(1f)` 只留环。
+
+环的尺寸改成 `minOf(maxWidth, maxHeight)` 而不是写死 264dp ——
+空闲态的底部控制区比运行态高（多了模式切换和输入框），
+小屏上写死尺寸会把环挤出去。字号也跟着 `size.value * 0.20f` 缩放。
+
+**验证**：`FocusRulesTest` 补了 2 条正计时用例（不截断 / 不完成 / 可暂停），
+`testDebugUnitTest` 全绿。
+
+### 43.11 追加二（同日）：黑底黑字 · 顶栏去标题
+
+**① 「太黑了」是 bug，不是配色问题。** 第一版用
+`Box(Modifier.fillMaxSize().background(surface))` 铺底，结果「专注」标题、
+统计页的数值和记录标题全是**黑底黑字**，看着像没渲染。
+
+根因：`Modifier.background()` 只画底色，**不提供 `LocalContentColor`**。
+`Text` 没显式写 `color` 时会去读 `LocalContentColor`，而它的默认值就是 `Color.Black` ——
+所以任何没写 color 的文字都变成纯黑。浅色模式下完全看不出来（黑字正好），
+深色模式才炸。
+
+修法：换成 `Surface(color = surface, contentColor = onSurface)`。
+Surface 同时给出这一对语义色，所有子 Text 自动继承，不用逐个补 `color`。
+教训是**不要用 Box + background 当页面根容器**，M3 里那是 Surface 的活。
+
+**② 顶栏去掉「专注」标题。** 这一页只有一个功能，标题是纯占位；
+把 `计时 / 统计` 两个页签提到顶栏中间，视线第一落点变成"我在哪一页"。
+左边返回箭头、右边 48dp 占位，保证页签真正居中。
+
+**③ 去掉两处小字说明。** 「专注期间不打扰你，走完会响一次」和
+「计划 N 分钟 · 结束后记入统计」都删了 —— 一次能看懂的界面不需要旁白。
+
+**④ 统计卡字号 17sp → 15sp。** 392dp 屏上每张卡只有约 87dp 可用宽度，
+「12小时30分」在 17sp 会顶到边上被省略号截掉。
+
+## 44. v1.0.2 变更记录（2026-10-27）：M3E 形状阶 / 字阶 / 大 FAB
+
+主人反馈："页面能不能用谷歌的风格，就是 m3e 风格，组件，圆角什么的。"
+
+复盘：主题早就挂了 `MaterialExpressiveTheme(motionScheme = MotionScheme.expressive())`，
+但那只是"动效是 Expressive 的"，**形状和字阶还是 M3 经典那套**：
+
+| | 经典 M3 | 改前实际 | 现在 |
+|---|---|---|---|
+| 卡片圆角 | extraLarge 28 | 手写 `RoundedCornerShape(20.dp)` ×4 | `CardShape` = 28 |
+| 按钮/输入/下拉 | medium 12 | 主题默认 | 16 |
+| 标题字重 | 常规/Medium | 常规 + 局部 `FontWeight.Bold` | Bold / SemiBold 统一到字阶 |
+| FAB | 56dp | `FloatingActionButton` | `MediumFloatingActionButton` 80dp |
+
+**① 形状阶抬一档，交给主题。**
+`OneShapes`：extraSmall 8 / small 12 / medium 16 / large 24 / extraLarge 28，
+作为 `MaterialExpressiveTheme(shapes = …)` 传进去。之后所有**吃主题形状**的组件
+（Button / TextField / BottomSheet / DropdownMenu / FAB）自动跟上，
+不用再一个个找 `RoundedCornerShape`。手写的卡片圆角收成 `Tokens.CardShape`。
+
+**② 字阶只改重量与字距，不改字号。**
+字号一动，所有写死行高的地方（待办行、设置项、底栏 52dp）都要重算，风险远大于收益。
+Expressive 的字感本来就来自"标题更重 + 大字距紧、小标签字距松"：
+display/headline → Bold（-0.5sp 左右），title → Bold/SemiBold，
+label → SemiBold（+0.2~0.5sp）。正文一个字没动。
+
+**③ FAB 换 80dp。**
+56dp 那颗在小屏上与普通按钮同量级，压不住整页卡片；M3E 的大 FAB 是整页唯一的"大动作"。
+图标跟着 24 → 30dp，否则大圆角里显得空。
+
+**没改的**：配色（11 套调色板是产品卖点）、底栏（自定义 `NavTab` 是有意为之，见 §512）、
+FocusScreen 的 18dp（那一页是仪表盘语汇，不是卡片列表）。
+
+---
+
+## 45. 「今晚9点」被读成今早 9 点 + 双分支同步（2026-11-04）
+
+主人反馈："一句话待办输入「今晚9点开会」，现在是中午 12 点，给我识别成今天早上九点，
+而且还不报错。"
+
+### 45.1 先复现，别猜
+
+用 `Parser(fixedToday, fixedNow)` 把时钟钉死，对 `parse` / `parseAll` 各跑一遍：
+`今晚9点开会` 在 12:00 和 21:00 **都是 `dueTime=21:00`、`timeError=false`、标题「开会」**，
+现有单测 `tonight_9_to_21` 也是绿的；连上架改造前（`e7fb97e^`）的旧版都有
+`nightRelatives → +12h` 逻辑。所以「标准写法」这条路径从来没坏过。
+
+★ 结论与推测分开写：**源码没这个 bug**。真机上若真显示 09:00，只可能是装的包不是这份源码、
+或看到的是别的界面（12 小时制选择器 / 通知文案）。设备当时没连，无法查版本号，
+这一条留给现场复现，不靠猜改代码。
+
+### 45.2 但顺着查出了两个真漏洞
+
+| 漏洞 | 触发 | 根因 |
+|---|---|---|
+| 冒号写法不转 PM | `今晚9:30` → 09:30 | `clockMatchTime()` 只处理 `pendingPeriod`，**漏了 `acc.night`**；只有 `hourMatchTime()`（`N点` 写法）有 night 分支 |
+| 句中使用丢 night | `今晚的9点` → 09:00 | `embeddedTime()` 探测时传的是**全新 `Acc()`**，句首「今晚」置的 `acc.night=true` 完全带不进去，随后 embedded 分支还主动把它清成 false |
+
+为什么 `开会今晚9点` 反而没事：`peelTitlePrefix()` 先把「开会」剥成标题，尾巴「今晚9点」
+又回到标准句首路径，绕开了 embeddedTime。**兜底路径掩盖了主路径的洞**——这类"某些写法对、
+某些写法错"的现象，通常就是两条解析路径状态没打通。
+
+修法：`clockMatchTime()` 补上 `acc.night && rawHour in 1..11 -> +12`；`embeddedTime()`
+改为接收一份 `Acc(night = acc.night, pendingPeriod = acc.pendingPeriod)` 副本。
+★ 用副本而不是真 `acc`：它只是探测函数，不该让内部的跨天 `setDate` / 状态重置污染主解析。
+
+### 45.3 「不报错」这一半
+
+21:00 在中午 12 点还没到，本来就不该报 `timeError`。真正要保证的是**过了 21:00 得报**：
+`todayTimePast = dueDate == today && theTime < now` 已覆盖，加一条固定 22:00 的用例钉死，
+防止以后有人改 PM 换算时把报错一起带坏。
+
+### 45.4 两条分支与计时器同步
+
+```
+main                 8d78535  主开发线，1.0.2 / versionCode 36，含 M3E 视觉改版
+release/vivo-store   404e8b6  国内合规（vivo 商店上架）版，1.0.0 / versionCode 34
+共同祖先 e7fb97e（1.0.0 上架改造），之后 main 独有 2 个提交、合规分支独有 3 个
+```
+
+「专注计时 + 统计」（§43）当时**还全在工作树里，一个分支都没提交**。同步顺序：
+先在 main 落一个干净提交，再用补丁方式搬到合规分支，手工解冲突。
+
+冲突面（两边都动过）：`MainActivity.kt`（合规分支改了隐私政策入口 / main 改了专注入口）、
+`TodoListScreen.kt`（main 有 M3E）、`AppDatabase.kt`（v6 vs v7）、`AndroidManifest.xml`、
+`build.gradle.kts` 版本号。合规分支的 `AppDatabase` 是 v6 + 5 条迁移，补 `MIGRATION_6_7`
+（纯建表、`IF NOT EXISTS`）即可，不动 `todos`。
+
+★ 合规红线：`docs/PRIVACY.md` 写的是「不收集应用使用行为、崩溃日志、**统计数据**」，
+而专注计时会本地存 `focus_sessions`（今日 / 本周 / 累计 / 热力图）。虽然纯本地、零上传，
+但字面撞上了，vivo 审核会被问。隐私政策与 `PrivacyScreen` 必须补一句
+「专注计时记录仅存本机，不上传」，并区分「本地统计」与「收集统计数据」。
+
+★ 提交红线：按具体路径 `git add`，**排除 `show/` 截图目录**；禁止 `git add -A`。
+

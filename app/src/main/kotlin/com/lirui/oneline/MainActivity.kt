@@ -21,6 +21,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
+import com.lirui.oneline.focus.FocusEngine
+import com.lirui.oneline.focus.FocusNotifier
 import com.lirui.oneline.keepalive.DeviceCompat
 import com.lirui.oneline.reminder.NotificationHelper
 import com.lirui.oneline.reminder.ReminderScheduler
@@ -43,6 +45,9 @@ class MainActivity : androidx.activity.ComponentActivity() {
      */
     private val pendingTodoId = mutableStateOf(-1L)
 
+    /** 从专注通知点进来（true = 打开专注页）。与 [pendingTodoId] 同一套消费/复位方式。 */
+    private val pendingFocus = mutableStateOf(false)
+
     private val requestPerms = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { }
@@ -54,6 +59,12 @@ class MainActivity : androidx.activity.ComponentActivity() {
      * 在此之前这个 extra 是**死数据** —— 通知一直带着 todoId，但没有任何一侧读过。
      */
     private fun handleIntent(intent: Intent?) {
+        // 专注通知（进行中 / 已完成）点进来 → 直接铺开专注页。
+        // 这两条通知的 action 是 FocusNotifier.ACTION_OPEN_FOCUS，不带 todoId。
+        if (intent?.action == FocusNotifier.ACTION_OPEN_FOCUS) {
+            pendingFocus.value = true
+            return
+        }
         if (intent?.action != NotificationHelper.ACTION_OPEN_TODO) return
         val id = intent.getLongExtra(NotificationHelper.EXTRA_TODO_ID, -1L)
         // 测试通知的 todoId 是 0（不对应任何待办），忽略。
@@ -128,6 +139,9 @@ class MainActivity : androidx.activity.ComponentActivity() {
                 // AlarmManager 里的条目已经没了，只有重新 set 才能恢复。
                 ReminderScheduler.scheduleAllActive(appContext)
                 ReminderWatchdogWorker.ensureScheduled(appContext)
+                // 专注同理：闹钟条目不落盘，冷启动 / 升级 / 重启后要把「还在跑的专注」
+                // 的到点闹钟和常驻通知重新挂上，否则计时会一直走、永远不响。
+                FocusEngine.restore(appContext, System.currentTimeMillis())
             }
 
             // Theme preference state (follow-system / light / dark).
@@ -246,7 +260,10 @@ class MainActivity : androidx.activity.ComponentActivity() {
                     onRescheduleReminders = onRescheduleReminders,
                     // 点通知打开：滚到对应待办并高亮（P2-4）。
                     pendingTodoId = pendingTodoId.value,
-                    onPendingTodoHandled = { pendingTodoId.value = -1L }
+                    onPendingTodoHandled = { pendingTodoId.value = -1L },
+                    // 点专注通知打开：直接进专注页。
+                    pendingFocus = pendingFocus.value,
+                    onPendingFocusHandled = { pendingFocus.value = false }
                 )
             }
         }

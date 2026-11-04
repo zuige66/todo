@@ -578,6 +578,47 @@ class ParserTest {
         assertEquals(LocalTime.of(18, 0), r.dueTime)
     }
 
+    // ---- 「今晚9点」回归：zuige 反馈中午 12 点输入被读成「今天早上 9 点」 ----
+    // 用固定 now 钉死三个维度：PM 换算、冒号写法、句中使用，以及时间已过要报错。
+    @Test fun tonight9_atNoon_is2100_noError() {
+        val r = Parser(today, LocalTime.of(12, 0)).parse("今晚9点开会")
+        assertEquals("开会", r.title)
+        assertEquals(today, r.dueDate)
+        assertEquals(LocalTime.of(21, 0), r.dueTime)
+        assertFalse(r.timeError) // 21:00 还没到，不该报错
+    }
+
+    @Test fun tonight9_atLateNight_isPast_error() {
+        val r = Parser(today, LocalTime.of(22, 0)).parse("今晚9点开会")
+        assertEquals(LocalTime.of(21, 0), r.dueTime)
+        assertTrue("21:00 已过却没报 timeError", r.timeError)
+    }
+
+    @Test fun tonight_colonClock_isPm() {
+        // clockRe 分支此前漏了 night 语义：「今晚9:30」会读成 09:30。
+        val r = Parser(today, LocalTime.of(12, 0)).parse("今晚9:30开会")
+        assertEquals(LocalTime.of(21, 30), r.dueTime)
+        assertFalse(r.timeError)
+    }
+
+    @Test fun tonight_embeddedHour_isPm() {
+        // 时间词嵌在句中时走 embeddedTime()，此前它用全新 Acc() 丢掉 night 语义。
+        for (s in listOf("今晚的9点开会", "今晚9点半开会")) {
+            val r = Parser(today, LocalTime.of(12, 0)).parse(s)
+            assertEquals("$s 应读作 21 点", LocalTime.of(21, 0).hour, r.dueTime?.hour)
+            assertFalse("$s 不该报错", r.timeError)
+        }
+    }
+
+    @Test fun tonight_parseAll_matches_parse() {
+        val p = Parser(today, LocalTime.of(12, 0))
+        val all = p.parseAll("今晚9点开会")
+        assertEquals(1, all.size)
+        assertEquals(LocalTime.of(21, 0), all[0].dueTime)
+        assertEquals(today, all[0].dueDate)
+        assertFalse(all[0].timeError)
+    }
+
     @Test fun tomorrow_noon_preserved() {
         val r = parse("明天中午12点吃饭")
         assertEquals(LocalTime.of(12, 0), r.dueTime)

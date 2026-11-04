@@ -72,6 +72,20 @@
             android:name=".reminder.NotificationActionReceiver"
             android:exported="false" />
 
+        <!-- 专注到点的闹钟（AlarmManager → 落库 + 完成通知）。
+             不申请前台服务：倒计时交给系统 chronometer 渲染，进程死了也继续走，
+             到点由 system_server 拉起这个接收器 —— 所以不需要 FGS 权限，
+             也不存在「后台服务被国产 ROM 杀掉」的问题。 -->
+        <receiver
+            android:name=".focus.FocusAlarmReceiver"
+            android:exported="false" />
+
+        <!-- 专注通知条上的「暂停 / 继续 / 结束」。exported=false：只有我们自己的
+             PendingIntent（显式 ComponentName）能投递。 -->
+        <receiver
+            android:name=".focus.FocusActionReceiver"
+            android:exported="false" />
+
         <!-- 闹钟重建入口。三个 action 缺一不可：
              BOOT_COMPLETED      重启后重建
              MY_PACKAGE_REPLACED 升级安装会杀进程并清空该包全部闹钟 —— 不处理的话

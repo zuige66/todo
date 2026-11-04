@@ -3,6 +3,7 @@ package com.lirui.oneline.reminder
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import com.lirui.oneline.focus.FocusEngine
 import com.lirui.oneline.keepalive.KeepAlive
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -49,6 +50,8 @@ class BootReceiver : BroadcastReceiver() {
             try {
                 ReminderScheduler.scheduleAllActiveBlocking(appContext)
                 ReminderWatchdogWorker.ensureScheduled(appContext)
+                // 专注的到点闹钟同样不落盘：重启 / 升级后要按盘上那份 run 重新挂上。
+                FocusEngine.restore(appContext, System.currentTimeMillis())
                 if (bootEvent) {
                     // 「后台增强」是用户主动开的开关，开机后替他恢复。
                     // specialUse 是 Android 15 仍然允许从 BOOT_COMPLETED 启动的类型；
