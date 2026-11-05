@@ -47,6 +47,7 @@ object SettingsRepo {
     // 隐私政策：存的是「已同意的政策版本号」，0/缺失 = 从未同意。
     private const val KEY_PRIVACY_ACCEPTED_VERSION = "privacy_accepted_version"
     private const val KEY_FOCUS_DAILY_GOAL = "focus_daily_goal_minutes"
+    private const val KEY_FOCUS_RING_MOTION = "focus_ring_motion"
     // 退役键（保留、永不读取）：widget_compact_show_date / widget_standard_show_date /
     // widget_show_weekday —— 见下方「桌面小组件」段落的说明。
 
@@ -559,6 +560,21 @@ object SettingsRepo {
     const val DEFAULT_FOCUS_GOAL_MINUTES = 120
     const val MIN_FOCUS_GOAL_MINUTES = 15
     const val MAX_FOCUS_GOAL_MINUTES = 720
+
+    /**
+     * 专注环动效（每 10 秒转一格 + 进度弧上的流光），默认开。
+     *
+     * 关掉之后环完全是静态的，只剩数字在变 —— 给觉得动效分心的人，
+     * 也省掉低电量机型上的重绘。系统「减少动态效果」另外在 UI 侧判断。
+     */
+    fun focusRingMotion(context: Context): Boolean =
+        context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            .getBoolean(KEY_FOCUS_RING_MOTION, true)
+
+    fun setFocusRingMotion(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            .edit().putBoolean(KEY_FOCUS_RING_MOTION, enabled).apply()
+    }
 }
 
 /**

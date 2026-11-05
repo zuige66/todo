@@ -3531,3 +3531,78 @@ Column(Modifier.weight(1f), spacedBy(gap)) {
 
 这个教训是通用的：**凡是"按可用宽度均分 n 份"的布局，优先用 weight；一旦开始
 手算 `可用宽度 - 各种间距`，就必须记住 spacedBy 的间隙数是「子项数 - 1」**。
+
+## 48. v1.0.5（2026-11-05）：浅绿统一 · 圆形表盘 · 环动效 · M3 滑动指示器
+
+### 48.1 计时页的绿全部换成卡片色
+
+zuige：「计时页面的绿色用卡片的绿色，浅绿，暂停跟开始都是浅绿」，并在对比度提醒后
+明确「就是跟卡片一样的颜色」—— 所以**不加深深一档**，全部统一到 `cardBackground`
+（`primaryContainer`）：波浪环进度弧、开始按钮、暂停/继续按钮、时长选中格。
+
+★ 配对的坑：`primaryContainer` 是浅底，文字必须用 `onPrimaryContainer`。
+直接把 `ButtonDefaults.buttonColors(containerColor = cardBackground)` 套上去，
+contentColor 仍是默认的 `onPrimary`（本主题浅色下是纯白）→ 浅绿底白字几乎读不出来。
+`Theme.kt` 里浅色模式 `onPrimaryContainer = primary`（深绿）、深色模式是白，
+正好两种模式都保证对比度。
+
+### 48.2 自定义时长改用圆形表盘
+
+上一轮我判断「TimePicker 选的是时刻，拿来选 90 分钟会变成 01:30，语义错位」，
+改用数字输入框。zuige 要的是「之前那个圆形的时间选择器」（`AddSheet.kt` 的
+M3 `TimePicker`）—— 结论：**手感一致性比语义洁癖重要**，用户在添加待办里已经
+学会了这个表盘，专注页再来一套数字框是两套语言。
+
+实现：`DurationTimePickerDialog` 用 `rememberTimePickerState(is24Hour = true)`，
+把 `hour:minute` 折算成 `hour*60+minute` 分钟。表盘能选到 23:59，所以
+**确认按钮按 1 分钟~10 小时钳一下，超范围禁用并给提示**，不静默改成 10:00
+（那样用户以为选了 12 小时、实际记 10 小时）。24 小时制是必须的，12 小时制
+会把「2 小时」和「下午 2 点」混在一起。
+
+`DurationInputDialog`（数字框）保留给「每日目标」—— 120 / 180 这种整数在时钟
+表盘上要换算成 02:00 / 03:00，反而绕。
+
+### 48.3 环动效：光扫过的是「绿色填充」，不是圆内部
+
+★ 这里我理解错过一次：第一版画的是环**内部**的水纹线，zuige 要的是
+「在绿色填充那里，像是有光闪过那种，不是在内部」。最终实现：
+
+- **整圈每 10 秒转 40°**（一个花瓣距），1.1 秒 `FastOutSlowInEasing` 缓动转过去；
+  用 `withTransform { rotate(...) }` 只转 Canvas 里的环，中间数字在 Box 上层不转。
+- **进度弧上一道光**：先 `PathMeasure.getSegment` 截出进度段路径，再在这条路径上
+  取约 16% 长的一小段用 `Color.White@0.55` 重画，起点按相位沿路径平移，
+  4 秒一圈、25fps。越过末端时从起点补上剩下的那一截，光带不会在结尾闪断。
+  这是「填充本身在发光」，圆内部完全干净。
+
+性能取舍：相位用 `mutableFloatStateOf`，且**只在 Canvas 的 draw lambda 里读**
+→ 状态变化只触发 draw phase 重绘，不会每帧重组整棵子树/重新 measure 文字。
+两个循环都由 `LaunchedEffect(motion)` 驱动，`motion = 开关 && run != null && !run.paused`：
+空闲态、暂停态不播放（暂停了还在转是语义错误），关掉开关时环停在最后角度不跳回 0。
+
+开关位置：**设置 → 外观 → 「专注环动效」**，默认开，直接读写 `SettingsRepo`
+（和「操作」节手势开关同一套局部状态模式，不走 VM 参数链）。另外 UI 侧读
+`Settings.Global.ANIMATOR_DURATION_SCALE == 0` 判断系统「减少动态效果」，优先关。
+专注页覆盖层重建时重读开关，改完设置回来即生效。
+
+### 48.4 选择动效：M3 滑动指示器
+
+zuige：「选择的时候慢一点有点动效，参考谷歌开源的那些组件动效」。
+
+用 M3 `SegmentedButton` / 导航栏那套 **active indicator 平移**：一个圆角块在底层
+平滑滑到选中项，文字颜色同步渐变。`SlidingSegmented` 一处实现，
+「计时 / 统计」顶栏和「倒计时 / 正计时」两处共用。
+
+- 指示器位置：`animateFloatAsState(spring(DampingRatioNoBouncy, StiffnessLow))`
+  ≈ 500ms，比默认 tween 慢、不回弹；
+- 指示器画在 `drawBehind` 里，位置读的是动画 State → 只重绘，不重组；
+- 文字配色与时长格底色都用 400ms `tween(FastOutSlowInEasing)` 过渡，
+  点一下不是「啪」地换色；
+- 每项给固定 `itemWidth`，指示器宽度 = 内容区宽 / 项数，不用测量就能精确对齐。
+
+★ 没有引入任何第三方动效库：M3 自带的 spring / tween 足够表达这套节奏，
+引库会多一份依赖和一套不同的 motion 参数。
+
+### 48.5 流程
+
+zuige 定下：**专注功能每轮做完就提交**，不等他说。本轮起每轮收尾直接按具体路径
+`git add` + `git commit`，仍然排除 `docs/COPYRIGHT.md`、`output/`、`show/`。

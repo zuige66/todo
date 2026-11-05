@@ -1596,6 +1596,21 @@ private fun SettingsScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp)
                 )
+                ItemDivider()
+                // 专注环动效：和「操作」节的手势开关一样直接读写 SettingsRepo，
+                // 不走 VM → MainActivity 的参数链（专注页自己会重新读一次）。
+                var ringMotion by remember {
+                    mutableStateOf(SettingsRepo.focusRingMotion(context))
+                }
+                ToggleItem(
+                    "专注环动效",
+                    "计时环缓慢转动，进度弧上有流光扫过；关掉后完全静止",
+                    ringMotion,
+                    onChecked = { on ->
+                        SettingsRepo.setFocusRingMotion(context, on)
+                        ringMotion = on
+                    }
+                )
             }
         }
 

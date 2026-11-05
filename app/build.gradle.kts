@@ -244,8 +244,16 @@ android {
         //   · ★ 修热力图最后一列被挤成窄竖条：旧代码按 `gap * (weeks - 1)` 扣间隙，
         //     但 Row 里是 16 个子项（星期标签列 + 15 周列）= 15 个间隙，整行超宽 3dp。
         //     改用 weight(1f) + aspectRatio(1f)，布局自己均分，不再手算像素。
-        versionCode = 38
-        versionName = "1.0.4"
+        // 1.0.5（2026-11-05）—— 计时页配色 / 动效 / 选择器：
+        //   · 计时页所有绿色统一用卡片色 primaryContainer（环、开始/暂停按钮、时长选中态），
+        //     文字一律配 onPrimaryContainer，避免浅绿底白字。
+        //   · 自定义时长改用添加待办那个 M3 圆形表盘（时:分 → 分钟，1 分~10 小时）。
+        //   · 波浪环动效：每 10 秒转 40°（1.1s 缓动）+ 进度弧上一道光沿路径扫过（4s/圈，25fps）。
+        //     只在运行中且未暂停播放；设置 → 外观 加「专注环动效」总开关，默认开，
+        //     并尊重系统「动画时长 0」。
+        //   · 分段控件改 M3 风格滑动指示器（spring/StiffnessLow）+ 400ms 配色过渡。
+        versionCode = 39
+        versionName = "1.0.5"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

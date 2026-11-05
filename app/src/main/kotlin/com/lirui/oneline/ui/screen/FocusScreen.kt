@@ -1,6 +1,12 @@
 package com.lirui.oneline.ui.screen
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -31,6 +37,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -40,16 +47,22 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TimePicker
+import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -57,6 +70,8 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathMeasure
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
@@ -82,6 +97,7 @@ import com.lirui.oneline.util.FocusStats
 import com.lirui.oneline.util.FocusSummary
 import com.lirui.oneline.util.SettingsRepo
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import java.time.Instant
 import java.time.LocalDate
 
@@ -102,6 +118,12 @@ fun FocusScreen(onClose: () -> Unit) {
     val vm: FocusViewModel = viewModel()
     val context = LocalContext.current
     var page by remember { mutableStateOf(PAGE_TIMER) }
+
+    // 动效总开关：设置页改完、下次进专注页（覆盖层重建）即生效。
+    // 系统的「减少动态效果 / 动画时长 0」优先于应用内开关。
+    val motionEnabled = remember(context) {
+        SettingsRepo.focusRingMotion(context) && !systemReduceMotion(context)
+    }
 
     BackHandler { onClose() }
 
@@ -164,7 +186,7 @@ fun FocusScreen(onClose: () -> Unit) {
                     .fillMaxWidth()
             ) {
                 when (page) {
-                    PAGE_TIMER -> FocusTimerPage(vm)
+                    PAGE_TIMER -> FocusTimerPage(vm, motionEnabled)
                     PAGE_STATS -> FocusStatsPage(
                         sessions = vm.sessions.collectAsState().value,
                         goalMinutes = vm.dailyGoalMinutes,
@@ -193,12 +215,26 @@ fun FocusScreen(onClose: () -> Unit) {
 private const val PAGE_TIMER = 0
 private const val PAGE_STATS = 1
 
+/**
+ * 系统是否关掉了动画（无障碍里的「减少动态效果」/ 开发者选项把动画时长设成 0）。
+ * 读不到或抛异常时按"没关"处理 —— 宁可多放一点动效，也别把开关变成哑的。
+ */
+private fun systemReduceMotion(context: android.content.Context): Boolean = try {
+    android.provider.Settings.Global.getFloat(
+        context.contentResolver,
+        android.provider.Settings.Global.ANIMATOR_DURATION_SCALE,
+        1f
+    ) == 0f
+} catch (_: Exception) {
+    false
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // 计时
 // ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
-private fun FocusTimerPage(vm: FocusViewModel) {
+private fun FocusTimerPage(vm: FocusViewModel, motionEnabled: Boolean) {
     val run = vm.run
     val now = vm.nowMillis
 
@@ -239,7 +275,9 @@ private fun FocusTimerPage(vm: FocusViewModel) {
                     clock = clock,
                     fraction = fraction,
                     caption = caption,
-                    dimmed = run != null && run.paused
+                    dimmed = run != null && run.paused,
+                    // 空闲态 / 暂停态不播放：暂停了还在转是语义错误。
+                    motion = motionEnabled && run != null && !run.paused
                 )
                 if (run != null && run.label.isNotBlank()) {
                     Spacer(Modifier.height(10.dp))
@@ -291,7 +329,13 @@ private fun IdleControls(vm: FocusViewModel) {
         modifier = Modifier
             .fillMaxWidth()
             .height(56.dp),
-        shape = RoundedCornerShape(18.dp)
+        shape = RoundedCornerShape(18.dp),
+        // ★ 浅绿底必须配 onPrimaryContainer（深绿字）。用默认 onPrimary 会是白字，
+        //   在 primaryContainer 这种浅底上几乎读不出来。
+        colors = ButtonDefaults.buttonColors(
+            containerColor = MaterialTheme.colorScheme.cardBackground,
+            contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+        )
     ) {
         Text("开始专注", style = MaterialTheme.typography.titleMedium)
     }
@@ -306,7 +350,11 @@ private fun RunningControls(vm: FocusViewModel, run: FocusRun) {
             modifier = Modifier
                 .weight(1f)
                 .height(56.dp),
-            shape = RoundedCornerShape(18.dp)
+            shape = RoundedCornerShape(18.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.cardBackground,
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+            )
         ) {
             Text(if (run.paused) "继续" else "暂停", style = MaterialTheme.typography.titleMedium)
         }
@@ -357,14 +405,63 @@ private fun wavyCirclePath(center: Offset, radius: Float): Path {
     return path
 }
 
+/**
+ * 波浪圆环。
+ *
+ * 动效分两层，都只在「运行中且未暂停」播放（开关见 `SettingsRepo.focusRingMotion`）：
+ *  1. **整圈每 10 秒转 40°**（正好一个花瓣距），1.1 秒缓动转过去 —— 有节拍，不晃眼；
+ *  2. **绿色进度弧上有一道光扫过**：在进度段那条路径上截一小段用半透明白重画，
+ *     沿路径循环平移，4 秒一圈、25fps。★ 光是画在**填充本身**上的，
+ *     不是在圆内部画水纹 —— 数字区域始终干净。
+ *
+ * 两个时钟都由 `LaunchedEffect(motion)` 驱动；关掉动效时循环不启动，
+ * 环停在最后一个角度，不会突然跳回 0。
+ */
 @Composable
-private fun FocusRing(size: Dp, clock: String, fraction: Float, caption: String, dimmed: Boolean) {
+private fun FocusRing(
+    size: Dp,
+    clock: String,
+    fraction: Float,
+    caption: String,
+    dimmed: Boolean,
+    motion: Boolean
+) {
+    // ★ 计时页所有绿色一律用卡片色（primaryContainer），不混 primary 深绿。
+    //   文字/按钮要用 onPrimaryContainer，否则浅绿底白字看不清（见 IdleControls）。
     val accent = if (dimmed) {
-        MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)
+        MaterialTheme.colorScheme.cardBackground.copy(alpha = 0.45f)
     } else {
-        MaterialTheme.colorScheme.primary
+        MaterialTheme.colorScheme.cardBackground
     }
     val track = MaterialTheme.colorScheme.cardPlaceholder
+    val highlight = Color.White.copy(alpha = 0.55f)
+
+    var steps by remember { mutableIntStateOf(0) }
+    val shimmer = remember { mutableFloatStateOf(0f) }
+
+    LaunchedEffect(motion) {
+        if (!motion) return@LaunchedEffect
+        while (isActive) {
+            delay(10_000)
+            steps++
+        }
+    }
+    LaunchedEffect(motion) {
+        if (!motion) return@LaunchedEffect
+        var t = 0f
+        while (isActive) {
+            delay(40)
+            // 4 秒绕进度弧一圈。用 State<Float> 而不是普通变量：
+            // 读取发生在 Canvas 的 draw lambda 里 → 只触发重绘，不重组整棵子树。
+            t = (t + 40f / 4_000f) % 1f
+            shimmer.floatValue = t
+        }
+    }
+    val rotation by animateFloatAsState(
+        targetValue = steps * 40f,
+        animationSpec = tween(durationMillis = 1_100, easing = FastOutSlowInEasing),
+        label = "focusRingRotation"
+    )
 
     Box(contentAlignment = Alignment.Center) {
         Canvas(Modifier.size(size)) {
@@ -372,17 +469,38 @@ private fun FocusRing(size: Dp, clock: String, fraction: Float, caption: String,
             val radius = this.size.minDimension / 2f - stroke
             val center = Offset(this.size.width / 2f, this.size.height / 2f)
             val path = wavyCirclePath(center, radius)
+            val line = Stroke(width = stroke, cap = StrokeCap.Round)
 
-            // 底环：整圈浅色，告诉用户"这里是一整圈"
-            drawPath(path, track, style = Stroke(width = stroke, cap = StrokeCap.Round))
+            // 只转环，不转中间的数字（数字在 Box 上层，本来也不在 Canvas 里）。
+            withTransform({ rotate(degrees = rotation, pivot = center) }) {
+                // 底环：整圈浅色，告诉用户"这里是一整圈"
+                drawPath(path, track, style = line)
 
-            // 进度：沿同一条波浪路径截一段 —— 所以进度也是波浪形的，
-            // 不是把圆环盖在一个波浪底上（那样两圈形状对不上，很脏）。
-            if (fraction > 0.002f) {
-                val measure = PathMeasure().apply { setPath(path, false) }
-                val segment = Path()
-                measure.getSegment(0f, measure.length * fraction, segment, true)
-                drawPath(segment, accent, style = Stroke(width = stroke, cap = StrokeCap.Round))
+                // 进度：沿同一条波浪路径截一段 —— 所以进度也是波浪形的，
+                // 不是把圆环盖在一个波浪底上（那样两圈形状对不上，很脏）。
+                if (fraction > 0.002f) {
+                    val measure = PathMeasure().apply { setPath(path, false) }
+                    val segment = Path()
+                    measure.getSegment(0f, measure.length * fraction, segment, true)
+                    drawPath(segment, accent, style = line)
+
+                    if (motion && !dimmed) {
+                        val segMeasure = PathMeasure().apply { setPath(segment, false) }
+                        val len = segMeasure.length
+                        if (len > 0f) {
+                            val lightLen = len * 0.16f
+                            val start = len * shimmer.floatValue
+                            val end = start + lightLen
+                            val light = Path()
+                            segMeasure.getSegment(start, minOf(end, len), light, true)
+                            // 越过末端时从起点补上剩下那一截，光带才不会在结尾"闪断"。
+                            if (end > len) {
+                                segMeasure.getSegment(0f, end - len, light, true)
+                            }
+                            drawPath(light, highlight, style = line)
+                        }
+                    }
+                }
             }
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -407,34 +525,90 @@ private fun FocusRing(size: Dp, clock: String, fraction: Float, caption: String,
     }
 }
 
-/** 倒计时 / 正计时切换。小一号的分段控件，不跟顶部的「计时 / 统计」抢注意力。 */
+/**
+ * M3 风格的分段控件：选中指示器**滑动**到目标位置，不是两个格子瞬间换底色。
+ *
+ * 参考 Material 3 `SegmentedButton` / 导航栏的 active indicator：一个圆角块在底层
+ * 平滑平移，文字颜色同步渐变。用 `spring(StiffnessLow)` 把过渡放慢到约 500ms，
+ * 比默认 tween 的"啪一下"更接近 Google 那套 motion 手感。
+ *
+ * ★ 指示器画在 `drawBehind` 里，位置读 `animateFloatAsState` —— 状态变化只触发
+ *   draw phase 重绘，不会每帧把整行文字重新 measure 一遍。
+ */
 @Composable
-private fun ModeSwitch(countUp: Boolean, onSelect: (Boolean) -> Unit) {
+private fun SlidingSegmented(
+    labels: List<String>,
+    selected: Int,
+    onSelect: (Int) -> Unit,
+    itemWidth: Dp,
+    verticalPadding: Dp,
+    outerPadding: Dp,
+    modifier: Modifier = Modifier
+) {
+    val indicator = MaterialTheme.colorScheme.surface
+    val onActive = MaterialTheme.colorScheme.onSurface
+    val onIdle = MaterialTheme.colorScheme.onSurfaceVariant
+    val animatedIndex by animateFloatAsState(
+        targetValue = selected.toFloat(),
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioNoBouncy,
+            stiffness = Spring.StiffnessLow
+        ),
+        label = "segmentedIndicator"
+    )
     Row(
-        Modifier
+        modifier
             .clip(RoundedCornerShape(50))
             .background(MaterialTheme.colorScheme.cardPlaceholder)
-            .padding(3.dp)
+            .padding(outerPadding)
+            .drawBehind {
+                val itemPx = size.width / labels.size
+                drawRoundRect(
+                    color = indicator,
+                    topLeft = Offset(itemPx * animatedIndex, 0f),
+                    size = Size(itemPx, size.height),
+                    cornerRadius = CornerRadius(size.height / 2f, size.height / 2f)
+                )
+            },
+        horizontalArrangement = Arrangement.Center
     ) {
-        listOf("倒计时" to false, "正计时" to true).forEach { (label, value) ->
-            val active = value == countUp
+        labels.forEachIndexed { index, label ->
+            val active = index == selected
+            val textColor by animateColorAsState(
+                targetValue = if (active) onActive else onIdle,
+                animationSpec = tween(durationMillis = 400, easing = FastOutSlowInEasing),
+                label = "segmentedText"
+            )
             Box(
                 Modifier
+                    .width(itemWidth)
                     .clip(RoundedCornerShape(50))
-                    .background(if (active) MaterialTheme.colorScheme.surface else Color.Transparent)
-                    .clickable { onSelect(value) }
-                    .padding(horizontal = 22.dp, vertical = 7.dp)
+                    .clickable { onSelect(index) }
+                    .padding(vertical = verticalPadding),
+                contentAlignment = Alignment.Center
             ) {
                 Text(
                     label,
                     style = MaterialTheme.typography.labelLarge,
                     fontWeight = if (active) FontWeight.Medium else FontWeight.Normal,
-                    color = if (active) MaterialTheme.colorScheme.onSurface
-                    else MaterialTheme.colorScheme.onSurfaceVariant
+                    color = textColor
                 )
             }
         }
     }
+}
+
+/** 倒计时 / 正计时切换。小一号的分段控件，不跟顶部的「计时 / 统计」抢注意力。 */
+@Composable
+private fun ModeSwitch(countUp: Boolean, onSelect: (Boolean) -> Unit) {
+    SlidingSegmented(
+        labels = listOf("倒计时", "正计时"),
+        selected = if (countUp) 1 else 0,
+        onSelect = { onSelect(it == 1) },
+        itemWidth = 92.dp,
+        verticalPadding = 7.dp,
+        outerPadding = 3.dp
+    )
 }
 
 /**
@@ -471,13 +645,10 @@ private fun DurationPicker(selected: Int, onSelect: (Int) -> Unit) {
     }
 
     if (showCustom) {
-        DurationInputDialog(
-            title = "自定义时长",
-            initial = if (isCustom) selected else 30,
-            // 1 分钟 ~ 10 小时：低于 1 分钟记不出东西，超过 10 小时没人会真走完。
-            min = 1,
-            max = 600,
-            quick = listOf(10, 20, 30, 90),
+        // ★ 用和「添加待办 → + 时间」同一个圆形表盘（AddSheet 的 M3 TimePicker），
+        //   把 时:分 折算成分钟。全 App 只有一套时间选择器，用户不用重新学。
+        DurationTimePickerDialog(
+            initialMinutes = if (isCustom) selected else 30,
             onDismiss = { showCustom = false },
             onConfirm = {
                 onSelect(it)
@@ -494,13 +665,24 @@ private fun DurationCell(
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
+    // 选中态也走卡片浅绿，文字配 onPrimaryContainer；颜色用 400ms 缓动过渡，
+    // 点一下不是"啪"地换色，和分段控件的滑动指示器同一套节奏。
+    val bg by animateColorAsState(
+        targetValue = if (active) MaterialTheme.colorScheme.cardBackground
+        else MaterialTheme.colorScheme.cardPlaceholder,
+        animationSpec = tween(durationMillis = 400, easing = FastOutSlowInEasing),
+        label = "durationBg"
+    )
+    val fg by animateColorAsState(
+        targetValue = if (active) MaterialTheme.colorScheme.onPrimaryContainer
+        else MaterialTheme.colorScheme.onSurface,
+        animationSpec = tween(durationMillis = 400, easing = FastOutSlowInEasing),
+        label = "durationText"
+    )
     Box(
         modifier
             .clip(RoundedCornerShape(16.dp))
-            .background(
-                if (active) MaterialTheme.colorScheme.primary
-                else MaterialTheme.colorScheme.cardPlaceholder
-            )
+            .background(bg)
             .clickable(onClick = onClick)
             .padding(vertical = 16.dp),
         contentAlignment = Alignment.Center
@@ -509,19 +691,18 @@ private fun DurationCell(
             text,
             style = MaterialTheme.typography.titleMedium,
             fontWeight = if (active) FontWeight.Medium else FontWeight.Normal,
-            color = if (active) MaterialTheme.colorScheme.onPrimary
-            else MaterialTheme.colorScheme.onSurface
+            color = fg
         )
     }
 }
 
 /**
- * 分钟数输入对话框。两处在用：自定义专注时长、每日目标。
+ * 分钟数输入对话框 —— 现在只给「每日目标」用。
  *
- * ★ 用数字输入框而不是滚轮 / TimePicker：
- *   - TimePicker 选的是"时刻"，拿来选"90 分钟"会变成 01:30，语义错位；
- *   - 滚轮要自己写循环吸附，收益不值那几十行。
- *   直接打字最快，旁边给几个常用值兜底（不想打字的人点一下就走）。
+ * 自定义专注时长已换成圆形表盘（[DurationTimePickerDialog]），因为 zuige 要的是
+ * 和添加待办一致的那个选择器；目标值仍用数字输入更直接（120 / 180 这种整数，
+ * 在时钟表盘上要换算成 02:00 / 03:00，反而绕）。
+ * 快捷值给几个常用分钟数兜底，不想打字的人点一下就走。
  */
 @Composable
 private fun DurationInputDialog(
@@ -582,6 +763,61 @@ private fun DurationInputDialog(
                 onClick = { if (value != null) onConfirm(value) },
                 enabled = valid
             ) { Text("确定") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("取消") }
+        }
+    )
+}
+
+/**
+ * 自定义专注时长：复用添加待办那个圆形表盘。
+ *
+ * ★ M3 `TimePicker` 本来选的是"时刻"，这里把 `hour:minute` 解释成
+ *   `hour*60+minute` 分钟的**时长**（选 01:30 = 90 分钟）。表盘能选到 23:59，
+ *   所以确认按钮按 1 分钟 ~ 10 小时钳一下，超范围时禁用并给一句提示 ——
+ *   不静默改成 10:00，那样用户以为自己选了 12 小时，实际记了 10 小时。
+ *
+ * 24 小时制是必须的：12 小时制会把「2 小时」和「下午 2 点」混在一起。
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DurationTimePickerDialog(
+    initialMinutes: Int,
+    onDismiss: () -> Unit,
+    onConfirm: (Int) -> Unit
+) {
+    val state = rememberTimePickerState(
+        initialHour = initialMinutes / 60,
+        initialMinute = initialMinutes % 60,
+        is24Hour = true
+    )
+    val total = state.hour * 60 + state.minute
+    val valid = total in 1..600
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("自定义时长") },
+        text = {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    "按「时 : 分」选，最长 10 小时",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(8.dp))
+                TimePicker(state = state)
+                if (!valid) {
+                    Text(
+                        "请选择 1 分钟 ~ 10 小时",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onConfirm(total) }, enabled = valid) { Text("确定") }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text("取消") }
@@ -1106,35 +1342,15 @@ private fun RecordRow(session: FocusSession) {
 
 @Composable
 private fun SegmentedPill(selected: Int, onSelect: (Int) -> Unit) {
-    Row(
-        Modifier
-            .padding(vertical = 4.dp)
-            .clip(RoundedCornerShape(50))
-            .background(MaterialTheme.colorScheme.cardPlaceholder)
-            .padding(4.dp),
-        horizontalArrangement = Arrangement.Center
-    ) {
-        listOf("计时", "统计").forEachIndexed { index, label ->
-            val active = index == selected
-            Box(
-                Modifier
-                    .clip(RoundedCornerShape(50))
-                    .background(
-                        if (active) MaterialTheme.colorScheme.surface else Color.Transparent
-                    )
-                    .clickable { onSelect(index) }
-                    .padding(horizontal = 28.dp, vertical = 8.dp)
-            ) {
-                Text(
-                    label,
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = if (active) FontWeight.Medium else FontWeight.Normal,
-                    color = if (active) MaterialTheme.colorScheme.onSurface
-                    else MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-    }
+    SlidingSegmented(
+        labels = listOf("计时", "统计"),
+        selected = selected,
+        onSelect = onSelect,
+        itemWidth = 96.dp,
+        verticalPadding = 8.dp,
+        outerPadding = 4.dp,
+        modifier = Modifier.padding(vertical = 4.dp)
+    )
 }
 
 private fun weekdayCn(date: LocalDate): String =
