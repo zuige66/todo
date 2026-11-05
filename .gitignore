@@ -30,6 +30,9 @@ output-metadata.json
 app/release/
 app/debug/
 
+# 软著申请确认签章页含个人身份信息，不入库
+output/软著材料/用户中心.pdf
+
 # ---------- 4. IDE ----------
 .idea/
 *.iml
