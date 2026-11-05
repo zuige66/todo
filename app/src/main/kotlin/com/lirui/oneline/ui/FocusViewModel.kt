@@ -12,6 +12,7 @@ import com.lirui.oneline.focus.FocusEngine
 import com.lirui.oneline.focus.FocusRules
 import com.lirui.oneline.focus.FocusRun
 import com.lirui.oneline.focus.FocusStore
+import com.lirui.oneline.util.SettingsRepo
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -50,8 +51,8 @@ class FocusViewModel(app: Application) : AndroidViewModel(app) {
     var countUp by mutableStateOf(FocusStore.lastCountUp(app))
         private set
 
-    /** 空闲时填的说明（不落盘，开跑之后进 [FocusRun.label]）。 */
-    var label by mutableStateOf("")
+    /** 统计页进度环的刻度：每日专注目标（分钟）。 */
+    var dailyGoalMinutes by mutableStateOf(SettingsRepo.focusDailyGoalMinutes(app))
         private set
 
     /**
@@ -111,16 +112,23 @@ class FocusViewModel(app: Application) : AndroidViewModel(app) {
         countUp = up
     }
 
-    fun editLabel(value: String) {
-        label = value
+    /** 改每日目标。范围夹在 [SettingsRepo.MIN_FOCUS_GOAL_MINUTES] ~ [SettingsRepo.MAX_FOCUS_GOAL_MINUTES]。 */
+    fun setDailyGoal(minutes: Int) {
+        val v = minutes.coerceIn(
+            SettingsRepo.MIN_FOCUS_GOAL_MINUTES,
+            SettingsRepo.MAX_FOCUS_GOAL_MINUTES
+        )
+        dailyGoalMinutes = v
+        SettingsRepo.setFocusDailyGoalMinutes(getApplication(), v)
     }
 
     // ---------- 动作 ----------
 
     fun start() {
         val t = System.currentTimeMillis()
-        run = FocusEngine.start(getApplication(), minutes, label, t, countUp)
-        label = ""
+        // 说明（label）的输入框已下线，新开的专注一律不带说明；
+        // FocusRun.label 字段保留，历史记录里已有的说明照常显示。
+        run = FocusEngine.start(getApplication(), minutes, "", t, countUp)
         nowMillis = t
     }
 

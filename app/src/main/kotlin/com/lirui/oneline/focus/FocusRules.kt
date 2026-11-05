@@ -67,6 +67,19 @@ object FocusRules {
     const val DEFAULT_MINUTES = 25
 
     /**
+     * 盘上读回来的是不是一次**有效**的专注。
+     *
+     * ★ 这里必须区分模式，不能只看 `plannedSeconds <= 0`。
+     *   正计时的 plannedSeconds **本来就是 0**（没有目标就没有终点）。
+     *   v1.0.2 只判了 `planned <= 0` 就当作坏数据扔掉，后果是：
+     *   正计时一开局，盘上那份 run 就再也读不回来 —— 退出重进看到的是空闲态，
+     *   而通知栏那条由系统 chronometer 渲染的计时还在走，点「结束」也收不掉
+     *   （FocusActionReceiver 同样拿不到 run）。只有「倒计时却没有计划时长」才是坏数据。
+     */
+    fun isUsable(plannedSeconds: Int, countUp: Boolean): Boolean =
+        countUp || plannedSeconds > 0
+
+    /**
      * 已经过的毫秒。暂停时不再增长。
      *
      * ★ 倒计时会截到 planned（闹钟晚几秒不算"超时"）；**正计时不截** ——

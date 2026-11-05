@@ -46,6 +46,7 @@ object SettingsRepo {
     private const val KEY_WIDGET_HIDE_HEADER = "widget_hide_header"
     // 隐私政策：存的是「已同意的政策版本号」，0/缺失 = 从未同意。
     private const val KEY_PRIVACY_ACCEPTED_VERSION = "privacy_accepted_version"
+    private const val KEY_FOCUS_DAILY_GOAL = "focus_daily_goal_minutes"
     // 退役键（保留、永不读取）：widget_compact_show_date / widget_standard_show_date /
     // widget_show_weekday —— 见下方「桌面小组件」段落的说明。
 
@@ -532,6 +533,32 @@ object SettingsRepo {
         context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
             .edit().putInt(KEY_PRIVACY_ACCEPTED_VERSION, PRIVACY_POLICY_VERSION).apply()
     }
+
+    // ---------- 专注：每日目标 ----------
+
+    /**
+     * 每日专注目标（分钟），默认 120（2 小时）。
+     *
+     * ★ 为什么不写进数据库：它是一个**设置项**（改了不该产生历史），跟主题、配色同级，
+     *   放进 `focus_sessions` 会需要一张"设置表"，纯属用错工具。
+     *   只影响统计页那个进度环的刻度，不参与任何记录计算。
+     */
+    fun focusDailyGoalMinutes(context: Context): Int {
+        val v = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            .getInt(KEY_FOCUS_DAILY_GOAL, DEFAULT_FOCUS_GOAL_MINUTES)
+        return if (v > 0) v else DEFAULT_FOCUS_GOAL_MINUTES
+    }
+
+    fun setFocusDailyGoalMinutes(context: Context, minutes: Int) {
+        if (minutes <= 0) return
+        context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            .edit().putInt(KEY_FOCUS_DAILY_GOAL, minutes).apply()
+    }
+
+    /** 每日目标的默认值（2 小时）与可设范围（15 分钟 ~ 12 小时）。 */
+    const val DEFAULT_FOCUS_GOAL_MINUTES = 120
+    const val MIN_FOCUS_GOAL_MINUTES = 15
+    const val MAX_FOCUS_GOAL_MINUTES = 720
 }
 
 /**

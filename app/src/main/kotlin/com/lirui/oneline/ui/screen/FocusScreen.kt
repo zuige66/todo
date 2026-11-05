@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -23,9 +24,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.AlertDialog
@@ -61,6 +61,7 @@ import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -75,11 +76,11 @@ import com.lirui.oneline.ui.theme.cardBackground
 import com.lirui.oneline.ui.theme.cardPlaceholder
 import com.lirui.oneline.ui.theme.fieldBorder
 import com.lirui.oneline.ui.theme.fieldSurface
-import com.lirui.oneline.ui.theme.placeholderText
 import com.lirui.oneline.util.AppTime
 import com.lirui.oneline.util.DayTotal
 import com.lirui.oneline.util.FocusStats
 import com.lirui.oneline.util.FocusSummary
+import com.lirui.oneline.util.SettingsRepo
 import kotlinx.coroutines.delay
 import java.time.Instant
 import java.time.LocalDate
@@ -164,7 +165,11 @@ fun FocusScreen(onClose: () -> Unit) {
             ) {
                 when (page) {
                     PAGE_TIMER -> FocusTimerPage(vm)
-                    PAGE_STATS -> FocusStatsPage(vm.sessions.collectAsState().value)
+                    PAGE_STATS -> FocusStatsPage(
+                        sessions = vm.sessions.collectAsState().value,
+                        goalMinutes = vm.dailyGoalMinutes,
+                        onSetGoal = vm::setDailyGoal
+                    )
                 }
             }
         }
@@ -264,7 +269,13 @@ private fun FocusTimerPage(vm: FocusViewModel) {
     }
 }
 
-/** 空闲态：模式 → 时长 → 说明 → 开始。全部贴在底部，中间只留环。 */
+/**
+ * 空闲态：模式 → 时长 → 开始。全部贴在底部，中间只留环。
+ *
+ * 说明输入框（原来的「在专注什么？」）已按 zuige 的要求下线 —— 每次开始前多一次
+ * 输入收益很低，专注页的主任务是"按下开始"。`FocusRun.label` 字段保留，
+ * 历史记录里已写过的说明照常显示，记录列表也不会变成一片空白。
+ */
 @Composable
 private fun IdleControls(vm: FocusViewModel) {
     ModeSwitch(countUp = vm.countUp, onSelect = vm::selectMode)
@@ -274,25 +285,7 @@ private fun IdleControls(vm: FocusViewModel) {
         DurationPicker(selected = vm.minutes, onSelect = { vm.selectMinutes(it) })
     }
 
-    Spacer(Modifier.height(14.dp))
-    OutlinedTextField(
-        value = vm.label,
-        onValueChange = { vm.editLabel(it) },
-        modifier = Modifier.fillMaxWidth(),
-        placeholder = {
-            Text("在专注什么？（可不填）", color = MaterialTheme.colorScheme.placeholderText)
-        },
-        singleLine = true,
-        shape = RoundedCornerShape(16.dp),
-        colors = OutlinedTextFieldDefaults.colors(
-            focusedContainerColor = MaterialTheme.colorScheme.fieldSurface,
-            unfocusedContainerColor = MaterialTheme.colorScheme.fieldSurface,
-            focusedBorderColor = MaterialTheme.colorScheme.fieldBorder,
-            unfocusedBorderColor = MaterialTheme.colorScheme.fieldBorder
-        )
-    )
-
-    Spacer(Modifier.height(16.dp))
+    Spacer(Modifier.height(18.dp))
     Button(
         onClick = vm::start,
         modifier = Modifier
@@ -444,36 +437,156 @@ private fun ModeSwitch(countUp: Boolean, onSelect: (Boolean) -> Unit) {
     }
 }
 
+/**
+ * 时长选择：四个预设 + 一个「自定义」格。
+ *
+ * ★ 第五格的文字会跟着状态变：
+ *   - 没选自定义 → 显示 `+`，提示"这里还能自己定"；
+ *   - 选了自定义 → 直接显示那个分钟数（比如 `35`）并高亮。
+ *   如果固定写「自定义」三个字，64dp 宽的格子里会挤成两行，而且选完也看不出选了多久。
+ */
 @Composable
 private fun DurationPicker(selected: Int, onSelect: (Int) -> Unit) {
+    var showCustom by remember { mutableStateOf(false) }
+    val isCustom = selected !in FocusRules.PRESET_MINUTES
+
     Row(
         Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         FocusRules.PRESET_MINUTES.forEach { minutes ->
-            val active = minutes == selected
-            Box(
-                Modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(
-                        if (active) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.cardPlaceholder
-                    )
-                    .clickable { onSelect(minutes) }
-                    .padding(vertical = 16.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    "$minutes",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = if (active) FontWeight.Medium else FontWeight.Normal,
-                    color = if (active) MaterialTheme.colorScheme.onPrimary
-                    else MaterialTheme.colorScheme.onSurface
-                )
-            }
+            DurationCell(
+                text = "$minutes",
+                active = minutes == selected,
+                modifier = Modifier.weight(1f),
+                onClick = { onSelect(minutes) }
+            )
         }
+        DurationCell(
+            text = if (isCustom) "$selected" else "+",
+            active = isCustom,
+            modifier = Modifier.weight(1f),
+            onClick = { showCustom = true }
+        )
     }
+
+    if (showCustom) {
+        DurationInputDialog(
+            title = "自定义时长",
+            initial = if (isCustom) selected else 30,
+            // 1 分钟 ~ 10 小时：低于 1 分钟记不出东西，超过 10 小时没人会真走完。
+            min = 1,
+            max = 600,
+            quick = listOf(10, 20, 30, 90),
+            onDismiss = { showCustom = false },
+            onConfirm = {
+                onSelect(it)
+                showCustom = false
+            }
+        )
+    }
+}
+
+@Composable
+private fun DurationCell(
+    text: String,
+    active: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier
+            .clip(RoundedCornerShape(16.dp))
+            .background(
+                if (active) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.cardPlaceholder
+            )
+            .clickable(onClick = onClick)
+            .padding(vertical = 16.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = if (active) FontWeight.Medium else FontWeight.Normal,
+            color = if (active) MaterialTheme.colorScheme.onPrimary
+            else MaterialTheme.colorScheme.onSurface
+        )
+    }
+}
+
+/**
+ * 分钟数输入对话框。两处在用：自定义专注时长、每日目标。
+ *
+ * ★ 用数字输入框而不是滚轮 / TimePicker：
+ *   - TimePicker 选的是"时刻"，拿来选"90 分钟"会变成 01:30，语义错位；
+ *   - 滚轮要自己写循环吸附，收益不值那几十行。
+ *   直接打字最快，旁边给几个常用值兜底（不想打字的人点一下就走）。
+ */
+@Composable
+private fun DurationInputDialog(
+    title: String,
+    initial: Int,
+    min: Int,
+    max: Int,
+    quick: List<Int>,
+    onDismiss: () -> Unit,
+    onConfirm: (Int) -> Unit
+) {
+    var text by remember { mutableStateOf(initial.toString()) }
+    val value = text.toIntOrNull()
+    val valid = value != null && value in min..max
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = text,
+                    // 只收数字，最多三位：挂个中文输入法也不会变成"三十"这种盘外值。
+                    onValueChange = { raw -> text = raw.filter { it.isDigit() }.take(3) },
+                    label = { Text("分钟") },
+                    singleLine = true,
+                    isError = text.isNotEmpty() && !valid,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = MaterialTheme.colorScheme.fieldSurface,
+                        unfocusedContainerColor = MaterialTheme.colorScheme.fieldSurface,
+                        focusedBorderColor = MaterialTheme.colorScheme.fieldBorder,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.fieldBorder
+                    )
+                )
+                Spacer(Modifier.height(14.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    quick.forEach { q ->
+                        Box(
+                            Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(MaterialTheme.colorScheme.cardPlaceholder)
+                                .clickable { text = q.toString() }
+                                .padding(vertical = 10.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("$q", style = MaterialTheme.typography.labelLarge)
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { if (value != null) onConfirm(value) },
+                enabled = valid
+            ) { Text("确定") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("取消") }
+        }
+    )
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -481,7 +594,11 @@ private fun DurationPicker(selected: Int, onSelect: (Int) -> Unit) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
-private fun FocusStatsPage(sessions: List<FocusSession>) {
+private fun FocusStatsPage(
+    sessions: List<FocusSession>,
+    goalMinutes: Int,
+    onSetGoal: (Int) -> Unit
+) {
     val today: LocalDate = AppTime.today()
     val summary = remember(sessions, today) { FocusStats.summary(sessions, today) }
     val last7 = remember(sessions, today) { FocusStats.lastDays(sessions, today, 7) }
@@ -495,37 +612,30 @@ private fun FocusStatsPage(sessions: List<FocusSession>) {
         ),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        item { SummaryCards(summary) }
+        // ★ 主次分明：今日是"现在"（用户最关心），放大做主数字；
+        //   本周 / 累计是"背景"，两张卡片并排。原来的三张等宽卡片在 392dp 屏上
+        //   每张只有 ~87dp，「12小时30分」这种最长组合必被省略号截掉。
+        item { TodayCard(summary, goalMinutes, onSetGoal) }
 
         item {
-            FocusCard {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        "连续专注",
-                        style = MaterialTheme.typography.titleSmall,
-                        modifier = Modifier.weight(1f)
-                    )
-                    Text(
-                        if (summary.streakDays > 0) "${summary.streakDays} 天" else "还没开始",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                PeriodCard("本周", summary.weekSeconds, summary.weekCount, Modifier.weight(1f))
+                PeriodCard("累计", summary.totalSeconds, summary.totalCount, Modifier.weight(1f))
             }
         }
 
         item {
+            val avg = last7.sumOf { it.seconds } / 7
             FocusCard {
-                SectionTitle("最近 7 天")
+                SectionHeader("最近 7 天", if (avg > 0) "日均 ${FocusRules.formatDuration(avg)}" else null)
                 Spacer(Modifier.height(14.dp))
-                WeekBars(last7)
+                WeekBars(last7, today)
             }
         }
 
         item {
             FocusCard {
-                SectionTitle("近 15 周")
+                SectionHeader("近 15 周", monthSpan(heat))
                 Spacer(Modifier.height(12.dp))
                 Heatmap(heat)
             }
@@ -551,22 +661,153 @@ private fun FocusStatsPage(sessions: List<FocusSession>) {
     }
 }
 
+/**
+ * 今日主卡片：环形进度（今日 / 每日目标）+ 时长 + 连续天数。
+ *
+ * ★ 为什么用环而不是一行大数字：专注是"今天要练满一段时间"的事，
+ *   有刻度才有"还差多少"，纯数字只能回答"已经多少"。环同时给出两者，
+ *   而且达成（progress 满圈）是一次看得见的奖励。
+ *
+ * ★ 环里只放百分比，不放时长：环内径约 80dp，`2小时15分` 六个字塞进去会
+ *   被迫缩到 11sp 以下，反而看不清。时长放在环右侧，字号可以正常。
+ */
 @Composable
-private fun SummaryCards(summary: FocusSummary) {
-    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        StatCard("今日", summary.todaySeconds, summary.todayCount, Modifier.weight(1f))
-        StatCard("本周", summary.weekSeconds, summary.weekCount, Modifier.weight(1f))
-        StatCard("累计", summary.totalSeconds, summary.totalCount, Modifier.weight(1f))
+private fun TodayCard(summary: FocusSummary, goalMinutes: Int, onSetGoal: (Int) -> Unit) {
+    var showGoalDialog by remember { mutableStateOf(false) }
+    val started = summary.todaySeconds > 0
+    val goalSeconds = (goalMinutes.coerceAtLeast(1)) * 60
+    val progress = (summary.todaySeconds.toFloat() / goalSeconds).coerceIn(0f, 1f)
+    val percent = summary.todaySeconds * 100 / goalSeconds
+    val reached = summary.todaySeconds >= goalSeconds
+
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(MaterialTheme.colorScheme.cardBackground)
+            .padding(horizontal = 18.dp, vertical = 16.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        GoalRing(
+            size = 96.dp,
+            progress = progress,
+            text = if (reached) "达成" else "$percent%"
+        )
+        Spacer(Modifier.width(18.dp))
+        Column(Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "今日专注",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f)
+                )
+                if (summary.streakDays > 0) {
+                    Text(
+                        "连续 ${summary.streakDays} 天",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+            Spacer(Modifier.height(6.dp))
+            Text(
+                if (started) FocusRules.formatDuration(summary.todaySeconds) else "还没开始",
+                // 22sp：右侧可用宽度约 210dp，「12小时30分」≈ 132dp，不会截断。
+                style = TextStyle(
+                    fontSize = if (started) 22.sp else 17.sp,
+                    fontWeight = FontWeight.Medium,
+                    fontFeatureSettings = "tnum"
+                ),
+                color = if (started) MaterialTheme.colorScheme.onSurface
+                else MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(Modifier.height(6.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "目标 ${FocusRules.formatDuration(goalSeconds)}" +
+                        if (summary.todayCount > 0) " · ${summary.todayCount} 次" else "",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f)
+                )
+                Text(
+                    "调整目标",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { showGoalDialog = true }
+                        .padding(horizontal = 6.dp, vertical = 4.dp)
+                )
+            }
+        }
+    }
+
+    if (showGoalDialog) {
+        DurationInputDialog(
+            title = "每日专注目标",
+            initial = goalMinutes,
+            min = SettingsRepo.MIN_FOCUS_GOAL_MINUTES,
+            max = SettingsRepo.MAX_FOCUS_GOAL_MINUTES,
+            quick = listOf(60, 120, 180, 240),
+            onDismiss = { showGoalDialog = false },
+            onConfirm = {
+                onSetGoal(it)
+                showGoalDialog = false
+            }
+        )
     }
 }
 
+/**
+ * 进度环。底色整圈 + 主色从 12 点顺时针扫 `progress`。
+ *
+ * 满圈时 `sweepAngle` 正好 360，圆头笔帽会在起点叠一下 —— 视觉上是一圈完整的环，
+ * 不是 bug，所以不做特殊处理。
+ */
 @Composable
-private fun StatCard(label: String, seconds: Int, count: Int, modifier: Modifier = Modifier) {
+private fun GoalRing(size: Dp, progress: Float, text: String) {
+    val accent = MaterialTheme.colorScheme.primary
+    val track = MaterialTheme.colorScheme.cardPlaceholder
+    Box(contentAlignment = Alignment.Center) {
+        Canvas(Modifier.size(size)) {
+            val stroke = 9.dp.toPx()
+            val radius = (this.size.minDimension - stroke) / 2f
+            drawCircle(color = track, radius = radius, style = Stroke(width = stroke))
+            if (progress > 0.002f) {
+                drawArc(
+                    color = accent,
+                    startAngle = -90f,
+                    sweepAngle = 360f * progress.coerceIn(0f, 1f),
+                    useCenter = false,
+                    topLeft = Offset(center.x - radius, center.y - radius),
+                    size = Size(radius * 2, radius * 2),
+                    style = Stroke(width = stroke, cap = StrokeCap.Round)
+                )
+            }
+        }
+        Text(
+            text,
+            style = TextStyle(
+                fontSize = 21.sp,
+                fontWeight = FontWeight.Medium,
+                fontFeatureSettings = "tnum"
+            ),
+            color = MaterialTheme.colorScheme.onSurface
+        )
+    }
+}
+
+/** 本周 / 累计。两列后每列宽 ~171dp，17sp 的「12小时30分」不会再被截。 */
+@Composable
+private fun PeriodCard(label: String, seconds: Int, count: Int, modifier: Modifier = Modifier) {
     Column(
         modifier
             .clip(RoundedCornerShape(18.dp))
             .background(MaterialTheme.colorScheme.cardBackground)
-            .padding(horizontal = 12.dp, vertical = 14.dp)
+            .padding(horizontal = 14.dp, vertical = 14.dp)
     ) {
         Text(
             label,
@@ -576,9 +817,7 @@ private fun StatCard(label: String, seconds: Int, count: Int, modifier: Modifier
         Spacer(Modifier.height(6.dp))
         Text(
             if (seconds <= 0) "—" else FocusRules.formatDuration(seconds),
-            // 15sp 不是随手定的：卡片在 392dp 屏上只有 ~87dp 可用宽度，
-            // 「12小时30分」这种最长组合在 17sp 会顶到边上被省略号截掉。
-            style = TextStyle(fontSize = 15.sp, fontWeight = FontWeight.Medium),
+            style = TextStyle(fontSize = 17.sp, fontWeight = FontWeight.Medium),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
@@ -607,40 +846,74 @@ private fun SectionTitle(text: String) {
     Text(text, style = MaterialTheme.typography.titleSmall)
 }
 
+/** 卡片标题行：左边标题，右边一句补充（日均时长 / 月份跨度）。没有补充时右边留空。 */
 @Composable
-private fun WeekBars(days: List<DayTotal>) {
+private fun SectionHeader(title: String, trailing: String? = null) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            title,
+            style = MaterialTheme.typography.titleSmall,
+            modifier = Modifier.weight(1f)
+        )
+        if (trailing != null) {
+            Text(
+                trailing,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun WeekBars(days: List<DayTotal>, today: LocalDate) {
     val accent = MaterialTheme.colorScheme.primary
     val maxSeconds = (days.maxOfOrNull { it.seconds } ?: 0).coerceAtLeast(1)
 
     Row(
         Modifier
             .fillMaxWidth()
-            .height(120.dp),
+            // 140dp = 旧版 120dp 的柱区（96dp）+ 顶上那一行分钟数（16dp）+ 间隔。
+            // 数字行不挤占柱子的高度，否则 7 天的相对高低会被压扁。
+            .height(140.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.Bottom
     ) {
         days.forEach { day ->
+            val isToday = day.date == today
             Column(
-                // ★ fillMaxHeight 不能省：Row 给了固定 120dp，但 Column 自己默认是 wrap-content，
+                // ★ fillMaxHeight 不能省：Row 给了固定高度，但 Column 自己默认是 wrap-content，
                 //   里面的 weight 就没有可分配的高度，柱子会塌成 0（看着像"没数据"）。
                 Modifier
                     .weight(1f)
                     .fillMaxHeight(),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
+                // 柱顶分钟数。没有数据时也占一行（空串），否则每根柱子的基线会高低不齐。
+                Text(
+                    if (day.seconds > 0) minuteLabel(day.seconds) else "",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (isToday) accent else MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1
+                )
+                Spacer(Modifier.height(4.dp))
                 Box(
                     Modifier
                         .weight(1f)
                         .fillMaxWidth(),
                     contentAlignment = Alignment.BottomCenter
                 ) {
-                    // 轨道：没有数据时也有 7 根浅灰柱子，这一块才读得出"这是柱状图"，
+                    // 轨道：没有数据时也有 7 根浅色柱子，这一块才读得出"这是柱状图"，
                     // 而不是一片空卡片（第一版就是一片空，看着像渲染失败）。
+                    // 今天那根轨道染一点主色，扫一眼就知道"最后一根是今天"。
                     Box(
                         Modifier
                             .fillMaxSize()
                             .clip(RoundedCornerShape(6.dp))
-                            .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f))
+                            .background(
+                                if (isToday) accent.copy(alpha = 0.12f)
+                                else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f)
+                            )
                     )
                     if (day.seconds > 0) {
                         val frac = (day.seconds.toFloat() / maxSeconds).coerceIn(0.08f, 1f)
@@ -657,12 +930,16 @@ private fun WeekBars(days: List<DayTotal>) {
                 Text(
                     weekdayCn(day.date),
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    fontWeight = if (isToday) FontWeight.Medium else FontWeight.Normal,
+                    color = if (isToday) accent else MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }
     }
 }
+
+/** 柱顶数字：向上取整的分钟数（59 秒也显示 1，不出现"有柱子但标 0"）。 */
+private fun minuteLabel(seconds: Int): String = ((seconds + 59) / 60).toString()
 
 @Composable
 private fun Heatmap(cells: List<DayTotal>) {
@@ -671,54 +948,106 @@ private fun Heatmap(cells: List<DayTotal>) {
     val weeks = (cells.size / 7).coerceAtLeast(1)
     val gap = 3.dp
 
-    // ★ 格子尺寸必须按可用宽度算，不能写死。
-    //   写死 13dp 在 392dp 宽的机器上只占 252dp，右边空出一大块（第一版就是这样）；
-    //   写死成更大的值，360dp 的小屏又会溢出。BoxWithConstraints 是唯一稳的做法。
-    BoxWithConstraints(Modifier.fillMaxWidth()) {
-        val labelWidth = 14.dp
-        val available = maxWidth - labelWidth - 2.dp - gap * (weeks - 1)
-        val cell = (available / weeks).coerceIn(8.dp, 20.dp)
-
-        Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
+    // ★ 用 weight + aspectRatio 让布局自己均分，不再手算像素。
+    //   旧写法按 `gap * (weeks - 1)` 扣间隙，但 Row 里其实有 16 个子项
+    //   （星期标签列 + 15 个周列）→ 15 个间隙，少扣 3dp 就整行超宽，
+    //   最后一列被挤成一条窄竖条（zuige 报的「最右边卡成竖着矩形」）。
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(gap)
+    ) {
+        // 星期标签列：宽度固定，格子用 aspectRatio 保证与右侧方块同高同排。
+        Column(
+            Modifier.width(14.dp),
+            verticalArrangement = Arrangement.spacedBy(gap)
+        ) {
             // 只标 一/三/五/日，7 行全标会挤成一列看不清的字。
-            Column(
-                Modifier.padding(end = 2.dp),
-                verticalArrangement = Arrangement.spacedBy(gap)
-            ) {
-                listOf("一", "", "三", "", "五", "", "日").forEach { label ->
-                    Box(Modifier.size(cell), contentAlignment = Alignment.Center) {
-                        if (label.isNotEmpty()) {
-                            Text(
-                                label,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                }
-            }
-            (0 until weeks).forEach { w ->
-                Column(verticalArrangement = Arrangement.spacedBy(gap)) {
-                    (0 until 7).forEach { d ->
-                        val day = cells.getOrNull(w * 7 + d)
-                        val seconds = day?.seconds ?: 0
-                        Box(
-                            Modifier
-                                .size(cell)
-                                .clip(RoundedCornerShape(3.dp))
-                                .background(heatColor(base, accent, seconds))
+            listOf("一", "", "三", "", "五", "", "日").forEach { label ->
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(1f),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (label.isNotEmpty()) {
+                        Text(
+                            label,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
             }
         }
+        (0 until weeks).forEach { w ->
+            Column(
+                Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(gap)
+            ) {
+                (0 until 7).forEach { d ->
+                    val day = cells.getOrNull(w * 7 + d)
+                    val seconds = day?.seconds ?: 0
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .aspectRatio(1f)
+                            .clip(RoundedCornerShape(3.dp))
+                            .background(heatColor(base, accent, seconds))
+                    )
+                }
+            }
+        }
     }
     Spacer(Modifier.height(10.dp))
-    Text(
-        "一格一天，越深越久",
-        style = MaterialTheme.typography.labelSmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant
-    )
+    // 图例：五档色阶的意义要能直接读出来。原来只有一句"越深越久"，
+    // 用户没法判断"深到什么程度算多" —— 现在把 0 / 10 分 / 20 分 / 45 分 / 90 分
+    // 五档并排放出来，右边一个"多"就是刻度。
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            "一格一天",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f)
+        )
+        Text(
+            "少",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(Modifier.width(6.dp))
+        listOf(0, 10 * 60, 20 * 60, 45 * 60, 90 * 60).forEach { seconds ->
+            Box(
+                Modifier
+                    .padding(horizontal = 1.dp)
+                    .size(11.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(heatColor(base, accent, seconds))
+            )
+        }
+        Spacer(Modifier.width(6.dp))
+        Text(
+            "多",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+/**
+ * 热力图的月份跨度：`8月 – 11月`。
+ *
+ * 不再往每列上面标月份 —— 一列只有十几 dp 宽，`10月` 三个字塞不下，
+ * 要么被压成竖排要么溢出到邻列。一句跨度已经够回答"这张图覆盖到什么时候"。
+ */
+private fun monthSpan(days: List<DayTotal>): String? {
+    if (days.isEmpty()) return null
+    val from = days.first().date
+    val to = days.last().date
+    return when {
+        from.year != to.year -> "${from.year % 100}年${from.monthValue}月 – ${to.monthValue}月"
+        from.monthValue == to.monthValue -> "${from.monthValue}月"
+        else -> "${from.monthValue}月 – ${to.monthValue}月"
+    }
 }
 
 /** 0 / 半小时内 / 半小时 / 一小时 / 一小时以上 —— 五档够用，再多就看不出差别了。 */

@@ -38,8 +38,15 @@ object FocusStore {
     fun active(context: Context): FocusRun? {
         val p = prefs(context)
         if (!p.getBoolean(KEY_ACTIVE, false)) return null
+        val countUp = p.getBoolean(KEY_COUNT_UP, false)
         val planned = p.getInt(KEY_PLANNED, 0)
-        if (planned <= 0) return null
+        // ★ 校验走 FocusRules.isUsable：正计时 planned=0 是正常的，不能当坏数据。
+        //   （v1.0.2 在这里判 `planned <= 0` 直接 return null，正计时退出重进就"没了"。）
+        if (!FocusRules.isUsable(planned, countUp)) {
+            // 真坏数据（倒计时却没存到计划时长）：顺手清盘，别留一个永远读不出来的僵尸。
+            clearActive(context)
+            return null
+        }
         return FocusRun(
             plannedSeconds = planned,
             accumulatedMillis = p.getLong(KEY_ACCUMULATED, 0L),
@@ -47,7 +54,7 @@ object FocusStore {
             paused = p.getBoolean(KEY_PAUSED, false),
             startedAtMillis = p.getLong(KEY_STARTED_AT, 0L),
             label = p.getString(KEY_LABEL, "").orEmpty(),
-            countUp = p.getBoolean(KEY_COUNT_UP, false)
+            countUp = countUp
         )
     }
 

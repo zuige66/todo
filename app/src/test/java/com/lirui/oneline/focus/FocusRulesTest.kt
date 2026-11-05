@@ -152,6 +152,23 @@ class FocusRulesTest {
         assertEquals(35_000L, FocusRules.elapsedMillis(paused.resume(300_000L), 305_000L))
     }
 
+    // ---------- 落盘数据的有效性 ----------
+
+    @Test
+    fun countUpRunIsUsableEvenWithZeroPlanned() {
+        // 正计时没有目标时长，planned=0 是**正常**的，不能当坏数据扔掉。
+        // 这一条钉死 v1.0.2 的 bug：正计时退出重进读不回 run，通知却还在走。
+        assertTrue(FocusRules.isUsable(plannedSeconds = 0, countUp = true))
+        assertTrue(FocusRules.isUsable(plannedSeconds = 1500, countUp = true))
+    }
+
+    @Test
+    fun countdownNeedsAPlannedDuration() {
+        assertTrue(FocusRules.isUsable(plannedSeconds = 1500, countUp = false))
+        assertFalse(FocusRules.isUsable(plannedSeconds = 0, countUp = false))
+        assertFalse(FocusRules.isUsable(plannedSeconds = -1, countUp = false))
+    }
+
     // ---------- 文案 ----------
 
     @Test
