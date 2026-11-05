@@ -3653,3 +3653,53 @@ sweep = -1           ← 立刻熄灭
 **性能反而更好**：原来 25fps 全年无休，现在只在 900ms 窗口里重绘，
 其余时间 Canvas 一帧都不画。相位仍是 `mutableFloatStateOf` 且只在 draw lambda 读，
 不重组整棵子树。空闲态 / 暂停态 / 关掉开关时循环不启动。
+
+---
+
+## 50. v1.0.7（2026-11-05）：计时页配色收尾 —— 切换块变绿 · 结束变绿胶囊
+
+zuige：「还可以。然后把计时跟统计的切换按钮也做成绿色。然后下面结束也做成绿色胶囊。」
+
+### 50.1 一个组件，两处调用点
+
+「计时 / 统计」是 `SegmentedPill`，但「倒计时 / 正计时」(`ModeSwitch`) 复用同一个
+`SlidingSegmented`。上一轮 v1.0.5 已经把开始 / 暂停 / 继续 / 时长选中态 / 波浪环
+全部统一到 `cardBackground`，分段控件的指示器却还是 `surface` 白 —— 是计时页
+最后两块「非绿」的实体面。
+
+按「也做成绿色」理解为**把剩余白色控件一并收编**，所以改的是共用组件本身，
+两个分段控件同时变绿，而不是只给 `SegmentedPill` 单独开一个颜色参数：
+
+```kotlin
+val indicator = MaterialTheme.colorScheme.cardBackground
+val onActive  = MaterialTheme.colorScheme.onPrimaryContainer
+val onIdle    = MaterialTheme.colorScheme.onSurfaceVariant   // 未选中不变
+```
+
+轨道底色保持 `cardPlaceholder`（`onSurface` 3.5% 叠 `surface` 的中性浅灰），
+**不要把轨道也换成绿**：指示器同色就没有选中态了。这两个 token 的明度差
+正是选中块能读出来的原因。
+
+### 50.2 结束按钮：同底同字，靠形状分主次
+
+运行态底部原本是「浅绿圆角方块（暂停/继续） + 描边按钮（结束）」，
+描边按钮在浅绿旁边显得像次要到近乎禁用。改成：
+
+```kotlin
+Button(
+    shape = RoundedCornerShape(50),          // 胶囊，Int 重载 = 50% 圆角
+    colors = ButtonDefaults.buttonColors(
+        containerColor = MaterialTheme.colorScheme.cardBackground,
+        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+    )
+) { Text("结束") }
+```
+
+两个按钮现在同底同字色，区分只靠 **50% 圆角胶囊 vs 18dp 圆角方块**；
+`requestFinish` 仍走二次确认弹窗，误触有兜底。删掉了 `OutlinedButton` 的 import。
+
+★ 复用 §48.1 那条红线：**浅绿底一律配 `onPrimaryContainer`**，
+沿用默认 `onPrimary` 会变白字，在 `primaryContainer` 上几乎读不出来。
+这次两个新面（分段选中块、胶囊按钮）都遵守了。
+
+版本 `41 / 1.0.7`，改完即跑单测 + `assembleRelease` + 装机 + 提交。

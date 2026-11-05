@@ -41,7 +41,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
@@ -358,14 +357,17 @@ private fun RunningControls(vm: FocusViewModel, run: FocusRun) {
         ) {
             Text(if (run.paused) "继续" else "暂停", style = MaterialTheme.typography.titleMedium)
         }
-        OutlinedButton(
+        // ★ 结束也是浅绿胶囊：和「暂停 / 继续」同底同字色，只靠圆角区分
+        //   （50dp 胶囊 vs 18dp 圆角方块）。requestFinish 有二次确认，误触有兜底。
+        Button(
             onClick = vm::requestFinish,
             modifier = Modifier
                 .weight(1f)
                 .height(56.dp),
-            shape = RoundedCornerShape(18.dp),
-            colors = ButtonDefaults.outlinedButtonColors(
-                contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+            shape = RoundedCornerShape(50),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.cardBackground,
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
             )
         ) {
             Text("结束", style = MaterialTheme.typography.titleMedium)
@@ -558,6 +560,10 @@ private fun FocusRing(
  *
  * ★ 指示器画在 `drawBehind` 里，位置读 `animateFloatAsState` —— 状态变化只触发
  *   draw phase 重绘，不会每帧把整行文字重新 measure 一遍。
+ *
+ * ★ 选中块用卡片浅绿 `cardBackground`（轨道是中性 `cardPlaceholder`，两者对比足够），
+ *   选中文字配 `onPrimaryContainer`。计时页其余按钮 / 时长选中态 / 波浪环都已是这套色，
+ *   分段控件不再留一块突兀的纯白。
  */
 @Composable
 private fun SlidingSegmented(
@@ -569,8 +575,8 @@ private fun SlidingSegmented(
     outerPadding: Dp,
     modifier: Modifier = Modifier
 ) {
-    val indicator = MaterialTheme.colorScheme.surface
-    val onActive = MaterialTheme.colorScheme.onSurface
+    val indicator = MaterialTheme.colorScheme.cardBackground
+    val onActive = MaterialTheme.colorScheme.onPrimaryContainer
     val onIdle = MaterialTheme.colorScheme.onSurfaceVariant
     val animatedIndex by animateFloatAsState(
         targetValue = selected.toFloat(),

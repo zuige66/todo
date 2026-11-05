@@ -258,8 +258,13 @@ android {
         //     （渐变肩部 + 线性扫过），改成一次性 sweep：约 900ms 扫完即熄灭，
         //     隔 10 秒与整圈转动同步再来一次；其余时间环完全静止，也几乎不重绘。
         //     只搬画法不引依赖：该库已废弃且只能画矩形占位符，画不到波浪路径上。
-        versionCode = 40
-        versionName = "1.0.6"
+        // 1.0.7（2026-11-05）—— 计时页配色收尾：
+        //   · 「计时 / 统计」与「倒计时 / 正计时」分段控件的选中块由 surface 白改卡片浅绿，
+        //     选中文字改 onPrimaryContainer；轨道仍是中性 cardPlaceholder，对比保留。
+        //   · 运行态「结束」由描边按钮改浅绿胶囊（RoundedCornerShape(50)），与「暂停 / 继续」
+        //     同底同字色，仅靠圆角区分主次；二次确认弹窗不变。
+        versionCode = 41
+        versionName = "1.0.7"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
