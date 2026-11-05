@@ -1,0 +1,112 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="700" viewBox="0 0 900 700">
+<rect width="900" height="700" fill="#ffffff"/>
+<defs>
+  <marker id="ar" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+    <path d="M0,0 L9,4.5 L0,9 z" fill="#000000"/>
+  </marker>
+  <marker id="arS" markerWidth="9" markerHeight="9" refX="1" refY="4.5" orient="auto">
+    <path d="M9,0 L0,4.5 L9,9 z" fill="#000000"/>
+  </marker>
+</defs>
+<style>
+  text{font-family:"Microsoft YaHei","SimHei",sans-serif;}
+  .t{font-size:14px;fill:#000000;font-weight:bold;}
+  .n{font-size:13px;fill:#000000;}
+  .s{font-size:11px;fill:#333333;}
+  .z{font-size:13px;fill:#333333;font-weight:bold;}
+  .box{fill:#fafafa;stroke:#000000;stroke-width:1.2;}
+  .box2{fill:#f5f5f5;stroke:#000000;stroke-width:1.2;}
+  .zone{fill:none;stroke:#333333;stroke-width:1;stroke-dasharray:6 4;}
+  .ln{stroke:#000000;stroke-width:1.3;fill:none;}
+</style>
+
+<!-- 分区：表现层 -->
+<rect class="zone" x="40" y="40" width="820" height="126"/>
+<text class="z" x="52" y="62">表现层 · Jetpack Compose 声明式界面</text>
+<rect class="box" x="60" y="76" width="182" height="72"/>
+<text class="n" x="151" y="104" text-anchor="middle">待办列表主页</text>
+<text class="s" x="151" y="124" text-anchor="middle">TodoListScreen</text>
+<text class="s" x="151" y="140" text-anchor="middle">板块分组 / 档位筛选</text>
+<rect class="box" x="262" y="76" width="182" height="72"/>
+<text class="n" x="353" y="104" text-anchor="middle">一句话新增面板</text>
+<text class="s" x="353" y="124" text-anchor="middle">AddSheet</text>
+<text class="s" x="353" y="140" text-anchor="middle">实时解析预览</text>
+<rect class="box" x="464" y="76" width="182" height="72"/>
+<text class="n" x="555" y="104" text-anchor="middle">专注计时页</text>
+<text class="s" x="555" y="124" text-anchor="middle">FocusScreen</text>
+<text class="s" x="555" y="140" text-anchor="middle">计时 / 统计双态</text>
+<rect class="box" x="666" y="76" width="182" height="72"/>
+<text class="n" x="757" y="104" text-anchor="middle">设置·关于·隐私</text>
+<text class="s" x="757" y="124" text-anchor="middle">Settings / About</text>
+<text class="s" x="757" y="140" text-anchor="middle">PrivacyScreen</text>
+
+<!-- 双向箭头 表现层<->状态层 -->
+<line class="ln" x1="450" y1="168" x2="450" y2="210" marker-end="url(#ar)"/>
+<line class="ln" x1="458" y1="210" x2="458" y2="168" marker-end="url(#ar)"/>
+<text class="s" x="470" y="195">状态 / 事件</text>
+
+<!-- 分区：状态与业务层 -->
+<rect class="zone" x="40" y="212" width="820" height="126"/>
+<text class="z" x="52" y="234">状态与业务层 · ViewModel 与规则引擎</text>
+<rect class="box2" x="60" y="248" width="182" height="72"/>
+<text class="n" x="151" y="276" text-anchor="middle">MainViewModel</text>
+<text class="s" x="151" y="296" text-anchor="middle">UiState 单一数据源</text>
+<text class="s" x="151" y="312" text-anchor="middle">归档 / 撤销 / 排序</text>
+<rect class="box2" x="262" y="248" width="182" height="72"/>
+<text class="n" x="353" y="276" text-anchor="middle">FocusViewModel</text>
+<text class="s" x="353" y="296" text-anchor="middle">计时状态机</text>
+<text class="s" x="353" y="312" text-anchor="middle">统计聚合</text>
+<rect class="box2" x="464" y="248" width="182" height="72"/>
+<text class="n" x="555" y="276" text-anchor="middle">Parser 解析引擎</text>
+<text class="s" x="555" y="296" text-anchor="middle">日期 / 时刻 / 重复词表</text>
+<text class="s" x="555" y="312" text-anchor="middle">多日期切分 RangeMerge</text>
+<rect class="box2" x="666" y="248" width="182" height="72"/>
+<text class="n" x="757" y="276" text-anchor="middle">规则引擎</text>
+<text class="s" x="757" y="296" text-anchor="middle">Format 逾期判定</text>
+<text class="s" x="757" y="312" text-anchor="middle">HomeGrouping 分组</text>
+
+<!-- 箭头到下层 -->
+<line class="ln" x1="235" y1="338" x2="235" y2="396" marker-end="url(#ar)"/>
+<line class="ln" x1="243" y1="396" x2="243" y2="338" marker-end="url(#ar)"/>
+<line class="ln" x1="665" y1="338" x2="665" y2="396" marker-end="url(#ar)"/>
+<line class="ln" x1="673" y1="396" x2="673" y2="338" marker-end="url(#ar)"/>
+
+<!-- 分区：数据持久层 -->
+<rect class="zone" x="40" y="398" width="390" height="170"/>
+<text class="z" x="52" y="420">数据持久层</text>
+<rect class="box" x="60" y="434" width="350" height="56"/>
+<text class="n" x="235" y="456" text-anchor="middle">Repository</text>
+<text class="s" x="235" y="476" text-anchor="middle">TodoRepository / FocusRepository</text>
+<rect class="box" x="60" y="502" width="350" height="54"/>
+<text class="n" x="235" y="524" text-anchor="middle">Room 数据库 + SharedPreferences</text>
+<text class="s" x="235" y="544" text-anchor="middle">todos / focus_sessions 表 · 设置键值</text>
+
+<!-- 分区：系统服务适配层 -->
+<rect class="zone" x="470" y="398" width="390" height="170"/>
+<text class="z" x="482" y="420">系统服务适配层</text>
+<rect class="box" x="490" y="434" width="165" height="56"/>
+<text class="n" x="572" y="456" text-anchor="middle">提醒调度</text>
+<text class="s" x="572" y="476" text-anchor="middle">ReminderScheduler</text>
+<rect class="box" x="675" y="434" width="165" height="56"/>
+<text class="n" x="757" y="456" text-anchor="middle">通知构建</text>
+<text class="s" x="757" y="476" text-anchor="middle">NotificationHelper</text>
+<rect class="box" x="490" y="502" width="165" height="54"/>
+<text class="n" x="572" y="524" text-anchor="middle">桌面小组件</text>
+<text class="s" x="572" y="544" text-anchor="middle">TodoWidgetProvider</text>
+<rect class="box" x="675" y="502" width="165" height="54"/>
+<text class="n" x="757" y="524" text-anchor="middle">后台保活与看门狗</text>
+<text class="s" x="757" y="544" text-anchor="middle">KeepAliveService / Worker</text>
+
+<!-- 数据层<->服务层 横向 -->
+<line class="ln" x1="418" y1="480" x2="482" y2="480" marker-end="url(#ar)"/>
+<line class="ln" x1="482" y1="490" x2="418" y2="490" marker-end="url(#ar)"/>
+
+<!-- 到系统层 -->
+<line class="ln" x1="235" y1="568" x2="235" y2="606" marker-end="url(#ar)"/>
+<line class="ln" x1="665" y1="568" x2="665" y2="606" marker-end="url(#ar)"/>
+
+<!-- 系统运行时 -->
+<rect class="box2" x="40" y="608" width="820" height="60"/>
+<text class="n" x="450" y="632" text-anchor="middle">Android 系统运行时</text>
+<text class="s" x="450" y="652" text-anchor="middle">AlarmManager · NotificationManager · AppWidgetHost · BroadcastReceiver · WorkManager · SQLite</text>
+</svg>

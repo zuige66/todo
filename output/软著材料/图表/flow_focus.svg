@@ -1,0 +1,88 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="560" viewBox="0 0 900 560">
+<rect width="900" height="560" fill="#ffffff"/>
+<defs>
+  <marker id="a4" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+    <path d="M0,0 L9,4.5 L0,9 z" fill="#000000"/>
+  </marker>
+</defs>
+<style>
+  text{font-family:"Microsoft YaHei","SimHei",sans-serif;}
+  .n{font-size:13px;fill:#000000;}
+  .s{font-size:11px;fill:#333333;}
+  .box{fill:#fafafa;stroke:#000000;stroke-width:1.2;}
+  .key{fill:#f5f5f5;stroke:#000000;stroke-width:1.6;}
+  .ln{stroke:#000000;stroke-width:1.3;fill:none;}
+</style>
+
+<!-- 第一行 -->
+<rect class="box" x="40" y="40" width="170" height="56"/>
+<text class="n" x="125" y="62" text-anchor="middle">空闲</text>
+<text class="s" x="125" y="82" text-anchor="middle">显示上次使用的模式</text>
+<line class="ln" x1="210" y1="68" x2="240" y2="68" marker-end="url(#a4)"/>
+
+<rect class="box" x="242" y="40" width="180" height="56"/>
+<text class="n" x="332" y="62" text-anchor="middle">选择模式与时长</text>
+<text class="s" x="332" y="82" text-anchor="middle">倒计时 / 正计时</text>
+<line class="ln" x1="422" y1="68" x2="452" y2="68" marker-end="url(#a4)"/>
+
+<rect class="key" x="454" y="40" width="180" height="56"/>
+<text class="n" x="544" y="62" text-anchor="middle">运行中</text>
+<text class="s" x="544" y="82" text-anchor="middle">记录开始时的时间戳</text>
+
+<line class="ln" x1="634" y1="68" x2="700" y2="68" marker-end="url(#a4)"/>
+<rect class="box" x="702" y="40" width="158" height="56"/>
+<text class="n" x="781" y="62" text-anchor="middle">暂停</text>
+<text class="s" x="781" y="82" text-anchor="middle">累计已进行时长</text>
+<line class="ln" x1="702" y1="84" x2="634" y2="84" marker-end="url(#a4)"/>
+<text class="s" x="668" y="100" text-anchor="middle">继续</text>
+
+<!-- 运行中向下 -->
+<line class="ln" x1="544" y1="96" x2="544" y2="150" marker-end="url(#a4)"/>
+<text class="s" x="556" y="128">倒计时归零 / 用户结束</text>
+
+<rect class="box" x="454" y="152" width="180" height="56"/>
+<text class="n" x="544" y="174" text-anchor="middle">结束判定</text>
+<text class="s" x="544" y="194" text-anchor="middle">按实际经过秒数分流</text>
+
+<!-- 三条分支 -->
+<line class="ln" x1="454" y1="180" x2="330" y2="180" marker-end="url(#a4)"/>
+<line class="ln" x1="330" y1="180" x2="330" y2="228" marker-end="url(#a4)"/>
+<rect class="box" x="200" y="230" width="260" height="66"/>
+<text class="n" x="330" y="252" text-anchor="middle">已过时长 ≥ 60 秒</text>
+<text class="s" x="330" y="272" text-anchor="middle">直接记入统计，标记为提前结束</text>
+<text class="s" x="330" y="288" text-anchor="middle">走过的每一分钟都不白费</text>
+
+<line class="ln" x1="544" y1="208" x2="544" y2="228" marker-end="url(#a4)"/>
+<rect class="box" x="414" y="230" width="260" height="66"/>
+<text class="n" x="544" y="252" text-anchor="middle">1 秒 ≤ 时长 &lt; 60 秒</text>
+<text class="s" x="544" y="272" text-anchor="middle">弹窗询问「要记下来吗」</text>
+<text class="s" x="544" y="288" text-anchor="middle">由用户决定是否计入</text>
+
+<line class="ln" x1="634" y1="180" x2="760" y2="180" marker-end="url(#a4)"/>
+<line class="ln" x1="760" y1="180" x2="760" y2="228" marker-end="url(#a4)"/>
+<rect class="box" x="630" y="230" width="260" height="66"/>
+<text class="n" x="760" y="252" text-anchor="middle">时长为 0</text>
+<text class="s" x="760" y="272" text-anchor="middle">不产生任何记录</text>
+<text class="s" x="760" y="288" text-anchor="middle">视为误触，直接丢弃</text>
+
+<!-- 汇聚 -->
+<line class="ln" x1="330" y1="296" x2="330" y2="330" marker-end="url(#a4)"/>
+<line class="ln" x1="760" y1="296" x2="760" y2="330" marker-end="url(#a4)"/>
+<line class="ln" x1="330" y1="332" x2="760" y2="332"/>
+<line class="ln" x1="544" y1="332" x2="544" y2="360" marker-end="url(#a4)"/>
+
+<rect class="box" x="394" y="362" width="300" height="56"/>
+<text class="n" x="544" y="384" text-anchor="middle">写入 focus_sessions 表</text>
+<text class="s" x="544" y="404" text-anchor="middle">计划时长 / 实际时长 / 是否走完 / 起止时间</text>
+
+<line class="ln" x1="544" y1="418" x2="544" y2="448" marker-end="url(#a4)"/>
+
+<rect class="box" x="394" y="450" width="300" height="56"/>
+<text class="n" x="544" y="472" text-anchor="middle">统计视图聚合</text>
+<text class="s" x="544" y="492" text-anchor="middle">今日 / 本周 / 累计 · 连续天数 · 柱状图与热力图</text>
+
+<text class="s" x="40" y="450">说明：跨午夜的专注整段计入开始当天；</text>
+<text class="s" x="40" y="470">计时只依赖开始时间戳与当前时间做差，</text>
+<text class="s" x="40" y="490">界面每秒重绘，系统冻结进程不影响时长。</text>
+<text class="s" x="40" y="516">正计时不排闹钟，因为没有终点。</text>
+</svg>

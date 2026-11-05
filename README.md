@@ -577,6 +577,7 @@ adb install -r app/build/outputs/apk/release/app-release.apk
 | [COPY.md](docs/COPY.md) | 对外分享文案：小红书短文案 + 酷安首发长文案 |
 | [QUOTES.md](QUOTES.md) | 通知文案池 |
 | [SMOKE-REPORT.md](SMOKE-REPORT.md) | 真机冒烟验证记录 |
+| [docs/COPYRIGHT.md](docs/COPYRIGHT.md) | 软著登记材料的生成方式、口径与踩坑（产出在 `output/软著材料/`） |
 
 ---
 

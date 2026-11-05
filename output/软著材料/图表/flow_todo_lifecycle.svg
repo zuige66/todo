@@ -1,0 +1,105 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="660" viewBox="0 0 900 660">
+<rect width="900" height="660" fill="#ffffff"/>
+<defs>
+  <marker id="a5" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+    <path d="M0,0 L9,4.5 L0,9 z" fill="#000000"/>
+  </marker>
+</defs>
+<style>
+  text{font-family:"Microsoft YaHei","SimHei",sans-serif;}
+  .n{font-size:13px;fill:#000000;}
+  .s{font-size:11px;fill:#333333;}
+  .box{fill:#fafafa;stroke:#000000;stroke-width:1.2;}
+  .key{fill:#f5f5f5;stroke:#000000;stroke-width:1.6;}
+  .ln{stroke:#000000;stroke-width:1.3;fill:none;}
+</style>
+
+<rect class="box" x="40" y="40" width="190" height="58"/>
+<text class="n" x="135" y="62" text-anchor="middle">一句话录入</text>
+<text class="s" x="135" y="82" text-anchor="middle">解析后写入 todos 表</text>
+<line class="ln" x1="230" y1="69" x2="262" y2="69" marker-end="url(#a5)"/>
+
+<rect class="box" x="264" y="30" width="200" height="38"/>
+<text class="s" x="364" y="54" text-anchor="middle">有日期 → 进入对应板块档位</text>
+<rect class="box" x="264" y="74" width="200" height="38"/>
+<text class="s" x="364" y="98" text-anchor="middle">无日期 → 进入「无日期」板块</text>
+
+<line class="ln" x1="464" y1="69" x2="496" y2="69" marker-end="url(#a5)"/>
+
+<rect class="key" x="498" y="40" width="190" height="58"/>
+<text class="n" x="593" y="62" text-anchor="middle">列表呈现</text>
+<text class="s" x="593" y="82" text-anchor="middle">逾期 / 有日期 / 无日期</text>
+
+<line class="ln" x1="688" y1="69" x2="720" y2="69" marker-end="url(#a5)"/>
+
+<rect class="box" x="722" y="40" width="138" height="58"/>
+<text class="n" x="791" y="62" text-anchor="middle">到期提醒</text>
+<text class="s" x="791" y="82" text-anchor="middle">多级提前 + 到点</text>
+
+<!-- 下折 -->
+<line class="ln" x1="791" y1="98" x2="791" y2="150" marker-end="url(#a5)"/>
+<line class="ln" x1="791" y1="152" x2="593" y2="152" marker-end="url(#a5)"/>
+<line class="ln" x1="593" y1="152" x2="593" y2="186" marker-end="url(#a5)"/>
+
+<rect class="box" x="498" y="188" width="190" height="58"/>
+<text class="n" x="593" y="210" text-anchor="middle">逾期未完成</text>
+<text class="s" x="593" y="230" text-anchor="middle">标红 + 按间隔反复提醒</text>
+
+<line class="ln" x1="498" y1="217" x2="466" y2="217" marker-end="url(#a5)"/>
+
+<rect class="key" x="266" y="188" width="198" height="58"/>
+<text class="n" x="365" y="210" text-anchor="middle">用户完成</text>
+<text class="s" x="365" y="230" text-anchor="middle">点圆圈 / 右滑 / 通知栏按钮</text>
+
+<line class="ln" x1="266" y1="217" x2="234" y2="217" marker-end="url(#a5)"/>
+
+<rect class="box" x="40" y="180" width="190" height="74"/>
+<text class="n" x="135" y="204" text-anchor="middle">是否设置了重复</text>
+<text class="s" x="135" y="224" text-anchor="middle">每天 / 每周 / 每月</text>
+<text class="s" x="135" y="240" text-anchor="middle">repeatDays &gt; 0</text>
+
+<!-- 重复分支：向上 -->
+<line class="ln" x1="135" y1="180" x2="135" y2="150" marker-end="url(#a5)"/>
+<line class="ln" x1="135" y1="148" x2="364" y2="148" marker-end="url(#a5)"/>
+<line class="ln" x1="364" y1="148" x2="364" y2="116" marker-end="url(#a5)"/>
+<text class="s" x="240" y="140">是：顺延到下一次，仍留在列表</text>
+
+<!-- 非重复分支：向下 -->
+<line class="ln" x1="135" y1="254" x2="135" y2="292" marker-end="url(#a5)"/>
+<text class="s" x="146" y="278">否</text>
+
+<rect class="box" x="40" y="294" width="190" height="58"/>
+<text class="n" x="135" y="316" text-anchor="middle">归档</text>
+<text class="s" x="135" y="336" text-anchor="middle">记录完成时间</text>
+
+<line class="ln" x1="230" y1="323" x2="262" y2="323" marker-end="url(#a5)"/>
+
+<rect class="box" x="264" y="294" width="200" height="58"/>
+<text class="n" x="364" y="316" text-anchor="middle">底部浮出「已完成」提示</text>
+<text class="s" x="364" y="336" text-anchor="middle">3 秒内可撤销</text>
+
+<line class="ln" x1="464" y1="323" x2="496" y2="323" marker-end="url(#a5)"/>
+
+<rect class="box" x="498" y="294" width="190" height="58"/>
+<text class="n" x="593" y="316" text-anchor="middle">归档页可查阅</text>
+<text class="s" x="593" y="336" text-anchor="middle">按完成时间倒序</text>
+
+<line class="ln" x1="688" y1="323" x2="720" y2="323" marker-end="url(#a5)"/>
+
+<rect class="box" x="722" y="294" width="138" height="58"/>
+<text class="n" x="791" y="316" text-anchor="middle">可恢复</text>
+<text class="s" x="791" y="336" text-anchor="middle">回到未完成状态</text>
+
+<!-- 底部说明 -->
+<rect class="box" x="40" y="400" width="820" height="120"/>
+<text class="n" x="60" y="426">时间段的行显示区间而非单日</text>
+<text class="s" x="60" y="448">例：10月27日 – 29日。进行中的时间段不标红，逾期只看结束日；提醒只在开始点响一次。</text>
+<text class="n" x="60" y="476">完成动作的三个入口共用同一套状态机</text>
+<text class="s" x="60" y="498">列表圆圈（650 毫秒填充动画后提交）、卡片右滑（超过 96dp 触发）、通知栏按钮（接收器直接落库）。</text>
+<text class="s" x="60" y="516">归档计时器挂在视图模型上，操作后立即切换页面或滑动列表都不会丢失。</text>
+
+<rect class="box" x="40" y="540" width="820" height="86"/>
+<text class="n" x="60" y="566">桌面小组件与主列表共享同一数据源</text>
+<text class="s" x="60" y="588">小组件固定展示最近 4 条待办，点行首圆圈直接归档；数据变更后由广播触发整树重建，避免残留历史行。</text>
+<text class="s" x="60" y="606">日期显示由四个独立开关控制，与组件尺寸无关。</text>
+</svg>

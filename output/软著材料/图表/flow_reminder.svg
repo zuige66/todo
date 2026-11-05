@@ -1,0 +1,88 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="790" viewBox="0 0 900 790">
+<rect width="900" height="790" fill="#ffffff"/>
+<defs>
+  <marker id="a3" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+    <path d="M0,0 L9,4.5 L0,9 z" fill="#000000"/>
+  </marker>
+</defs>
+<style>
+  text{font-family:"Microsoft YaHei","SimHei",sans-serif;}
+  .n{font-size:13px;fill:#000000;}
+  .s{font-size:11px;fill:#333333;}
+  .box{fill:#fafafa;stroke:#000000;stroke-width:1.2;}
+  .dash{fill:#ffffff;stroke:#333333;stroke-width:1;stroke-dasharray:5 4;}
+  .ln{stroke:#000000;stroke-width:1.3;fill:none;}
+</style>
+
+<rect class="box" x="200" y="24" width="440" height="52"/>
+<text class="n" x="420" y="46" text-anchor="middle">待办新增 / 编辑 / 完成 / 删除</text>
+<text class="s" x="420" y="66" text-anchor="middle">数据变更后触发全量重排，不做增量维护</text>
+
+<line class="ln" x1="420" y1="76" x2="420" y2="104" marker-end="url(#a3)"/>
+
+<rect class="box" x="200" y="106" width="440" height="52"/>
+<text class="n" x="420" y="128" text-anchor="middle">ReminderScheduler.scheduleAllActiveBlocking()</text>
+<text class="s" x="420" y="148" text-anchor="middle">先取消全部旧闹钟，再按当前数据重新排定</text>
+
+<line class="ln" x1="420" y1="158" x2="420" y2="186" marker-end="url(#a3)"/>
+
+<rect class="box" x="200" y="188" width="440" height="66"/>
+<text class="n" x="420" y="210" text-anchor="middle">ReminderEngine 计算下一个提醒时刻</text>
+<text class="s" x="420" y="230" text-anchor="middle">提前 7 天 / 3 天 / 1 天 / 1 小时 · 时间段开始日 · 到点</text>
+<text class="s" x="420" y="246" text-anchor="middle">逾期后按设定间隔反复叮嘱</text>
+
+<line class="ln" x1="420" y1="254" x2="420" y2="282" marker-end="url(#a3)"/>
+
+<rect class="box" x="200" y="284" width="440" height="66"/>
+<text class="n" x="420" y="306" text-anchor="middle">AlarmManager 精确闹钟 + PendingIntent</text>
+<text class="s" x="420" y="326" text-anchor="middle">setExactAndAllowWhileIdle · requestCode = 待办 ID + 提醒槽位</text>
+<text class="s" x="420" y="342" text-anchor="middle">系统持有闹钟，进程被回收仍能按时唤醒</text>
+
+<line class="ln" x1="420" y1="350" x2="420" y2="378" marker-end="url(#a3)"/>
+
+<rect class="box" x="200" y="380" width="440" height="66"/>
+<text class="n" x="420" y="402" text-anchor="middle">到点由系统拉起 ReminderReceiver</text>
+<text class="s" x="420" y="422" text-anchor="middle">在 goAsync 作用域内完成构建，随后排定下一次提醒</text>
+<text class="s" x="420" y="438" text-anchor="middle">NotificationHelper 按渠道与标题模板生成通知</text>
+
+<line class="ln" x1="420" y1="446" x2="420" y2="474" marker-end="url(#a3)"/>
+
+<rect class="box" x="200" y="476" width="440" height="66"/>
+<text class="n" x="420" y="498" text-anchor="middle">通知栏展示，带「完成 / 撤回」动作按钮</text>
+<text class="s" x="420" y="518" text-anchor="middle">同一待办复用同一通知 ID 并开启 onlyAlertOnce</text>
+<text class="s" x="420" y="534" text-anchor="middle">状态切换时原地翻转，不叠加第二条通知</text>
+
+<line class="ln" x1="420" y1="542" x2="420" y2="570" marker-end="url(#a3)"/>
+
+<rect class="box" x="200" y="572" width="440" height="66"/>
+<text class="n" x="420" y="594" text-anchor="middle">NotificationActionReceiver 处理动作</text>
+<text class="s" x="420" y="614" text-anchor="middle">完成 → TodoRepository.archive()；撤回 → 恢复未完成并重排</text>
+<text class="s" x="420" y="630" text-anchor="middle">重复任务完成后顺延到下一次，不进入归档</text>
+
+<!-- 右侧重建入口 -->
+<text class="s" x="716" y="106">闹钟重建入口</text>
+<rect class="dash" x="706" y="116" width="168" height="40"/>
+<text class="s" x="790" y="141" text-anchor="middle">开机完成 BOOT</text>
+<rect class="dash" x="706" y="164" width="168" height="40"/>
+<text class="s" x="790" y="189" text-anchor="middle">升级安装 REPLACED</text>
+<rect class="dash" x="706" y="212" width="168" height="40"/>
+<text class="s" x="790" y="237" text-anchor="middle">系统时间被修改</text>
+<rect class="dash" x="706" y="260" width="168" height="40"/>
+<text class="s" x="790" y="285" text-anchor="middle">应用冷启动对账</text>
+<rect class="dash" x="706" y="308" width="168" height="40"/>
+<text class="s" x="790" y="333" text-anchor="middle">看门狗 12 小时</text>
+<line class="ln" x1="706" y1="136" x2="646" y2="136" marker-end="url(#a3)"/>
+<line class="ln" x1="706" y1="184" x2="646" y2="184" marker-end="url(#a3)"/>
+<line class="ln" x1="706" y1="232" x2="646" y2="232" marker-end="url(#a3)"/>
+<line class="ln" x1="706" y1="280" x2="400" y2="256" marker-end="url(#a3)"/>
+<line class="ln" x1="706" y1="328" x2="400" y2="276" marker-end="url(#a3)"/>
+<text class="s" x="712" y="368">五个入口统一调用</text>
+<text class="s" x="712" y="384">同一重排接口，</text>
+<text class="s" x="712" y="400">缺一即出现漏提醒</text>
+
+<!-- 底部说明 -->
+<rect class="dash" x="40" y="676" width="820" height="82"/>
+<text class="s" x="56" y="700">可靠性设计：闹钟由系统托管，不依赖进程存活；通知动作直接落库，不经过界面；</text>
+<text class="s" x="56" y="720">看门狗按固定周期重排并补发最近 24 小时内错过的提醒，去重依据系统通知栏的实际存量，不额外持久化已提醒标记；</text>
+<text class="s" x="56" y="740">精确闹钟权限在系统设置中自检，缺失时引导用户开启，并在设置页以「已就绪 / N 项需处理」提示当前状态。</text>
+</svg>
