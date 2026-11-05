@@ -252,8 +252,14 @@ android {
         //     只在运行中且未暂停播放；设置 → 外观 加「专注环动效」总开关，默认开，
         //     并尊重系统「动画时长 0」。
         //   · 分段控件改 M3 风格滑动指示器（spring/StiffnessLow）+ 400ms 配色过渡。
-        versionCode = 39
-        versionName = "1.0.5"
+        // 1.0.6（2026-11-05）—— 扫光改成「一闪而过」：
+        //   · 上一版是 16% 长的亮块沿环 4 秒一圈常驻循环，zuige 判定"一直在跑，不行"。
+        //     参考 Google/AOSP Accompanist PlaceholderHighlight.shimmer() 的配方
+        //     （渐变肩部 + 线性扫过），改成一次性 sweep：约 900ms 扫完即熄灭，
+        //     隔 10 秒与整圈转动同步再来一次；其余时间环完全静止，也几乎不重绘。
+        //     只搬画法不引依赖：该库已废弃且只能画矩形占位符，画不到波浪路径上。
+        versionCode = 40
+        versionName = "1.0.6"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

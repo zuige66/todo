@@ -408,14 +408,20 @@ private fun wavyCirclePath(center: Offset, radius: Float): Path {
 /**
  * 波浪圆环。
  *
- * 动效分两层，都只在「运行中且未暂停」播放（开关见 `SettingsRepo.focusRingMotion`）：
- *  1. **整圈每 10 秒转 40°**（正好一个花瓣距），1.1 秒缓动转过去 —— 有节拍，不晃眼；
- *  2. **绿色进度弧上有一道光扫过**：在进度段那条路径上截一小段用半透明白重画，
- *     沿路径循环平移，4 秒一圈、25fps。★ 光是画在**填充本身**上的，
- *     不是在圆内部画水纹 —— 数字区域始终干净。
+ * 动效是**一次脉冲**，不是常驻循环，只在「运行中且未暂停」触发：
+ *  1. **转一下**：整圈转 40°（一个花瓣距），1.1 秒缓动转过去；
+ *  2. **同时闪一下**：一道柔光沿绿色进度弧线性扫过（约 900ms），扫完就消失。
+ *  之后安静 10 秒再来一次。★ 光画在**填充本身**上，圆内部完全干净。
  *
- * 两个时钟都由 `LaunchedEffect(motion)` 驱动；关掉动效时循环不启动，
- * 环停在最后一个角度，不会突然跳回 0。
+ * ★ 参考 Google / AOSP 的 Accompanist `PlaceholderHighlight.shimmer()` 配方：
+ *   渐变光带要有柔和肩部（中间亮、两端渐隐）、线性扫过，而不是一个硬边亮块。
+ *   那个库已废弃且 `Modifier.placeholder()` 只能画矩形占位符，画不到波浪路径上，
+ *   所以不引依赖，只搬画法 —— 把光带切成 6 段按 sin 包络给 alpha。
+ *   它默认是无限循环，这里按 zuige 的要求改成**扫一次就停**，不是"一直在跑"。
+ *
+ * 相位用 `mutableFloatStateOf` 且只在 Canvas 的 draw lambda 里读 → 只在
+ * 900ms 的扫光窗口里重绘，其余 9 秒完全静止，不重组也不重绘。
+ * 关掉动效时循环不启动，环停在最后角度，不会突然跳回 0。
  */
 @Composable
 private fun FocusRing(
@@ -434,27 +440,26 @@ private fun FocusRing(
         MaterialTheme.colorScheme.cardBackground
     }
     val track = MaterialTheme.colorScheme.cardPlaceholder
-    val highlight = Color.White.copy(alpha = 0.55f)
 
     var steps by remember { mutableIntStateOf(0) }
-    val shimmer = remember { mutableFloatStateOf(0f) }
+    // < 0 = 不画光。绝大多数时间它就是 -1，环是静止的。
+    val sweep = remember { mutableFloatStateOf(-1f) }
 
     LaunchedEffect(motion) {
         if (!motion) return@LaunchedEffect
+        // 进入运行态先闪一次，不用先干等 10 秒才知道动效开着。
         while (isActive) {
+            val t0 = System.currentTimeMillis()
+            while (isActive) {
+                val t = (System.currentTimeMillis() - t0) / 900f
+                if (t >= 1f) break
+                sweep.floatValue = t
+                delay(40)
+            }
+            // ★ 扫完立刻熄灭，不是绕回去继续挂着。
+            sweep.floatValue = -1f
             delay(10_000)
-            steps++
-        }
-    }
-    LaunchedEffect(motion) {
-        if (!motion) return@LaunchedEffect
-        var t = 0f
-        while (isActive) {
-            delay(40)
-            // 4 秒绕进度弧一圈。用 State<Float> 而不是普通变量：
-            // 读取发生在 Canvas 的 draw lambda 里 → 只触发重绘，不重组整棵子树。
-            t = (t + 40f / 4_000f) % 1f
-            shimmer.floatValue = t
+            steps++   // 与下一次闪光同步：一次「转 + 闪」的脉冲
         }
     }
     val rotation by animateFloatAsState(
@@ -484,20 +489,39 @@ private fun FocusRing(
                     measure.getSegment(0f, measure.length * fraction, segment, true)
                     drawPath(segment, accent, style = line)
 
-                    if (motion && !dimmed) {
+                    // 一次性扫光：sweep < 0 时什么都不画，环完全静止。
+                    val s = sweep.floatValue
+                    if (motion && !dimmed && s >= 0f) {
                         val segMeasure = PathMeasure().apply { setPath(segment, false) }
                         val len = segMeasure.length
                         if (len > 0f) {
-                            val lightLen = len * 0.16f
-                            val start = len * shimmer.floatValue
-                            val end = start + lightLen
-                            val light = Path()
-                            segMeasure.getSegment(start, minOf(end, len), light, true)
-                            // 越过末端时从起点补上剩下那一截，光带才不会在结尾"闪断"。
-                            if (end > len) {
-                                segMeasure.getSegment(0f, end - len, light, true)
+                            // 光带从弧外扫入、到弧外扫出，全程一次走完，不绕回。
+                            val band = len * 0.28f
+                            val head = -band + (len + 2f * band) * s
+                            val from = head.coerceAtLeast(0f)
+                            val to = (head + band).coerceAtMost(len)
+                            // 整道光的淡入淡出（扫入/扫出时不硬切）
+                            val envelope = kotlin.math.sin(Math.PI * s).toFloat()
+                            if (to > from) {
+                                // 柔和肩部：把光带切成 6 段，中段最亮、两端渐隐。
+                                // 这是 Accompanist shimmer 的渐变配方在曲线路径上的等价写法
+                                // （linearGradient 在环上方向不跟着路径转，会歪）。
+                                val pieces = 6
+                                repeat(pieces) { i ->
+                                    val a = from + (to - from) * i / pieces
+                                    val b = from + (to - from) * (i + 1) / pieces
+                                    val w = (i + 0.5f) / pieces
+                                    val alpha = 0.55f * envelope *
+                                        kotlin.math.sin(Math.PI * w).toFloat()
+                                    val piece = Path()
+                                    segMeasure.getSegment(a, b, piece, true)
+                                    drawPath(
+                                        piece,
+                                        Color.White.copy(alpha = alpha),
+                                        style = line
+                                    )
+                                }
                             }
-                            drawPath(light, highlight, style = line)
                         }
                     }
                 }
