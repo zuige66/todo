@@ -1597,18 +1597,58 @@ private fun SettingsScreen(
                     modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp)
                 )
                 ItemDivider()
-                // 专注环动效：和「操作」节的手势开关一样直接读写 SettingsRepo，
-                // 不走 VM → MainActivity 的参数链（专注页自己会重新读一次）。
+                // 专注环动效（v1.0.8）：总闸 + 转动/扫光两个独立开关 + 脉冲间隔。
+                // 和「操作」节的手势开关一样直接读写 SettingsRepo，不走 VM → MainActivity
+                // 的参数链（专注页是覆盖层，下次重建时会把这四项重新读一遍）。
                 var ringMotion by remember {
                     mutableStateOf(SettingsRepo.focusRingMotion(context))
                 }
+                var ringRotate by remember {
+                    mutableStateOf(SettingsRepo.focusRingRotation(context))
+                }
+                var ringShimmer by remember {
+                    mutableStateOf(SettingsRepo.focusRingShimmer(context))
+                }
+                var ringInterval by remember {
+                    mutableStateOf(SettingsRepo.focusRingIntervalSeconds(context))
+                }
                 ToggleItem(
                     "专注环动效",
-                    "计时环缓慢转动，进度弧上有流光扫过；关掉后完全静止",
+                    "总开关；关掉后环完全静止，下面三项仍会保留你的设置",
                     ringMotion,
                     onChecked = { on ->
                         SettingsRepo.setFocusRingMotion(context, on)
                         ringMotion = on
+                    }
+                )
+                ItemDivider()
+                ToggleItem(
+                    "环转动",
+                    "每次脉冲把波浪环转过半瓣（20°），约 1.1 秒缓动",
+                    ringRotate,
+                    onChecked = { on ->
+                        SettingsRepo.setFocusRingRotation(context, on)
+                        ringRotate = on
+                    }
+                )
+                ItemDivider()
+                ToggleItem(
+                    "流光扫过",
+                    "进度弧上一道柔光一闪而过，约 0.9 秒",
+                    ringShimmer,
+                    onChecked = { on ->
+                        SettingsRepo.setFocusRingShimmer(context, on)
+                        ringShimmer = on
+                    }
+                )
+                ItemDivider()
+                SettingsDropdown(
+                    label = "动效间隔",
+                    options = SettingsRepo.FOCUS_RING_INTERVAL_OPTIONS,
+                    selectedValue = ringInterval,
+                    onSelect = { v ->
+                        SettingsRepo.setFocusRingIntervalSeconds(context, v)
+                        ringInterval = v
                     }
                 )
             }

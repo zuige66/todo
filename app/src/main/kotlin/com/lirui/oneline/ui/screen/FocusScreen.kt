@@ -1,5 +1,6 @@
 package com.lirui.oneline.ui.screen
 
+import android.os.SystemClock
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -112,16 +113,32 @@ import java.time.LocalDate
  *  - **计时**：圆环倒计时 + 时长选择 + 开始/暂停/结束
  *  - **统计**：今日/本周/累计、连续天数、最近 7 天、15 周热力图、记录列表
  */
+/**
+ * 专注环动效配置。四个值都从 SettingsRepo 读一次再沿参数链往下传，
+ * 不在每个 Composable 里各读一遍 SP（两处各算一遍迟早漂移）。
+ */
+private data class RingMotion(
+    val enabled: Boolean,
+    val rotate: Boolean,
+    val shimmer: Boolean,
+    val intervalSeconds: Int
+)
+
 @Composable
 fun FocusScreen(onClose: () -> Unit) {
     val vm: FocusViewModel = viewModel()
     val context = LocalContext.current
     var page by remember { mutableStateOf(PAGE_TIMER) }
 
-    // 动效总开关：设置页改完、下次进专注页（覆盖层重建）即生效。
-    // 系统的「减少动态效果 / 动画时长 0」优先于应用内开关。
-    val motionEnabled = remember(context) {
-        SettingsRepo.focusRingMotion(context) && !systemReduceMotion(context)
+    // 设置页改完、下次进专注页（覆盖层重建）即生效。
+    // 系统的「减少动态效果 / 动画时长 0」优先于应用内总闸。
+    val ringMotion = remember(context) {
+        RingMotion(
+            enabled = SettingsRepo.focusRingMotion(context) && !systemReduceMotion(context),
+            rotate = SettingsRepo.focusRingRotation(context),
+            shimmer = SettingsRepo.focusRingShimmer(context),
+            intervalSeconds = SettingsRepo.focusRingIntervalSeconds(context)
+        )
     }
 
     BackHandler { onClose() }
@@ -185,7 +202,7 @@ fun FocusScreen(onClose: () -> Unit) {
                     .fillMaxWidth()
             ) {
                 when (page) {
-                    PAGE_TIMER -> FocusTimerPage(vm, motionEnabled)
+                    PAGE_TIMER -> FocusTimerPage(vm, ringMotion)
                     PAGE_STATS -> FocusStatsPage(
                         sessions = vm.sessions.collectAsState().value,
                         goalMinutes = vm.dailyGoalMinutes,
@@ -233,7 +250,7 @@ private fun systemReduceMotion(context: android.content.Context): Boolean = try 
 // ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
-private fun FocusTimerPage(vm: FocusViewModel, motionEnabled: Boolean) {
+private fun FocusTimerPage(vm: FocusViewModel, ringMotion: RingMotion) {
     val run = vm.run
     val now = vm.nowMillis
 
@@ -276,7 +293,9 @@ private fun FocusTimerPage(vm: FocusViewModel, motionEnabled: Boolean) {
                     caption = caption,
                     dimmed = run != null && run.paused,
                     // 空闲态 / 暂停态不播放：暂停了还在转是语义错误。
-                    motion = motionEnabled && run != null && !run.paused
+                    motion = ringMotion.copy(
+                        enabled = ringMotion.enabled && run != null && !run.paused
+                    )
                 )
                 if (run != null && run.label.isNotBlank()) {
                     Spacer(Modifier.height(10.dp))
@@ -328,7 +347,8 @@ private fun IdleControls(vm: FocusViewModel) {
         modifier = Modifier
             .fillMaxWidth()
             .height(56.dp),
-        shape = RoundedCornerShape(18.dp),
+        // ★ 三个主按钮统一胶囊（50% 圆角）：空闲态和运行态切换时形状不跳。
+        shape = RoundedCornerShape(50),
         // ★ 浅绿底必须配 onPrimaryContainer（深绿字）。用默认 onPrimary 会是白字，
         //   在 primaryContainer 这种浅底上几乎读不出来。
         colors = ButtonDefaults.buttonColors(
@@ -349,7 +369,7 @@ private fun RunningControls(vm: FocusViewModel, run: FocusRun) {
             modifier = Modifier
                 .weight(1f)
                 .height(56.dp),
-            shape = RoundedCornerShape(18.dp),
+            shape = RoundedCornerShape(50),
             colors = ButtonDefaults.buttonColors(
                 containerColor = MaterialTheme.colorScheme.cardBackground,
                 contentColor = MaterialTheme.colorScheme.onPrimaryContainer
@@ -411,9 +431,17 @@ private fun wavyCirclePath(center: Offset, radius: Float): Path {
  * 波浪圆环。
  *
  * 动效是**一次脉冲**，不是常驻循环，只在「运行中且未暂停」触发：
- *  1. **转一下**：整圈转 40°（一个花瓣距），1.1 秒缓动转过去；
- *  2. **同时闪一下**：一道柔光沿绿色进度弧线性扫过（约 900ms），扫完就消失。
- *  之后安静 10 秒再来一次。★ 光画在**填充本身**上，圆内部完全干净。
+ *  1. **转一下**：整圈转 20°（半瓣），1.1 秒缓动转过去；
+ *  2. **同时闪一下**：一道柔光沿绿色进度弧线性扫过（约 900ms），扫完就熄灭。
+ *  之后按设置里的间隔（默认 10 秒）再来一次。★ 光画在**填充本身**上，圆内部完全干净。
+ *
+ * ★ 为什么是 20° 不是 40°（v1.0.8 修「好像不是 10s 转一下」）：环是 `cos(9θ)`
+ *   的 9 瓣波浪，一瓣正好 40°；转 40° 后图形与自身**完全重合**，肉眼看到的是
+ *   "根本没转"。转半瓣才有可见位移。
+ *
+ * ★ 间隔从脉冲**起点**用 `SystemClock.elapsedRealtime()` 校准：扫光花的 900ms
+ *   会从等待里扣掉，所以脉冲间隔恒等于设定秒数；单调时钟也避开系统时间回拨。
+ *   旧实现是「扫光 900ms + delay(10s)」，实际 10.9 秒，且第一次转动要干等一轮。
  *
  * ★ 参考 Google / AOSP 的 Accompanist `PlaceholderHighlight.shimmer()` 配方：
  *   渐变光带要有柔和肩部（中间亮、两端渐隐）、线性扫过，而不是一个硬边亮块。
@@ -422,7 +450,7 @@ private fun wavyCirclePath(center: Offset, radius: Float): Path {
  *   它默认是无限循环，这里按 zuige 的要求改成**扫一次就停**，不是"一直在跑"。
  *
  * 相位用 `mutableFloatStateOf` 且只在 Canvas 的 draw lambda 里读 → 只在
- * 900ms 的扫光窗口里重绘，其余 9 秒完全静止，不重组也不重绘。
+ * 900ms 的扫光窗口里重绘，其余时间完全静止，不重组也不重绘。
  * 关掉动效时循环不启动，环停在最后角度，不会突然跳回 0。
  */
 @Composable
@@ -432,7 +460,7 @@ private fun FocusRing(
     fraction: Float,
     caption: String,
     dimmed: Boolean,
-    motion: Boolean
+    motion: RingMotion
 ) {
     // ★ 计时页所有绿色一律用卡片色（primaryContainer），不混 primary 深绿。
     //   文字/按钮要用 onPrimaryContainer，否则浅绿底白字看不清（见 IdleControls）。
@@ -447,25 +475,33 @@ private fun FocusRing(
     // < 0 = 不画光。绝大多数时间它就是 -1，环是静止的。
     val sweep = remember { mutableFloatStateOf(-1f) }
 
-    LaunchedEffect(motion) {
-        if (!motion) return@LaunchedEffect
-        // 进入运行态先闪一次，不用先干等 10 秒才知道动效开着。
+    // 四个配置值都进 key：设置页改完回到专注页，循环立刻按新参数重启。
+    LaunchedEffect(motion.enabled, motion.rotate, motion.shimmer, motion.intervalSeconds) {
+        sweep.floatValue = -1f
+        if (!motion.enabled || (!motion.rotate && !motion.shimmer)) return@LaunchedEffect
+        val intervalMs = motion.intervalSeconds * 1000L
         while (isActive) {
-            val t0 = System.currentTimeMillis()
-            while (isActive) {
-                val t = (System.currentTimeMillis() - t0) / 900f
-                if (t >= 1f) break
-                sweep.floatValue = t
-                delay(40)
+            // 进入运行态先来一次脉冲，不用先干等一整个间隔才知道动效开着。
+            val t0 = SystemClock.elapsedRealtime()
+            if (motion.rotate) steps++   // 转 + 闪同一次脉冲起跑
+            if (motion.shimmer) {
+                while (isActive) {
+                    val t = (SystemClock.elapsedRealtime() - t0) / 900f
+                    if (t >= 1f) break
+                    sweep.floatValue = t
+                    delay(40)
+                }
+                // ★ 扫完立刻熄灭，不是绕回去继续挂着。
+                sweep.floatValue = -1f
             }
-            // ★ 扫完立刻熄灭，不是绕回去继续挂着。
-            sweep.floatValue = -1f
-            delay(10_000)
-            steps++   // 与下一次闪光同步：一次「转 + 闪」的脉冲
+            // 扣掉本轮已花掉的时间，保证下一次脉冲的起点严格相隔 intervalMs。
+            val remain = intervalMs - (SystemClock.elapsedRealtime() - t0)
+            if (remain > 0L) delay(remain)
         }
     }
     val rotation by animateFloatAsState(
-        targetValue = steps * 40f,
+        // 半瓣：9 瓣 → 40°/瓣，转 40° 会自重合，看不出在动。
+        targetValue = steps * 20f,
         animationSpec = tween(durationMillis = 1_100, easing = FastOutSlowInEasing),
         label = "focusRingRotation"
     )
@@ -493,7 +529,7 @@ private fun FocusRing(
 
                     // 一次性扫光：sweep < 0 时什么都不画，环完全静止。
                     val s = sweep.floatValue
-                    if (motion && !dimmed && s >= 0f) {
+                    if (motion.enabled && motion.shimmer && !dimmed && s >= 0f) {
                         val segMeasure = PathMeasure().apply { setPath(segment, false) }
                         val len = segMeasure.length
                         if (len > 0f) {

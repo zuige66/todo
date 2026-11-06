@@ -48,6 +48,10 @@ object SettingsRepo {
     private const val KEY_PRIVACY_ACCEPTED_VERSION = "privacy_accepted_version"
     private const val KEY_FOCUS_DAILY_GOAL = "focus_daily_goal_minutes"
     private const val KEY_FOCUS_RING_MOTION = "focus_ring_motion"
+    // 环动效细分：转动 / 扫光各自可关，脉冲间隔可选。KEY_FOCUS_RING_MOTION 仍是总闸。
+    private const val KEY_FOCUS_RING_ROTATION = "focus_ring_rotation"
+    private const val KEY_FOCUS_RING_SHIMMER = "focus_ring_shimmer"
+    private const val KEY_FOCUS_RING_INTERVAL = "focus_ring_interval_seconds"
     // 退役键（保留、永不读取）：widget_compact_show_date / widget_standard_show_date /
     // widget_show_weekday —— 见下方「桌面小组件」段落的说明。
 
@@ -574,6 +578,50 @@ object SettingsRepo {
     fun setFocusRingMotion(context: Context, enabled: Boolean) {
         context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
             .edit().putBoolean(KEY_FOCUS_RING_MOTION, enabled).apply()
+    }
+
+    // ── 专注环动效细分（v1.0.8）──────────────────────────────────────────────
+    //
+    // 总闸关掉时下面三项**照常保存**：用户可能先调好间隔再开总闸，不该被清空。
+    // 默认三者都与旧版行为一致（转动开 / 扫光开 / 10 秒），老用户升级后无感。
+    const val DEFAULT_FOCUS_RING_INTERVAL_SECONDS = 10
+
+    val FOCUS_RING_INTERVAL_OPTIONS = listOf(
+        5 to "5 秒", 10 to "10 秒", 20 to "20 秒", 30 to "30 秒", 60 to "60 秒"
+    )
+
+    fun focusRingRotation(context: Context): Boolean =
+        context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            .getBoolean(KEY_FOCUS_RING_ROTATION, true)
+
+    fun setFocusRingRotation(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            .edit().putBoolean(KEY_FOCUS_RING_ROTATION, enabled).apply()
+    }
+
+    fun focusRingShimmer(context: Context): Boolean =
+        context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            .getBoolean(KEY_FOCUS_RING_SHIMMER, true)
+
+    fun setFocusRingShimmer(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            .edit().putBoolean(KEY_FOCUS_RING_SHIMMER, enabled).apply()
+    }
+
+    /** 读到的值若不在档位表里（老数据 / 手改 SP），回落到默认 10 秒，不把 delay 喂成负数。 */
+    fun focusRingIntervalSeconds(context: Context): Int {
+        val v = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            .getInt(KEY_FOCUS_RING_INTERVAL, DEFAULT_FOCUS_RING_INTERVAL_SECONDS)
+        return if (FOCUS_RING_INTERVAL_OPTIONS.any { it.first == v }) {
+            v
+        } else {
+            DEFAULT_FOCUS_RING_INTERVAL_SECONDS
+        }
+    }
+
+    fun setFocusRingIntervalSeconds(context: Context, seconds: Int) {
+        context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            .edit().putInt(KEY_FOCUS_RING_INTERVAL, seconds).apply()
     }
 }
 

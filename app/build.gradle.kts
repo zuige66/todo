@@ -263,8 +263,16 @@ android {
         //     选中文字改 onPrimaryContainer；轨道仍是中性 cardPlaceholder，对比保留。
         //   · 运行态「结束」由描边按钮改浅绿胶囊（RoundedCornerShape(50)），与「暂停 / 继续」
         //     同底同字色，仅靠圆角区分主次；二次确认弹窗不变。
-        versionCode = 41
-        versionName = "1.0.7"
+        // 1.0.8（2026-11-06）—— 环动效「转了等于没转」+ 设置项补齐 + 按钮形状统一：
+        //   · 环是 cos(9θ) 的 9 瓣，一瓣正好 40°；旧代码每次转 40° → 图形自重合，
+        //     肉眼完全看不出转动。改成半瓣 20°。
+        //   · 旧循环「扫光 900ms + delay(10s)」实际间隔 10.9s，且第一次转动滞后一整轮；
+        //     改用 SystemClock.elapsedRealtime() 从脉冲起点校准，间隔恒等于设定秒数。
+        //   · 设置 → 外观：总闸保留，新增「环转动」「流光扫过」独立开关 +
+        //     「动效间隔」下拉（5/10/20/30/60 秒，默认 10）。
+        //   · 开始 / 暂停·继续 / 结束 三个主按钮统一 50% 圆角胶囊。
+        versionCode = 42
+        versionName = "1.0.8"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
