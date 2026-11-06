@@ -60,6 +60,24 @@ object FocusRules {
      */
     const val ASK_THRESHOLD_SECONDS = 60
 
+    /**
+     * 「这次是不是忘了结束」的门槛：超过 2 小时就别一声不吭按原值记进统计。
+     *
+     * ★ 实际只有**正计时**会越过它：倒计时的 elapsed 被 [elapsedMillis] 截到
+     *   planned，走完就自动 complete；正计时没有终点，忘了关能一直涨。
+     *   （超长自定义倒计时提前结束是唯一例外，同样该问。）
+     */
+    const val LONG_RUN_THRESHOLD_SECONDS = 2 * 60 * 60
+
+    fun shouldAskForLongRun(elapsedSeconds: Int): Boolean =
+        elapsedSeconds > LONG_RUN_THRESHOLD_SECONDS
+
+    /** 自定义时长（分钟）上限：换算回秒后必须**严格小于**当前值。 */
+    fun maxCustomMinutes(elapsedSeconds: Int): Int = (elapsedSeconds - 1) / 60
+
+    fun isValidCustomMinutes(minutes: Int, elapsedSeconds: Int): Boolean =
+        minutes in 1..maxCustomMinutes(elapsedSeconds)
+
     /** 时长预设（分钟）。 */
     val PRESET_MINUTES: List<Int> = listOf(15, 25, 45, 60)
 

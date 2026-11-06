@@ -3796,3 +3796,105 @@ v1.0.5 只落了 `KEY_FOCUS_RING_MOTION` 一个总开关。原话是「默认两
 5. 新增设置键默认取旧行为值，老用户升级无感；读值时校验脏数据。
 
 版本 `42 / 1.0.8`。
+
+---
+
+## 52. v1.0.9（2026-11-06）：记录可删 · 列表折叠 · 超长专注询问 · FAB 方形阴影
+
+zuige 一轮提了四件事：统计里的记录不能删、统计记录默认展开太长、
+正计时忘关导致虚高时长、切回 Todo 时 FAB 背后有正方形阴影闪一下。
+其中第 1 件是「数据层早就有、UI 没接」，第 4 件是纯视觉 bug。
+
+### 52.1 记录删除：不用动 Room
+
+`FocusDao.deleteById()` 与 `FocusRepository.delete(id)` **从 v1.0.1 就在**，
+全项目零调用（上一轮调研里被归进「死代码」）。所以本轮只补 UI 链：
+
+```
+RecordRow(行尾删除图标)
+  → deleteTarget: FocusSession?
+  → AlertDialog 二次确认（写清「统计会一起更新、无法撤销」）
+  → FocusViewModel.deleteSession(id) → repo.delete(id)
+  → Room Flow 自动重发 → 今日/本周/热力图/记录列表一起重算
+```
+
+**为什么必须二次确认**：删一条不是删一行，`FocusStats.summary/lastDays/heatmap`
+全都吃同一份 `sessions`，目标环、柱图、热力图会同时变，误触代价大。
+
+★ 隐私政策不用改：这是**删除**已有数据，没有新增任何本地存储；
+`docs/PRIVACY.md:83` 已写「在应用内删除单条待办 → 立即从本地数据库删除」。
+
+### 52.2 记录默认 3 条 + 展开/收起
+
+`FocusDao.observeAll()` 本来就是 `ORDER BY startedAtMillis DESC`，
+所以 `take(3)` 天然是最新三条。沿用旧的 `take(100)` 上限（展开不是无限加载，
+避免几千条一次铺进 LazyColumn）。标题行右侧一个 `TextButton` 切
+「展开全部 N / 收起」，只在 `recent.size > 3` 时出现。
+
+### 52.3 超过 2 小时：先问再记
+
+**问题**：正计时没有终点，忘了关就一直涨；一觉醒来「专注 9 小时」直接污染统计。
+
+**判定放纯函数**（项目规矩：判真伪/阈值不留在带 Android 依赖的地方）：
+
+| 函数 | 含义 |
+|---|---|
+| `LONG_RUN_THRESHOLD_SECONDS = 7200` | 门槛，严格大于才问 |
+| `shouldAskForLongRun(elapsed)` | `elapsed > 7200` |
+| `maxCustomMinutes(elapsed)` | `(elapsed - 1) / 60`，保证换算回秒后**严格小于**当前值 |
+| `isValidCustomMinutes(minutes, elapsed)` | `1..maxCustomMinutes` |
+
+`requestFinish()` 从最长到最短判四条路，新增的第一条优先于旧的
+`shouldRecordSilently`（≥60 秒直接记）。
+
+**为什么实际只会命中正计时**：倒计时 `elapsedMillis()` 被截到 `planned`，
+走完就自动 `complete()`，不会涨到 2 小时以上；只有超长自定义倒计时
+**提前结束**是例外，同样该问。
+
+**对话框三个出口**（zuige 拍板）：按当前值计入 / 自定义 / 不计入。
+另外点弹窗外面或返回键走 `cancelLongRun()` —— **只收起询问、不结束计时**，
+误触外部不该白白丢一次专注。自定义复用 `DurationInputDialog`（分钟数字输入，
+比圆形表盘在这种"我要打个 25"的场景更直接），快捷值自动过滤掉超过上限的。
+输入框位数从 3 位放宽到 4 位：忘关一整天时上限分钟可能 > 999。
+
+**落库自洽**：`FocusEngine.finishEarly()` 加 `overrideSeconds: Int? = null`，
+手填时 `endedAtMillis = startedAtMillis + seconds * 1000` —— 否则
+`endedAt - startedAt` 还是 3 小时，`actualSeconds` 却写 25 分钟，
+这条记录自己跟自己对不上。传 null 的路径行为与旧版逐字节一致。
+
+**通知栏边界（zuige 拍板）**：`FocusActionReceiver` 走
+`finishEarly(app, now, record = shouldRecordSilently(elapsed))`，广播接收器弹不了窗，
+**保持直接按当前值记入**；误记的记录用本轮新增的删除功能清掉。
+两条路径语义不同是有意为之，不是漏改 —— 代价是通知栏结束的超长专注不会被拦。
+
+### 52.4 FAB 背后的正方形阴影（根因是推测，需肉眼验收）
+
+`TodoListScreen.kt` 里 FAB 外面套着
+`AnimatedVisibility(enter = scaleIn(0.6f) + fadeIn(), exit = scaleOut(0.6f) + fadeOut())`。
+
+`scaleIn/scaleOut` 通过 `graphicsLayer` 做**几何变换**，而 M3 `FloatingActionButton`
+自带 `shadowElevation`。变换首帧的 outline 会短暂回退成矩形轮廓，于是切回
+Todo 时「加号背后方形阴影闪一下」。和 `DESIGN.md §32.1` 那个灰色方块同源：
+都是**方形容器边界**露了出来，不是阴影自己变方了。
+
+修法：去掉 `scaleIn/scaleOut`，只留 `fadeIn(tween(180)) / fadeOut(tween(150))`。
+原来加缩放的注释写的需求只是「别啪地消失」，纯淡入淡出已满足，
+而且不碰几何就不会重算 outline。删掉两个不再使用的 import。
+
+★ 这条是**基于 Compose 绘制机制的推断**，日志和单测都验不了，
+必须装机后由 zuige 肉眼确认；若仍在，下一步把 FAB 的 elevation 显式归零
+或给 `AnimatedVisibility` 加显式 `clip`，而不是继续猜。
+
+### 52.5 沉淀
+
+1. 调研里标的「死代码」未必该删 —— `FocusRepository.delete()` 是提前留好的口子，
+   接上 UI 比重新设计数据层省事。
+2. 阈值 / 有效性判定一律放纯函数并补单测（本轮 +2 条）。
+3. 改 `actualSeconds` 就要同步改 `endedAtMillis`，别让一行记录自相矛盾。
+4. 带 `shadowElevation` 的组件别叠 `graphicsLayer` 缩放动画；
+   要动就只动 alpha。
+5. 没有交互能力的入口（广播/通知动作）遇到「需要询问」的逻辑时，
+   要么保持旧行为 + 提供事后补救（本轮选这个），要么明确拉起 UI，
+   不能悄悄改语义。
+
+版本 `43 / 1.0.9`。

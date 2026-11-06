@@ -35,6 +35,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -206,7 +207,8 @@ fun FocusScreen(onClose: () -> Unit) {
                     PAGE_STATS -> FocusStatsPage(
                         sessions = vm.sessions.collectAsState().value,
                         goalMinutes = vm.dailyGoalMinutes,
-                        onSetGoal = vm::setDailyGoal
+                        onSetGoal = vm::setDailyGoal,
+                        onDelete = vm::deleteSession
                     )
                 }
             }
@@ -225,6 +227,49 @@ fun FocusScreen(onClose: () -> Unit) {
                 TextButton(onClick = { vm.answerDiscard(false) }) { Text("不记") }
             }
         )
+    }
+
+    // 超过 2 小时：像忘了关，别一声不吭按原值记进统计。
+    // 三个出口：按当前值 / 自定义（严格小于当前值）/ 不计入；
+    // 点弹窗外面或返回键 = 什么都不做、计时继续（不误伤）。
+    vm.askLongRunSeconds?.let { seconds ->
+        var showCustom by remember { mutableStateOf(false) }
+        if (showCustom) {
+            val maxMinutes = FocusRules.maxCustomMinutes(seconds)
+            DurationInputDialog(
+                title = "实际专注了多久？",
+                initial = 25.coerceAtMost(maxMinutes),
+                min = 1,
+                max = maxMinutes,
+                quick = listOf(25, 45, 60, 90)
+                    .filter { it <= maxMinutes }
+                    .ifEmpty { listOf(1) },
+                onDismiss = { showCustom = false },
+                onConfirm = { minutes ->
+                    showCustom = false
+                    vm.answerLongRun(record = true, customSeconds = minutes * 60)
+                }
+            )
+        } else {
+            AlertDialog(
+                onDismissRequest = vm::cancelLongRun,
+                title = { Text("这次计了 ${FocusRules.formatDuration(seconds)}") },
+                text = { Text("看起来像是忘了结束。要按多长时间记进统计？自定义值必须小于当前值。") },
+                dismissButton = {
+                    TextButton(onClick = { vm.answerLongRun(record = false) }) {
+                        Text("不计入")
+                    }
+                },
+                confirmButton = {
+                    Row {
+                        TextButton(onClick = { showCustom = true }) { Text("自定义") }
+                        TextButton(onClick = { vm.answerLongRun(record = true) }) {
+                            Text("按当前值计入")
+                        }
+                    }
+                }
+            )
+        }
     }
 }
 
@@ -791,8 +836,9 @@ private fun DurationInputDialog(
             Column {
                 OutlinedTextField(
                     value = text,
-                    // 只收数字，最多三位：挂个中文输入法也不会变成"三十"这种盘外值。
-                    onValueChange = { raw -> text = raw.filter { it.isDigit() }.take(3) },
+                    // 只收数字；四位是为了超长专注（忘关一整天时上限分钟可能 > 999）。
+                    // 挂个中文输入法也不会变成"三十"这种盘外值。
+                    onValueChange = { raw -> text = raw.filter { it.isDigit() }.take(4) },
                     label = { Text("分钟") },
                     singleLine = true,
                     isError = text.isNotEmpty() && !valid,
@@ -899,13 +945,18 @@ private fun DurationTimePickerDialog(
 private fun FocusStatsPage(
     sessions: List<FocusSession>,
     goalMinutes: Int,
-    onSetGoal: (Int) -> Unit
+    onSetGoal: (Int) -> Unit,
+    onDelete: (Long) -> Unit
 ) {
     val today: LocalDate = AppTime.today()
     val summary = remember(sessions, today) { FocusStats.summary(sessions, today) }
     val last7 = remember(sessions, today) { FocusStats.lastDays(sessions, today, 7) }
     val heat = remember(sessions, today) { FocusStats.heatmap(sessions, today, 15) }
     val recent = remember(sessions) { sessions.take(100) }
+    // 默认只露最新 3 条：记录一多，从底部滚回顶部的目标环要划很久。
+    var expanded by remember { mutableStateOf(false) }
+    var deleteTarget by remember { mutableStateOf<FocusSession?>(null) }
+    val shown = if (expanded) recent else recent.take(3)
 
     LazyColumn(
         Modifier.fillMaxSize(),
@@ -944,8 +995,18 @@ private fun FocusStatsPage(
         }
 
         item {
-            Spacer(Modifier.height(4.dp))
-            SectionTitle("记录")
+            Column {
+                Spacer(Modifier.height(4.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    SectionTitle("记录")
+                    Spacer(Modifier.weight(1f))
+                    if (recent.size > 3) {
+                        TextButton(onClick = { expanded = !expanded }) {
+                            Text(if (expanded) "收起" else "展开全部 ${recent.size}")
+                        }
+                    }
+                }
+            }
         }
 
         if (recent.isEmpty()) {
@@ -958,8 +1019,34 @@ private fun FocusStatsPage(
                 )
             }
         } else {
-            items(recent, key = { it.id }) { session -> RecordRow(session) }
+            items(shown, key = { it.id }) { session ->
+                RecordRow(session, onDeleteClick = { deleteTarget = session })
+            }
         }
+    }
+
+    // 删除要二次确认：记录一删，今日/本周/热力图会一起变，误触代价不小。
+    deleteTarget?.let { target ->
+        AlertDialog(
+            onDismissRequest = { deleteTarget = null },
+            title = { Text("删除这条记录？") },
+            text = {
+                Text(
+                    "${target.label.ifBlank { "专注" }} · " +
+                        "${FocusRules.formatDuration(target.actualSeconds)}。" +
+                        "删除后统计会一起更新，无法撤销。"
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    onDelete(target.id)
+                    deleteTarget = null
+                }) { Text("删除") }
+            },
+            dismissButton = {
+                TextButton(onClick = { deleteTarget = null }) { Text("取消") }
+            }
+        )
     }
 }
 
@@ -1365,7 +1452,7 @@ private fun heatColor(base: Color, accent: Color, seconds: Int): Color {
 }
 
 @Composable
-private fun RecordRow(session: FocusSession) {
+private fun RecordRow(session: FocusSession, onDeleteClick: () -> Unit) {
     val start = Instant.ofEpochMilli(session.startedAtMillis).atZone(AppTime.ZONE)
     val whenText = "${start.monthValue}月${start.dayOfMonth}日 " +
         String.format(java.util.Locale.US, "%02d:%02d", start.hour, start.minute)
@@ -1399,6 +1486,18 @@ private fun RecordRow(session: FocusSession) {
             color = if (session.completed) MaterialTheme.colorScheme.primary
             else MaterialTheme.colorScheme.onSurfaceVariant
         )
+        Spacer(Modifier.width(4.dp))
+        IconButton(
+            onClick = onDeleteClick,
+            modifier = Modifier.size(36.dp)
+        ) {
+            Icon(
+                Icons.Default.Delete,
+                contentDescription = "删除记录",
+                modifier = Modifier.size(18.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
     }
 }
 

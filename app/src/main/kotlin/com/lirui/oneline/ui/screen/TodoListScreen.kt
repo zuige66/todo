@@ -19,8 +19,6 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
@@ -477,11 +475,15 @@ private fun TodoAppContent(
                 }
             },
             floatingActionButton = {
-                // 缩放 + 淡出：切到「归档 / 设置 / 关于」时 FAB 不再"啪"地消失
+                // ★ 只淡入淡出、不做缩放（v1.0.9）：scaleIn/scaleOut 走 graphicsLayer 的
+                //   几何变换，而 M3 FAB 自带 shadowElevation，变换首帧 outline 会短暂回退
+                //   成矩形轮廓 —— 切回 Todo 时「加号背后正方形阴影闪一下」。
+                //   和 DESIGN.md §32.1 那个灰色方块同源：都是方形容器边界露了出来。
+                //   原本要的只是「别啪地消失」，纯淡入淡出已经满足，且不动几何。
                 AnimatedVisibility(
                     visible = tab == TAB_TODO,
-                    enter = scaleIn(initialScale = 0.6f) + fadeIn(),
-                    exit = scaleOut(targetScale = 0.6f) + fadeOut()
+                    enter = fadeIn(tween(180)),
+                    exit = fadeOut(tween(150))
                 ) {
                     // 2026-11-05 按 zuige 要求「改回去」：还原经典 M3 的 56dp FAB（0.9.3 观感）。
                     // M3E 的 80dp Medium FAB 只试了一版，视觉上过重；形状阶 / 字阶的其余改动保留。

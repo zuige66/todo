@@ -203,4 +203,25 @@ class FocusRulesTest {
         assertEquals(listOf(15, 25, 45, 60), FocusRules.PRESET_MINUTES)
         assertEquals(25, FocusRules.DEFAULT_MINUTES)
     }
+
+    // ---------- 超长专注（v1.0.9）----------
+
+    @Test
+    fun longRunAsksOnlyStrictlyAboveTwoHours() {
+        assertFalse(FocusRules.shouldAskForLongRun(7199))
+        assertFalse(FocusRules.shouldAskForLongRun(7200))
+        assertTrue(FocusRules.shouldAskForLongRun(7201))
+        assertTrue(FocusRules.shouldAskForLongRun(5 * 3600))
+    }
+
+    @Test
+    fun customMinutesMustBeStrictlyShorterThanElapsed() {
+        // 2 小时 5 分 = 7500 秒；上限分钟数换算回秒后必须 < 7500。
+        assertEquals(124, FocusRules.maxCustomMinutes(7500))
+        assertTrue(FocusRules.isValidCustomMinutes(1, 7500))
+        assertTrue(FocusRules.isValidCustomMinutes(124, 7500))
+        assertFalse(FocusRules.isValidCustomMinutes(125, 7500))
+        assertFalse(FocusRules.isValidCustomMinutes(0, 7500))
+        assertFalse(FocusRules.isValidCustomMinutes(-1, 7500))
+    }
 }

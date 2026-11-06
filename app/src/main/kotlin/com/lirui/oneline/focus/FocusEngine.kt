@@ -90,19 +90,34 @@ object FocusEngine {
      *
      * @param record 用户的选择：太短时会先问一句（见 [FocusRules.shouldAskBeforeDiscard]），
      *               够长时调用方直接传 true 不问。传 false 表示"就当没发生过"。
+     * @param overrideSeconds 超长专注时用户手填的时长（秒）。null = 按实际经过时间记。
+     *                        调用方（UI）负责把它钳在 `1 分钟 .. < 当前值`；这里只信任传入值。
+     *                        通知栏那条路径不传，行为与旧版完全一致。
      * @return 记入的秒数；0 表示什么都没记。
      */
-    suspend fun finishEarly(context: Context, nowMillis: Long, record: Boolean): Int {
+    suspend fun finishEarly(
+        context: Context,
+        nowMillis: Long,
+        record: Boolean,
+        overrideSeconds: Int? = null
+    ): Int {
         val run = FocusStore.takeActive(context) ?: return 0
         FocusScheduler.cancel(context)
         FocusNotifier.cancelOngoing(context)
         if (!record) return 0
-        val seconds = FocusRules.elapsedSeconds(run, nowMillis)
+        val seconds = overrideSeconds ?: FocusRules.elapsedSeconds(run, nowMillis)
         if (seconds <= 0) return 0
+        // ★ 手填时长时把结束时刻一起对齐：否则 endedAt - startedAt 还是 3 小时，
+        //   actualSeconds 却写了 25 分钟，这条记录自己跟自己对不上。
+        val endedAt = if (overrideSeconds != null) {
+            run.startedAtMillis + seconds * 1000L
+        } else {
+            nowMillis
+        }
         FocusRepository(context).record(
             label = run.label,
             startedAtMillis = run.startedAtMillis,
-            endedAtMillis = nowMillis,
+            endedAtMillis = endedAt,
             plannedSeconds = run.plannedSeconds,
             actualSeconds = seconds,
             // ★ 正计时没有"提前"这个概念 —— 点结束就是正常结束，记成已完成。

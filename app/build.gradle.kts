@@ -271,8 +271,15 @@ android {
         //   · 设置 → 外观：总闸保留，新增「环转动」「流光扫过」独立开关 +
         //     「动效间隔」下拉（5/10/20/30/60 秒，默认 10）。
         //   · 开始 / 暂停·继续 / 结束 三个主按钮统一 50% 圆角胶囊。
-        versionCode = 42
-        versionName = "1.0.8"
+        // 1.0.9（2026-11-06）—— 统计记录 / 超长专注 / FAB 阴影：
+        //   · 记录列表可删除（数据层 FocusRepository.delete 早已存在，只是 UI 没接），
+        //     行尾删除图标 + 二次确认；默认只显示最新 3 条，可「展开全部 / 收起」。
+        //   · 正计时忘关超过 2 小时，结束时弹「按当前值 / 自定义（严格小于当前值）/ 不计入」；
+        //     自定义值落到 actualSeconds 并同步修正 endedAtMillis。通知栏结束仍按旧行为直接记入。
+        //   · 切回 Todo 页时 FAB 背后的方形阴影：去掉 AnimatedVisibility 的 scaleIn/scaleOut，
+        //     只留淡入淡出，避免 graphicsLayer 几何变换让 elevation outline 回退成矩形。
+        versionCode = 43
+        versionName = "1.0.9"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

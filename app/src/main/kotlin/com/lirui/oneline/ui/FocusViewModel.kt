@@ -62,6 +62,13 @@ class FocusViewModel(app: Application) : AndroidViewModel(app) {
     var askDiscardSeconds by mutableStateOf<Int?>(null)
         private set
 
+    /**
+     * 「这次是不是忘了关」的待确认秒数（> 2 小时）。
+     * null = 没有待确认；>0 = 弹窗让用户选「按当前值 / 自定义 / 不计入」。
+     */
+    var askLongRunSeconds by mutableStateOf<Int?>(null)
+        private set
+
     private val _toasts = MutableSharedFlow<String>(extraBufferCapacity = 4)
     val toasts: SharedFlow<String> = _toasts.asSharedFlow()
 
@@ -147,7 +154,8 @@ class FocusViewModel(app: Application) : AndroidViewModel(app) {
     /**
      * 用户点了「结束」。
      *
-     * 三条路（口径见 [FocusRules]）：
+     * 四条路（口径见 [FocusRules]），**从最长到最短判**：
+     *  - > 2 小时 → 弹窗问「按当前值 / 自定义 / 不计入」（像忘了关）；
      *  - ≥ 60 秒 → 直接记入，提示一句；
      *  - 1~59 秒 → 弹窗问「要记下来吗」；
      *  - 0 秒 → 什么都不留。
@@ -157,21 +165,46 @@ class FocusViewModel(app: Application) : AndroidViewModel(app) {
         val t = System.currentTimeMillis()
         val elapsed = FocusRules.elapsedSeconds(r, t)
         when {
+            FocusRules.shouldAskForLongRun(elapsed) -> askLongRunSeconds = elapsed
             FocusRules.shouldRecordSilently(elapsed) -> recordAndClose(t, record = true)
             FocusRules.shouldAskBeforeDiscard(elapsed) -> askDiscardSeconds = elapsed
             else -> recordAndClose(t, record = false)
         }
     }
 
-    /** 弹窗的回答。 */
+    /** 短时长弹窗的回答。 */
     fun answerDiscard(record: Boolean) {
         askDiscardSeconds = null
         recordAndClose(System.currentTimeMillis(), record)
     }
 
-    private fun recordAndClose(t: Long, record: Boolean) {
+    /**
+     * 超长弹窗的回答。
+     *
+     * @param record false = 「不计入」，结束但不落库。
+     * @param customSeconds 「自定义」时用户填的秒数；null = 按当前值。
+     */
+    fun answerLongRun(record: Boolean, customSeconds: Int? = null) {
+        askLongRunSeconds = null
+        recordAndClose(System.currentTimeMillis(), record, customSeconds)
+    }
+
+    /** 点弹窗外面 / 返回键：只收起询问，**不结束计时**（误触不该白白丢一次专注）。 */
+    fun cancelLongRun() {
+        askLongRunSeconds = null
+    }
+
+    /** 统计页记录列表的删除：数据层早就备好了，这里只是把 UI 接上。 */
+    fun deleteSession(id: Long) {
         viewModelScope.launch {
-            val seconds = FocusEngine.finishEarly(getApplication(), t, record)
+            repo.delete(id)
+            _toasts.tryEmit("已删除记录")
+        }
+    }
+
+    private fun recordAndClose(t: Long, record: Boolean, overrideSeconds: Int? = null) {
+        viewModelScope.launch {
+            val seconds = FocusEngine.finishEarly(getApplication(), t, record, overrideSeconds)
             run = null
             nowMillis = t
             if (seconds > 0) {
