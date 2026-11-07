@@ -9,6 +9,9 @@ import com.lirui.oneline.reminder.NotificationHelper
 import com.lirui.oneline.reminder.ReminderScheduler
 import com.lirui.oneline.widget.WidgetUpdater
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.withContext
 import java.io.IOException
 
@@ -20,6 +23,19 @@ import java.io.IOException
  * 不上传、也不知道文件最终落在哪。
  */
 object BackupManager {
+
+    /**
+     * 恢复成功的信号（v1.0.12）。
+     *
+     * ★★ 不能用 `activity.recreate()` 来刷新设置：vivo 上重建 Activity 会把
+     *   `enableEdgeToEdge()` 设好的系统栏状态打回去，而 `values-night/themes.xml`
+     *   的 `windowBackground` 是**黑色** —— 状态栏 / 导航栏区域就露出上下两条黑边
+     *   （zuige 2026-11-07 真机反馈）。
+     *   改成发事件让 MainActivity 用 `key()` 重建 **Compose 子树**：Activity / Window
+     *   一个都不动，但所有 `remember { SettingsRepo.xxx() }` 照样重新读盘。
+     */
+    private val _restoreCompleted = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val restoreCompleted: SharedFlow<Unit> = _restoreCompleted.asSharedFlow()
 
     suspend fun writeTo(context: Context, uri: Uri, json: String) = withContext(Dispatchers.IO) {
         val stream = context.contentResolver.openOutputStream(uri, "w")
@@ -86,6 +102,8 @@ object BackupManager {
         ReminderScheduler.scheduleAllActiveBlocking(context)
         WidgetUpdater.refreshAsync(context)
 
+        // 只有全部写成功才通知界面重读设置；失败时不动 UI，避免显示半新半旧的值。
+        _restoreCompleted.tryEmit(Unit)
         "已恢复（${mode.label}）：" + BackupRules.describe(data.todos.size, data.sessions.size)
     }
 }

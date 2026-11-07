@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/zuige66/todo/releases"><img src="https://img.shields.io/badge/version-1.0.11-3F3F46?style=flat-square" alt="version" /></a>
+  <a href="https://github.com/zuige66/todo/releases"><img src="https://img.shields.io/badge/version-1.0.12-3F3F46?style=flat-square" alt="version" /></a>
   <img src="https://img.shields.io/badge/platform-Android-3DDC84?style=flat-square" alt="platform" />
   <img src="https://img.shields.io/badge/build-Kotlin%20%2B%20Compose-7F52FF?style=flat-square" alt="build" />
   <img src="https://img.shields.io/badge/storage-Room-4479A1?style=flat-square" alt="storage" />
@@ -26,7 +26,7 @@
 </p>
 
 <p align="center">
-  <sub>当前代码版本 <b>1.0.11（versionCode 45）</b>；GitHub Release 仍停在 v1.0.2，尚未发布新版。<br />
+  <sub>当前代码版本 <b>1.0.12（versionCode 46）</b>；GitHub Release 仍停在 v1.0.2，尚未发布新版。<br />
   原「博客源」直链指向 <code>todo-1.0.0.apk</code>，博客侧早已停止同步，故移除。</sub>
 </p>
 
@@ -396,7 +396,7 @@ UI 每秒只是重绘。所以掉帧、卡顿、被系统冻结都不会让专�
 - **明文 JSON**：文件人能直接读、也能手工改，但**拿到文件的人就能看到你的全部待办**，请自行保管。
 - **恢复三选一**：整份覆盖 / 保留并导入（追加，可能重复）/ 去重导入（按 id 跳过重复）。两道确认：先看清条数与导出时间、选模式（可取消），再确认一次才写入。
 - **不进备份的两类东西**：正在进行的专注（避免复活成僵尸计时）、隐私政策同意版本（避免重新弹同意或绕过同意）。
-- 恢复后会重建全部提醒闹钟、刷新桌面小组件，并重建界面让设置项重新生效。
+- 恢复后会重建全部提醒闹钟、刷新桌面小组件，并重建 **Compose 子树**让设置项重新生效（不重建 Activity，见 `DESIGN.md §55`）。
 
 > 与 `allowBackup=false` 不冲突：这里是**你主动发起**的一次文件导出，系统自动备份仍然关闭。
 
@@ -413,7 +413,7 @@ UI 每秒只是重绘。所以掉帧、卡顿、被系统冻结都不会让专�
 | 导航 | 单 Activity，Compose 内部状态切换（4 个 tab + 专注覆盖层） |
 | 最低版本 | Android 8.0（API 26） |
 | 编译 / 目标 | API 36 |
-| 版本 | 1.0.11（versionCode 45） |
+| 版本 | 1.0.12（versionCode 46） |
 | 包名 | `com.lirui.oneline` |
 | 网络 | **不申请任何网络权限**（v1.0.0 起，检查更新已下线） |
 

@@ -4106,12 +4106,16 @@ FocusScheduler.schedule(context, nowMillis + remaining)
   → applySettings()（同步 commit，不 clear）
   → ReminderScheduler.scheduleAllActiveBlocking() 重建全部提醒
   → WidgetUpdater.refreshAsync() 刷桌面组件
-  → activity.recreate() 让 MainActivity 重读全部 SharedPreferences 设置
+  → ★ 发 restoreCompleted → MainActivity 用 key(settingsEpoch) 重建 **Compose 子树**
+    重读全部 SharedPreferences 设置（1.0.12 起）
 ```
 
-★ **`activity.recreate()` 不是可选项**：MainActivity 里二十多个设置都是
-`remember { mutableStateOf(SettingsRepo.xxx(this)) }`，不重建 Activity，
-恢复完之后设置页还会一直显示旧值，看起来像「恢复没生效」。
+★ **必须重读设置**是对的：MainActivity 里二十多个设置都是
+`remember { mutableStateOf(SettingsRepo.xxx(this)) }`，不重读，恢复完设置页还会显示旧值。
+
+★ **勘误（v1.0.12）**：1.0.11 这里用的是 `activity.recreate()`，真机上让 vivo 重建窗口，
+上下出现两条黑边（见 §55）。「重读设置」的需求没变，变的是实现：**不再重建 Activity**，
+只重建 Compose 子树。原来那句「recreate 不是可选项」结论作废。
 
 ### 54.6 踩到 / 避开的坑
 
@@ -4158,3 +4162,89 @@ FocusScheduler.schedule(context, nowMillis + remaining)
 - 迁移 instrumented 测试仍未实跑（主力机上是 release 签名，debug 包会冲突并清数据）。
 
 版本 `45 / 1.0.11`。
+
+---
+
+## 55. 导入黑边 / FAB 配色 / 政策主体订正（v1.0.12，versionCode 46）
+
+zuige 真机反馈三件事：① 导入完成后手机上下出现黑边黑框；
+② 右下角加号跟背景重合，要更深的颜色；③「身份是黎锐森」。
+
+### 55.1 上下黑边：不再 `recreate()`
+
+**事实**（都已核对源码）：
+
+| 事实 | 位置 |
+|---|---|
+| `values/themes.xml` 的 `windowBackground` 是白色，**`values-night/themes.xml` 是黑色** | res/values-night/themes.xml |
+| `enableEdgeToEdge()` 只在 `MainActivity.onCreate()` 里调一次 | MainActivity.kt:100 |
+| 1.0.11 恢复成功后会调 `activity.recreate()` | 1.0.11 SettingsScreen |
+
+**推断**（未拿到系统栏内部状态，按现象反推）：vivo 在 `recreate()` 时重建 Window，
+把 `enableEdgeToEdge()` 设好的 `decorFitsSystemWindows=false` / 透明系统栏打回去，
+状态栏与导航栏区域不再由应用内容覆盖，而是露出 Window 背景；
+此时如果按 night 资源取背景，就是截图里那两条黑框（顶部状态栏白图标、底部手势条白线）。
+
+**修法（不依赖上面那条推断成立）**：直接消除触发路径 —— **恢复成功后不再重建 Activity**。
+
+```
+BackupManager.restore() 成功
+  → MutableSharedFlow<Unit>  emit（extraBufferCapacity=1，tryEmit 不挂起）
+  → MainActivity: LaunchedEffect  collect → settingsEpoch++
+  → key(settingsEpoch) { 设置状态 + OnelineTheme + TodoApp } 整块销毁重建
+```
+
+- `key()` 重建后，MainActivity 二十多个 `remember { SettingsRepo.xxx() }` 重新读盘；
+  `TodoApp` 内部的 `remember`（通知文案草稿、手势开关、小组件开关…）也一并刷新。
+  **设置刷新的效果与 recreate 完全一致**，但 Activity / Window / 系统栏一个都不动。
+- `LaunchedEffect(accepted)`（冷启动排闹钟、权限申请、FocusEngine.restore）放在 `key()` **外面**，
+  不会因为恢复备份而重跑一遍。
+- `TodoListScreen` 里的 `findActivity()` 与 `activity?.recreate()` 一起删掉，
+  相关 `Activity / Context / ContextWrapper` import 也清掉。
+- `key()` 只加了首尾两行、没重排 120 行缩进：这一版 diff 小、能单独回退；
+  首尾注释明确标出作用域。
+
+★ 若之后别的机型仍报黑边（说明根因是「系统深色 + App 浅色」的通用错配，而非 recreate），
+下一步是在 `OnelineTheme` 里按 `darkTheme` 显式同步 `WindowInsetsControllerCompat` 的
+light-status/navigation-bars，并把 `window.setBackgroundDrawable` 设成 `colorScheme.surface`，
+不再让 `values-night` 的黑色背景有机会露出来。**这一轮没做**，避免把一个局部修复
+扩成全局系统栏改动。
+
+### 55.2 FAB 底色改深
+
+M3 `FloatingActionButton` 默认 `containerColor = primaryContainer`，
+而全应用卡片的 `cardBackground` 就是 `primaryContainer`（Tokens.kt）——
+同一个色。FAB 压在列表卡片上时完全融进去，只剩一个 `+` 图标浮着，就是 zuige 说的
+「跟背景颜色重合」。改 `containerColor = primary` + `contentColor = onPrimary`：
+青碧配色下是深青 `#00696D` 配白图标，任何底色上都能一眼看出是按钮。
+
+只改颜色，**56dp 经典尺寸与四档 elevation 归零都保持不动**
+（§44 的「别把全局形状阶和单个组件尺寸绑在一起改」同理，这里也别顺手动尺寸）。
+
+### 55.3 政策主体订正为黎锐森
+
+`docs/COPYRIGHT.md` 里早就记着「zuige 确认实名『黎锐森』、邮箱 `liruisen200@163.com`」，
+软著 / vivo 上架材料全用这一套；但 main 的 `docs/PRIVACY.md` 与 `PrivacyScreen.kt`
+还写着「李睿 / lirui.dev@outlook.com」，是上一版政策文本里的旧信息。
+本轮按定稿统一：
+
+| 文件 | 改动 |
+|---|---|
+| `docs/PRIVACY.md` | 开发者 → 黎锐森；邮箱 → `liruisen200@163.com`；加勘误说明「以 COPYRIGHT.md 为准」 |
+| `PrivacyScreen.kt` | 「九、联系我们」补「开发者：黎锐森（个人开发者）」；邮箱同上 |
+
+`PRIVACY_POLICY_VERSION` 保持 **2**：这是姓名/联系方式订正，不是新增收集行为，
+按 §54.7 的规矩不递增，不让老用户再弹一次同意。
+
+### 55.4 验证
+
+- `:app:testDebugUnitTest` BUILD SUCCESSFUL，329 条单测全过（本轮没加测试，
+  改动是 UI / 窗口行为，没有可脱离 Android 测的纯函数）。
+- `:app:assembleRelease` 成功，产出 `dist/todo-1.0.12.apk`。
+- ⚠️ **装机与真机导入复验未完成**：本轮两次 `adb devices` 均为空（设备未连接），
+  所以「黑边是否真的消失」还没有像素级证据。APK 已就绪，设备接上后执行
+  `adb install -r dist/todo-1.0.12.apk`，再走一次「设置 → 数据 → 从备份恢复 → 去重导入」，
+  看状态栏 / 导航栏区域是否还露黑。若仍有，按 55.1 末尾的兜底方案改系统栏。
+  1.0.11 那次「导出 + 去重导入」端到端验收是在同一台 vivo 上跑通的，流程本身没问题。
+
+版本 `46 / 1.0.12`。

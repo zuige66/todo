@@ -1,8 +1,12 @@
 # 一句话待办 隐私政策
 
 **生效日期**：2026 年 11 月 7 日
-**开发者**：李睿（个人开发者）
-**联系方式**：lirui.dev@outlook.com
+**开发者**：黎锐森（个人开发者）
+**联系方式**：liruisen200@163.com
+
+> 主体信息以 `docs/COPYRIGHT.md`（zuige 已确认的实名 / 邮箱定稿）为准。
+> 2026-11-07 勘误：此前误写为「李睿 / lirui.dev@outlook.com」，与软著、vivo 商店
+> 开发者主体不一致。姓名/联系方式订正属说明性订正，不递增 `PRIVACY_POLICY_VERSION`。
 **应用包名**：com.lirui.oneline
 
 > 本文件与应用内「设置 → 隐私政策」的 `PrivacyScreen.kt` 是同一份政策的两处载体，

@@ -295,8 +295,16 @@ android {
         //   · 恢复三模式：整份覆盖 / 保留并导入 / 去重导入（INSERT OR IGNORE）；
         //     两道确认（选模式可取消 + 再确认才写入），恢复后重建提醒、刷组件、recreate 重读设置。
         //   · 政策只补「导出是明文、纯本地不联网」说明，PRIVACY_POLICY_VERSION 保持 2，不再弹同意。
-        versionCode = 45
-        versionName = "1.0.11"
+        // 1.0.12（2026-11-07）—— 真机反馈三件事：
+        //   · ★ 导入后上下出现黑边：activity.recreate() 让 vivo 重建窗口，打回 edge-to-edge，
+        //     系统栏区域露出 values-night/themes.xml 的黑色 windowBackground。
+        //     改为 BackupManager 发 restoreCompleted 事件 → MainActivity 用 key(settingsEpoch)
+        //     重建 Compose 子树重读设置，Activity / Window 一律不动。
+        //   · 首页 FAB 底色改 primary（原 primaryContainer 与卡片 cardBackground 同色，
+        //     加号像浮在背景上），配 onPrimary；56dp 尺寸与零 elevation 保持不变。
+        //   · 隐私政策主体按 docs/COPYRIGHT.md 定稿订正为「黎锐森 / liruisen200@163.com」。
+        versionCode = 46
+        versionName = "1.0.12"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

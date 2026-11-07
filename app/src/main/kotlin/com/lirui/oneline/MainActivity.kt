@@ -15,12 +15,15 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
+import com.lirui.oneline.backup.BackupManager
 import com.lirui.oneline.focus.FocusEngine
 import com.lirui.oneline.focus.FocusNotifier
 import com.lirui.oneline.keepalive.DeviceCompat
@@ -107,6 +110,14 @@ class MainActivity : androidx.activity.ComponentActivity() {
             var accepted by remember { mutableStateOf(SettingsRepo.privacyAccepted(appContext)) }
             var showPolicy by remember { mutableStateOf(false) }
 
+            // 本地备份恢复 → 设置项被整批写回 SharedPreferences，界面必须重读。
+            // ★ 只重建 Compose 子树，**绝不 rebuild Activity**（见 BackupManager 注释：
+            //   vivo 上 recreate 会打回 edge-to-edge，露出 values-night 的黑色窗口背景）。
+            var settingsEpoch by remember { mutableIntStateOf(0) }
+            LaunchedEffect(Unit) {
+                BackupManager.restoreCompleted.collect { settingsEpoch++ }
+            }
+
             // ── 未同意隐私政策：只渲染弹窗，主界面完全不组合 ──
             // 这样能保证「同意之前不申请任何权限、不排任何闹钟、不产生任何系统副作用」。
             if (!accepted) {
@@ -144,6 +155,13 @@ class MainActivity : androidx.activity.ComponentActivity() {
                 FocusEngine.restore(appContext, System.currentTimeMillis())
             }
 
+            // ★ 下面这一整块是「从 SharedPreferences 建出来的状态」。恢复备份后 epoch +1，
+            //   key() 把整块销毁重建：二十多个 `remember { SettingsRepo.xxx() }` 重新读盘，
+            //   TodoApp 内部的 remember（通知文案草稿 / 手势开关 / 小组件开关…）也一并刷新。
+            //   Activity 与 Window 完全不动 —— 不重建系统栏，就不会出现上下黑边。
+            //   （刻意不重排下面 120 行的缩进，保持这一版 diff 只有「包一层」两行，
+            //     便于单独回退；key 块的作用域由首尾两处注释标出。）
+            key(settingsEpoch) {
             // Theme preference state (follow-system / light / dark).
             var themeMode by remember { mutableStateOf(SettingsRepo.getThemeMode(this)) }
             val onSetThemeMode: (Int) -> Unit = { mode ->
@@ -266,6 +284,7 @@ class MainActivity : androidx.activity.ComponentActivity() {
                     onPendingFocusHandled = { pendingFocus.value = false }
                 )
             }
-        }
+            } // key(settingsEpoch) 结束：设置状态 + OnelineTheme + TodoApp 整块
+        } // setContent
     }
 }

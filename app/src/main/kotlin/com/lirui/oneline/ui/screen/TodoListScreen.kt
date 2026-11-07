@@ -7,9 +7,6 @@
 package com.lirui.oneline.ui.screen
 
 import android.Manifest
-import android.app.Activity
-import android.content.Context
-import android.content.ContextWrapper
 import android.os.Build
 import android.widget.Toast
 
@@ -503,8 +500,14 @@ private fun TodoAppContent(
                     // 2026-11-05 按 zuige 要求「改回去」：还原经典 M3 的 56dp FAB（0.9.3 观感）。
                     // M3E 的 80dp Medium FAB 只试了一版，视觉上过重；形状阶 / 字阶的其余改动保留。
                     // 图标回默认 24dp，列表底部留白同步从 96dp 收回 8dp（见下方 contentPadding）。
+                    // ★ v1.0.12：默认 containerColor = primaryContainer，和列表卡片的
+                    //   cardBackground **是同一个色** —— FAB 压在卡片上完全融进背景，
+                    //   只剩一个加号浮着。改用 primary（深一档）+ onPrimary，
+                    //   在任何底色上都能一眼看出这是个按钮。只改颜色，不动 56dp 尺寸。
                     FloatingActionButton(
                         onClick = { showAdd = true },
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary,
                         elevation = FloatingActionButtonDefaults.elevation(
                             defaultElevation = 0.dp,
                             pressedElevation = 0.dp,
@@ -1352,17 +1355,6 @@ private fun ArchivedList(
     }
 }
 
-/**
- * 从 Compose 的 `LocalContext` 里剥出宿主 Activity。
- * 本地恢复写回的是 SharedPreferences，而 MainActivity 里所有设置都是
- * `remember { SettingsRepo.xxx() }` —— 不重建 Activity，界面会一直显示旧值。
- */
-private tailrec fun Context.findActivity(): Activity? = when (this) {
-    is Activity -> this
-    is ContextWrapper -> baseContext.findActivity()
-    else -> null
-}
-
 @Composable
 private fun SettingsScreen(
     themeMode: Int,
@@ -1407,7 +1399,6 @@ private fun SettingsScreen(
     // ── 数据导出 / 本地恢复（v1.0.11）──
     // 全程走系统文件选择器（SAF）：不需要任何权限，也不新增网络权限。
     val appContext = context.applicationContext
-    val activity = remember(context) { context.findActivity() }
     val backupScope = rememberCoroutineScope()
     var pendingRestore by remember { mutableStateOf<BackupData?>(null) }
     var restoreMode by remember { mutableStateOf(BackupRules.RestoreMode.REPLACE) }
@@ -2173,9 +2164,12 @@ private fun SettingsScreen(
                             restoreBusy = false
                             showFinalConfirm = false
                             pendingRestore = null
-                            // 只有真的写成功了才重建：MainActivity 里全部设置都是
-                            // remember { SettingsRepo.xxx() }，不重建界面读不到新值。
-                            if (outcome.isSuccess) activity?.recreate()
+                            // ★ 这里**绝不**调 activity.recreate()：vivo 上重建窗口会打回
+                            //   edge-to-edge，系统栏区域露出 values-night 的黑色
+                            //   windowBackground → 上下两条黑边（1.0.11 真机反馈）。
+                            //   设置刷新由 BackupManager.restore() 成功后发
+                            //   restoreCompleted → MainActivity 的 key(settingsEpoch)
+                            //   重建 Compose 子树完成；Activity / Window 一个都不动。
                         }
                     }
                 ) { Text("确认恢复") }

@@ -124,8 +124,9 @@ private val POLICY_SECTIONS = listOf(
     ),
     PolicySection(
         "九、联系我们",
-        "对本政策有任何疑问、意见或投诉，可通过以下方式联系开发者：\n\n" +
-            "· 邮箱：lirui.dev@outlook.com\n" +
+            "对本政策有任何疑问、意见或投诉，可通过以下方式联系开发者：\n\n" +
+            "· 开发者：黎锐森（个人开发者）\n" +
+            "· 邮箱：liruisen200@163.com\n" +
             "· 博客：blog.zuiges.com\n\n" +
             "我们将在收到你的问题后 15 个工作日内答复。"
     )
