@@ -4405,5 +4405,19 @@ cherry-pick 时必须逐行核对 Manifest：
   临时 APK 已在 `/data/local/tmp/todo-1.0.14.apk`，解锁后执行
   `adb shell pm install -r /data/local/tmp/todo-1.0.14.apk` 再 `adb shell rm` 掉即可。
 - ⚠️ 「冷启动自动检查是否真的发起请求」「发现新版能否弹出窗」还没有真机证据，
-  需装机后看 `logcat` 里的 `Oneline[Update]`。当前远端 Release 仍是 v1.0.2，
-  预期结果是 `UpToDate` 静默，不发通知不弹窗。
+  需装机后看 `logcat` 里的 `Oneline[Update]`。v1.0.14 Release 已发布，
+  本机装上 1.0.14 后检查结果是 `UpToDate` 静默；要验「发现新版弹窗」得等下一个更高版本。
+
+### 57.8 发布（v1.0.14）
+
+- 推送前发现本地领先 `origin/main` **14 个提交**（1.0.4～1.0.14 从没推过），
+  先 `git push origin main` 再建 Release，否则 `target_commitish=main` 会把 tag 打到旧提交。
+- `POST /repos/zuige66/todo/releases` → HTTP 201，id `437427253`，tag/name `v1.0.14`；
+  资产 `POST uploads.github.com/.../assets?name=todo-1.0.14.apk` → HTTP 201，
+  2,093,308 字节、state=uploaded。Windows curl 带 `--ssl-no-revoke`。
+- notes 覆盖 1.0.3～1.0.14 累积改动，并**勘误 v1.0.2 写的「检查更新已下线 / 不申请网络权限」**
+  （那两句现在只对合规分支成立）。
+- `git fetch --tags` 同步本地 tag；`GET /releases/latest` 复验返回
+  `tag=v1.0.14 / draft=false / assets=[todo-1.0.14.apk]`，
+  正是 `UpdateService.parse()` 读取的字段，主源链路数据口径正确。
+- tag 名由 zuige 在发布前单独确认（原选 v1.0.13，因与已装机的 1.0.13 撞号改为 v1.0.14）。

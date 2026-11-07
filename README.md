@@ -26,7 +26,7 @@
 </p>
 
 <p align="center">
-  <sub>当前代码版本 <b>1.0.14（versionCode 48）</b>；GitHub Release 仍停在 v1.0.2，尚未发布新版。<br />
+  <sub>当前代码版本 <b>1.0.14（versionCode 48）</b>；最新 Release <b>v1.0.14</b> 已发布。<br />
   main 自 v1.0.14 起恢复应用内检查更新；博客侧 <code>latest.json</code> 仍是旧内容，只在 GitHub 主源不可达时兜底。</sub>
 </p>
 
