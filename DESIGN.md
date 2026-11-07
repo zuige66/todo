@@ -4299,3 +4299,111 @@ zuige 反馈：柱状图里 0 分钟的日子不该出现浅色柱子，只显�
   `/sdcard/Download/oneline-backup-20261107-0926.json`。
   解锁后在 1.0.13 上走一遍即等价于验证 1.0.12 的修复，看状态栏 / 手势区是否还露黑；
   若仍有，按 §55.1 末尾的兜底方案改系统栏。
+
+> 2026-11-07 后续：zuige 已在本机走完导入流程并确认「导入没问题了」，
+> 即 v1.0.12 去掉 `activity.recreate()` 的黑边修复**真机验证通过**，本节遗留项关闭。
+
+---
+
+## 57. main 恢复应用内自更新、移除隐私门控（v1.0.14）
+
+zuige 定调：main 改回可以自动更新、不要隐私代码；**vivo 合规分支继续保持
+「不能联网更新 + 有隐私政策」** —— 这两点正是两条分支的分界，本轮**只动 main**，
+`release/vivo-store` worktree 一个字节都没碰。
+
+四个决策点用选项确认：① 完整搬回旧自更新实现 + 冷启动自动检查；
+② 隐私代码全删、`docs/PRIVACY.md` 改写为联网版；③ 发 Release 让自更新闭环；
+④ 只改 main，vivo 原样不动。
+
+### 57.1 恢复的代码（不是重写）
+
+`e7fb97e`（1.0.0 上架改造）当时把整套自更新实现删掉了，代码还在 git 历史里，
+直接 `git checkout e7fb97e^ -- <paths>` 捞回，没有从零写：
+
+| 文件 | 作用 |
+|---|---|
+| `update/Version.kt` + `test/.../VersionTest.kt` | 语义化版本比较（纯函数，8 条单测） |
+| `update/UpdateService.kt` | 主源 `api.github.com/.../releases/latest`，6s 超时；不可达 / 403 / 429 时回退 blog 静态 `latest.json`；sealed `UpdateCheck` 区分「已是最新 / 无 release / 有更新 / 失败」 |
+| `update/UpdateDownloadService.kt` | `dataSync` 前台服务下载 APK，进度广播 + 通知，FileProvider 拉起系统安装界面 |
+| `update/ApkInstaller.kt` | 下载入口，失败时引导「允许安装未知应用」设置页 |
+| `ui/screen/UpdateDialog.kt` | 发现新版本 / 检查失败两个弹窗，渲染 release notes |
+| `res/xml/file_paths.xml` | FileProvider 只暴露 `filesDir/update/` |
+
+Manifest 相应恢复 `INTERNET`、`ACCESS_NETWORK_STATE`（原来被 `tools:node="remove"` 摘掉，
+顺手删掉已无用的 `xmlns:tools`）、`FOREGROUND_SERVICE_DATA_SYNC`、
+`REQUEST_INSTALL_PACKAGES` 和 FileProvider 声明。**`allowBackup` 保持 `false` 不变**。
+
+### 57.2 关于页与冷启动
+
+- `AboutScreen` **没有整文件覆盖**：当前版本有沉浸式顶栏和 `listState` 参数，
+  只把 `UpdateUi` / 下载进度广播接收器 / `requestUpdateCheck()` / `UpdateRow` /
+  两个弹窗手工移植进去，首启隐私政策入口与覆盖层一并删除。
+  （移植时踩了一次坑：插入 `UpdateRow` 把 `LinkRow` 原有的 `@Composable` 注解挤到上一段，
+  编译报 "This annotation is not repeatable" —— 这类插入要在注解**之前**整块插。）
+- 冷启动自动检查放在 `MainActivity.setContent` 里、**`key(settingsEpoch)` 外面**：
+  `LaunchedEffect(Unit)` 调一次 `UpdateService.check(currentVersionName)`，
+  只有 `Available` 才把 `AppUpdate` 写进 `autoUpdate`；已是最新 / 无 release / 网络失败
+  一律静默。状态在外面，恢复备份重建 Compose 子树时不会重复发请求，已弹出的窗也不会被冲掉；
+  弹窗本身渲染在 `OnelineTheme` 内、`TodoApp` 之后。
+- 手动检查（关于页）与自动检查是两套独立状态，互不干扰。
+- Android 非系统应用**不能静默安装**：链路终点始终是系统安装界面 + 用户确认。
+
+### 57.3 修掉的旧实现缺陷
+
+旧 `UpdateDownloadService` 下载前会先取 `UpdateService.blogApkUrl()`
+（`latest.json` 里的 APK 直链），想借博客同站托管在国内直连。但博客源早已停止同步，
+停在 `todo-1.0.0.apk` —— 会出现「检查到 v1.0.14、实际下到 1.0.0 旧包」，
+系统安装器再以 versionCode 降级为由拒绝安装。
+本轮**删掉 `blogApkUrl()` 和优先下载逻辑**，下载严格用本次检查结果里的 `apkUrl`：
+GitHub 主源给资产直链，blog 只在**检查**阶段兜底并给出同版本直链，两处不会串版本。
+
+### 57.4 移除的隐私代码
+
+| 位置 | 处理 |
+|---|---|
+| `ui/screen/PrivacyScreen.kt` | 整个文件删除（`PrivacyPolicyScreen` + `PrivacyConsentDialog`） |
+| `MainActivity` | 删 `accepted` / `showPolicy` 门控、空 Box、`return@setContent`；初始化 `LaunchedEffect(accepted)` → `LaunchedEffect(Unit)` |
+| `SettingsRepo` | 删 `PRIVACY_POLICY_VERSION`、`privacyAccepted()`、`setPrivacyAccepted()` 与键常量 |
+| `AboutScreen` | 删「隐私政策」入口与全屏覆盖层 |
+| `TodoListScreen` | 备份说明去掉「隐私同意状态」措辞 |
+| `BackupRules` / `BackupCodec` | **保留** `privacy_accepted_version` 过滤：兼容历史备份文件，不再读写但也不让它回流 |
+
+`docs/PRIVACY.md` 改写为「联网版」：明确只请求 GitHub API / 自有静态站的公开内容、
+下载仅由用户点击触发、不上传任何待办或使用数据、不能静默安装；
+附记说明国内商店合规版是另一套口径，两边不能互相覆盖。
+`README.md`、`docs/COPYRIGHT.md`（二次勘误）、`docs/COPY.md` 同步。
+
+### 57.5 分支红线
+
+两条分支从 `e7fb97e` 分叉，**功能改动仍要两边各落一次**，但从 main 往合规分支
+cherry-pick 时必须逐行核对 Manifest：
+`INTERNET` / `ACCESS_NETWORK_STATE` / `REQUEST_INSTALL_PACKAGES` /
+`FOREGROUND_SERVICE_DATA_SYNC`、FileProvider、`update/` 目录、`UpdateDialog.kt`、
+关于页检查更新行，**一个都不能带过去**。
+合规分支的 `versionCode` 独立递增；它的 `docs/PRIVACY.md` 与 `PrivacyScreen.kt`
+继续是「不申请网络权限」口径。
+
+### 57.6 版本
+
+版本 `48 / 1.0.14`。
+
+> 为什么不是 1.0.13：47 / 1.0.13 已经装机并提交；若复用同一版本号，
+> 自更新会拿远端 v1.0.13 与本机 1.0.13 比较后判定「已是最新」，这版功能永远推不出去。
+
+### 57.7 验证与遗留
+
+- `:app:compileDebugKotlin` / `:app:compileDebugUnitTestKotlin` BUILD SUCCESSFUL。
+- `:app:testDebugUnitTest`：**337 条全过、0 失败**，11 个测试类（含恢复的 `VersionTest` 8 条）。
+- `:app:assembleRelease` 成功 → `dist/todo-1.0.14.apk`（2,093,308 字节）。
+- ★ **最终包权限用 `aapt dump badging` 验证过**：`versionCode=48 / versionName=1.0.14`，
+  `INTERNET` / `ACCESS_NETWORK_STATE` / `FOREGROUND_SERVICE_DATA_SYNC` /
+  `REQUEST_INSTALL_PACKAGES` 全部进入打包后的 Manifest，合并期没有被任何规则摘掉。
+- ⚠️ **装机未完成**：设备 `10AE721UXN000QG` 处于 `mWakefulness=Asleep` +
+  `mDreamingLockscreen=true`，`adb install -r`、`adb push + shell pm install -r`、
+  唤醒后重试**三次均返回** `INSTALL_FAILED_ABORTED: User rejected permissions`。
+  上一轮 v1.0.13 的 shell pm install 能成功是因为当时设备已解锁；**锁屏状态下没有稳定绕过办法**。
+  临时 APK 已在 `/data/local/tmp/todo-1.0.14.apk`，解锁后执行
+  `adb shell pm install -r /data/local/tmp/todo-1.0.14.apk` 再 `adb shell rm` 掉即可。
+- ⚠️ 「冷启动自动检查是否真的发起请求」「发现新版能否弹出窗」还没有真机证据，
+  需装机后看 `logcat` 里的 `Oneline[Update]`。当前远端 Release 仍是 v1.0.2，
+  预期结果是 `UpToDate` 静默，不发通知不弹窗。

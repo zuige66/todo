@@ -1,18 +1,16 @@
 package com.lirui.oneline
 
 import android.Manifest
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -20,7 +18,6 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import com.lirui.oneline.backup.BackupManager
@@ -31,10 +28,13 @@ import com.lirui.oneline.reminder.NotificationHelper
 import com.lirui.oneline.reminder.ReminderScheduler
 import com.lirui.oneline.reminder.ReminderWatchdogWorker
 import com.lirui.oneline.ui.MainViewModel
-import com.lirui.oneline.ui.screen.PrivacyConsentDialog
-import com.lirui.oneline.ui.screen.PrivacyPolicyScreen
 import com.lirui.oneline.ui.screen.TodoApp
+import com.lirui.oneline.ui.screen.UpdateAvailableDialog
 import com.lirui.oneline.ui.theme.OnelineTheme
+import com.lirui.oneline.update.ApkInstaller
+import com.lirui.oneline.update.AppUpdate
+import com.lirui.oneline.update.UpdateCheck
+import com.lirui.oneline.update.UpdateService
 import com.lirui.oneline.util.SettingsRepo
 
 class MainActivity : androidx.activity.ComponentActivity() {
@@ -50,6 +50,12 @@ class MainActivity : androidx.activity.ComponentActivity() {
 
     /** 从专注通知点进来（true = 打开专注页）。与 [pendingTodoId] 同一套消费/复位方式。 */
     private val pendingFocus = mutableStateOf(false)
+
+    /** 当前装机的版本名：自更新检查与弹窗都要用。取不到就留空，检查会跳过。 */
+    private val currentVersionName: String by lazy {
+        runCatching { packageManager.getPackageInfo(packageName, 0).versionName }
+            .getOrNull().orEmpty()
+    }
 
     private val requestPerms = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -86,9 +92,8 @@ class MainActivity : androidx.activity.ComponentActivity() {
     /**
      * 申请通知权限（Android 13+）。
      *
-     * ★ v1.0.0 起**只能在用户同意隐私政策之后调用**。原来是 onCreate 里直接申请 ——
-     *   「未征得同意先申请权限」是商店审核的常见拒审理由（个人信息保护法要求
-     *   处理个人信息前先告知并取得同意，权限申请属于处理行为的前置动作）。
+     * main 分支自 v1.0.14 起移除了隐私同意门控 —— 那条门控只服务于国内商店上架，
+     * 仍完整保留在 `release/vivo-store` 合规分支。这里在冷启动初始化里直接申请。
      */
     private fun requestNotificationPermissionIfNeeded() {
         if (Build.VERSION.SDK_INT < 33) return
@@ -107,8 +112,6 @@ class MainActivity : androidx.activity.ComponentActivity() {
 
         setContent {
             val appContext = applicationContext
-            var accepted by remember { mutableStateOf(SettingsRepo.privacyAccepted(appContext)) }
-            var showPolicy by remember { mutableStateOf(false) }
 
             // 本地备份恢复 → 设置项被整批写回 SharedPreferences，界面必须重读。
             // ★ 只重建 Compose 子树，**绝不 rebuild Activity**（见 BackupManager 注释：
@@ -118,32 +121,22 @@ class MainActivity : androidx.activity.ComponentActivity() {
                 BackupManager.restoreCompleted.collect { settingsEpoch++ }
             }
 
-            // ── 未同意隐私政策：只渲染弹窗，主界面完全不组合 ──
-            // 这样能保证「同意之前不申请任何权限、不排任何闹钟、不产生任何系统副作用」。
-            if (!accepted) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(MaterialTheme.colorScheme.surface)
-                ) {}
-                PrivacyConsentDialog(
-                    onAgree = {
-                        SettingsRepo.setPrivacyAccepted(appContext)
-                        accepted = true
-                    },
-                    // 不同意就真的退出 —— 不能只关弹窗然后继续用（审核明确要求）。
-                    onDisagree = { finish() },
-                    onViewPolicy = { showPolicy = true }
-                )
-                if (showPolicy) {
-                    PrivacyPolicyScreen(onBack = { showPolicy = false })
+            // ── 冷启动自动检查更新（main 分支 v1.0.14 起）──
+            // 只有发现新版本才弹窗；已是最新 / 无 release / 网络失败一律静默，不打扰。
+            // 状态刻意放在 key(settingsEpoch) **外面**：恢复备份重建 Compose 子树时
+            // 不会重复发请求，已经弹出来的窗也不会被重建冲掉。
+            var autoUpdate by remember { mutableStateOf<AppUpdate?>(null) }
+            LaunchedEffect(Unit) {
+                if (currentVersionName.isBlank()) return@LaunchedEffect
+                when (val result = UpdateService.check(currentVersionName)) {
+                    is UpdateCheck.Available -> autoUpdate = result.update
+                    else -> Unit
                 }
-                return@setContent
             }
 
-            // ── 已同意：做一次「碰系统」的初始化，然后进主界面 ──
+            // ── 冷启动「碰系统」的初始化 ──
             // 幂等：冷启动 / 进程重建都会跑，重复排闹钟只是白排一次（见 ReminderScheduler 说明）。
-            LaunchedEffect(accepted) {
+            LaunchedEffect(Unit) {
                 requestNotificationPermissionIfNeeded()
                 // 冷启动对账（L2 自愈的第三道）：用户真正打开 App 时，把 DB 里"应该有"的闹钟重排一遍。
                 // 覆盖的场景：被一键清理 force-stop 过、刚升级过、从备份恢复过 —— 这些情况下
@@ -283,8 +276,35 @@ class MainActivity : androidx.activity.ComponentActivity() {
                     pendingFocus = pendingFocus.value,
                     onPendingFocusHandled = { pendingFocus.value = false }
                 )
+
+                // 冷启动自动检查发现的更新。与关于页手动检查那套弹窗状态独立，互不干扰。
+                autoUpdate?.let { update ->
+                    UpdateAvailableDialog(
+                        update = update,
+                        currentVersion = currentVersionName,
+                        onDismiss = { autoUpdate = null },
+                        onDownload = {
+                            autoUpdate = null
+                            ApkInstaller.downloadAndInstall(context, update.apkUrl, update.version)
+                        },
+                        onOpenPage = {
+                            autoUpdate = null
+                            openReleasePage(context, update.releaseUrl)
+                        }
+                    )
+                }
             }
             } // key(settingsEpoch) 结束：设置状态 + OnelineTheme + TodoApp 整块
         } // setContent
+    }
+
+    /** 发布页交给浏览器；个别 ROM 没有能处理 ACTION_VIEW 的 Activity，失败静默忽略。 */
+    private fun openReleasePage(context: Context, url: String) {
+        runCatching {
+            context.startActivity(
+                Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+        }
     }
 }

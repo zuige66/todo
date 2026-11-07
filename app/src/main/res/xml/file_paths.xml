@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    FileProvider 的可共享路径。
+    只暴露 filesDir/update/ 一个目录：更新包下载到这里，安装时通过 content:// 交给系统安装器。
+    不要改成 <root-path>，那等于把整个内部存储都暴露出去。
+-->
+<paths>
+    <files-path name="update" path="update/" />
+</paths>

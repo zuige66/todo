@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/zuige66/todo/releases"><img src="https://img.shields.io/badge/version-1.0.13-3F3F46?style=flat-square" alt="version" /></a>
+  <a href="https://github.com/zuige66/todo/releases"><img src="https://img.shields.io/badge/version-1.0.14-3F3F46?style=flat-square" alt="version" /></a>
   <img src="https://img.shields.io/badge/platform-Android-3DDC84?style=flat-square" alt="platform" />
   <img src="https://img.shields.io/badge/build-Kotlin%20%2B%20Compose-7F52FF?style=flat-square" alt="build" />
   <img src="https://img.shields.io/badge/storage-Room-4479A1?style=flat-square" alt="storage" />
@@ -26,13 +26,13 @@
 </p>
 
 <p align="center">
-  <sub>当前代码版本 <b>1.0.13（versionCode 47）</b>；GitHub Release 仍停在 v1.0.2，尚未发布新版。<br />
-  原「博客源」直链指向 <code>todo-1.0.0.apk</code>，博客侧早已停止同步，故移除。</sub>
+  <sub>当前代码版本 <b>1.0.14（versionCode 48）</b>；GitHub Release 仍停在 v1.0.2，尚未发布新版。<br />
+  main 自 v1.0.14 起恢复应用内检查更新；博客侧 <code>latest.json</code> 仍是旧内容，只在 GitHub 主源不可达时兜底。</sub>
 </p>
 
 ---
 
-独立的 Android 待办应用：**输入框是唯一入口**，没有日期选择器、没有分类和标签、没有账号。一句话里写了日期和时间，就自动解析并排好精确闹钟；只写了一句事，就安静地落在「无日期」里。数据全部留在本机 —— 未声明 `INTERNET` 权限，也不依赖任何在线服务。
+独立的 Android 待办应用：**输入框是唯一入口**，没有日期选择器、没有分类和标签、没有账号。一句话里写了日期和时间，就自动解析并排好精确闹钟；只写了一句事，就安静地落在「无日期」里。数据全部留在本机；main 分支自 v1.0.14 起会用网络权限做应用内检查更新，但不上传任何数据（见「隐私与网络」）。
 
 ---
 
@@ -378,13 +378,18 @@ UI 每秒只是重绘。所以掉帧、卡顿、被系统冻结都不会让专�
 
 ## 隐私与网络
 
-**本应用不申请任何网络权限。**
+**main 分支会联网，但只用于检查更新；待办数据始终只在本机，不上传。**
 
-- v1.0.0 起下线了应用内「检查更新」—— 国内应用商店一律禁止应用内下载安装 APK，属必拒项
-- 关于页的 GitHub / 博客链接点击后交给系统浏览器打开 —— 联网的是浏览器，不是本应用
-- 首次启动弹隐私政策同意弹窗；点遮罩和返回键都关不掉，不同意则退出应用
-- 权限申请（通知等）一律在**同意隐私政策之后**才发起
-- 待办数据只在本机，且已关闭系统云备份（`allowBackup=false`）
+- v1.0.14 起恢复应用内「检查更新」：冷启动自动查一次、关于页可手动查；只读取
+  GitHub Releases 的公开版本信息，检查失败静默不打扰，详见 `docs/PRIVACY.md`
+- 你点「下载更新」才会下载 APK，安装最后一步是**系统安装界面**并由你确认；不能静默安装
+- **没有**首次启动隐私政策同意弹窗，也没有应用内政策页 —— 那是国内商店上架版的要求，
+  完整保留在 `release/vivo-store` 合规分支
+- 待办 / 专注 / 设置 / 备份文件只在本地，`allowBackup=false` 未变；不上传任何使用数据
+- ⚠️ 合规分支**不申请任何网络权限**：往那边合功能 diff 时必须逐行核对 Manifest，
+  别把 `INTERNET` / `REQUEST_INSTALL_PACKAGES` / FileProvider 带过去
+
+完整权限清单与网络请求目标见 `docs/PRIVACY.md`。
 
 ---
 
@@ -392,10 +397,11 @@ UI 每秒只是重绘。所以掉帧、卡顿、被系统冻结都不会让专�
 
 「设置 → 数据」里可以把**待办（含归档）、全部专注记录和设置项**导出成一个文件，也可以从文件恢复。
 
-- **纯本地、零新增权限**：走 Android 系统文件选择器（SAF），只对你选中的那一个文件读写字节流；不申请 `INTERNET`、不上传、不读取其它文件。
+- **纯本地、零新增权限**：走 Android 系统文件选择器（SAF），只对你选中的那一个文件读写字节流；不上传、不读取其它文件。
 - **明文 JSON**：文件人能直接读、也能手工改，但**拿到文件的人就能看到你的全部待办**，请自行保管。
 - **恢复三选一**：整份覆盖 / 保留并导入（追加，可能重复）/ 去重导入（按 id 跳过重复）。两道确认：先看清条数与导出时间、选模式（可取消），再确认一次才写入。
-- **不进备份的两类东西**：正在进行的专注（避免复活成僵尸计时）、隐私政策同意版本（避免重新弹同意或绕过同意）。
+- **不进备份的两类东西**：正在进行的专注（避免复活成僵尸计时）、`privacy_accepted_version`
+  （历史遗留键，兼容旧备份；main 已不再读写它）。
 - 恢复后会重建全部提醒闹钟、刷新桌面小组件，并重建 **Compose 子树**让设置项重新生效（不重建 Activity，见 `DESIGN.md §55`）。
 
 > 与 `allowBackup=false` 不冲突：这里是**你主动发起**的一次文件导出，系统自动备份仍然关闭。
@@ -413,9 +419,10 @@ UI 每秒只是重绘。所以掉帧、卡顿、被系统冻结都不会让专�
 | 导航 | 单 Activity，Compose 内部状态切换（4 个 tab + 专注覆盖层） |
 | 最低版本 | Android 8.0（API 26） |
 | 编译 / 目标 | API 36 |
-| 版本 | 1.0.13（versionCode 47） |
+| 版本 | 1.0.14（versionCode 48） |
 | 包名 | `com.lirui.oneline` |
-| 网络 | **不申请任何网络权限**（v1.0.0 起，检查更新已下线） |
+| 网络 | `INTERNET` / `ACCESS_NETWORK_STATE` / `REQUEST_INSTALL_PACKAGES` / `FOREGROUND_SERVICE_DATA_SYNC`（仅应用内自更新，见 `docs/PRIVACY.md`） |
+| 自更新 | GitHub Releases API + 兜底静态源；前台服务下载 APK → 系统安装界面 |
 
 ### 数据模型
 
@@ -451,7 +458,7 @@ NotificationActionReceiver  「完成」/「撤回」→ 复用同一个归档�
 
 ### 测试
 
-329 条本地单元测试，覆盖解析器、提醒引擎、专注计时与统计、通知标题、备份规则、版本比较、格式化、时间与首页分组：
+337 条本地单元测试，覆盖解析器、提醒引擎、专注计时与统计、通知标题、备份规则、版本比较、格式化、时间与首页分组：
 
 ```
 Compose 之外的逻辑全部是纯函数，可以直接测
@@ -463,6 +470,7 @@ FocusRulesTest         21 条
 RangeMergeTest         11 条
 FocusStatsTest         11 条
 NotificationTitleTest   9 条
+VersionTest             8 条
 BackupRulesTest         7 条
 AppTimeTest             3 条
 ```
@@ -528,11 +536,16 @@ app/src/main/kotlin/com/lirui/oneline/
 │   │   ├── TodoListScreen.kt    首页、归档页、设置页、四 tab 导航
 │   │   ├── AddSheet.kt          输入弹层
 │   │   ├── FocusScreen.kt       全屏专注页（计时 / 统计两态）
-│   │   ├── AboutScreen.kt       关于页（含隐私政策入口）
-│   │   ├── PrivacyScreen.kt     隐私政策页 + 首次启动同意弹窗
+│   │   ├── AboutScreen.kt       关于页（含检查更新入口）
+│   │   ├── UpdateDialog.kt      发现新版本 / 检查失败的弹窗
 │   └── theme/
 │       ├── Theme.kt             配色与深色卡片
 │       └── Tokens.kt            统一卡片/输入面/按钮语义色
+├── update/
+│   ├── Version.kt               语义化版本号比较（纯函数，有单测）
+│   ├── UpdateService.kt         GitHub Releases API + 兜底静态源
+│   ├── UpdateDownloadService.kt 前台服务下载 APK
+│   └── ApkInstaller.kt          交给系统安装器
 ├── util/
     ├── AppTime.kt               固定时区
     ├── Format.kt                日期格式化、逾期判定
@@ -546,6 +559,7 @@ app/src/test/java/com/lirui/oneline/
 ├── reminder/{ReminderEngineTest,NotificationTitleTest}.kt
 ├── focus/FocusRulesTest.kt
 ├── backup/BackupRulesTest.kt
+├── update/VersionTest.kt
 └── util/{FormatTest,HomeGroupingTest,AppTimeTest,FocusStatsTest}.kt
 ```
 
@@ -575,12 +589,21 @@ adb install -r app/build/outputs/apk/release/app-release.apk
 
 | 分支 | 用途 |
 |---|---|
-| `main` | 主开发线，最新功能都在这里 |
-| `release/vivo-store` | 国内合规 / vivo 商店上架版，含隐私政策页、软著与申报材料 |
+| `main` | 主开发线，最新功能都在这里；**带应用内自更新、无隐私同意门控** |
+| `release/vivo-store` | 国内合规 / vivo 商店上架版，**不申请网络权限、无自更新**，含隐私政策页、首启同意弹窗、软著与申报材料 |
 
 两条线从 `e7fb97e`（1.0.0 上架改造）分叉，**功能改动要在两边各落一次**，不能只推 main。
+两个分支的定位差异正是「能否联网更新」与「有没有隐私政策」，其它功能尽量保持一致。
+
+> ★ **合并红线**：从 main 往合规分支 cherry-pick 时，必须逐行核对
+> `app/src/main/AndroidManifest.xml`，确认 `INTERNET` / `ACCESS_NETWORK_STATE` /
+> `REQUEST_INSTALL_PACKAGES` / `FOREGROUND_SERVICE_DATA_SYNC` 和 FileProvider **都没有被带过去**；
+> 也不要把 `update/` 目录、`UpdateDialog.kt`、关于页的检查更新行合过去。
+> 自动合并无冲突也要重新编译验证（曾经踩过参数对不上的坑）。
+
 合规分支的 `versionCode` 必须独立递增；涉及新数据存储、通知或权限时，同步更新
-`docs/PRIVACY.md` 与 `PrivacyScreen`（该分支宣称「不收集统计数据」，本地统计要写清楚不上传）。
+**那条分支的** `docs/PRIVACY.md` 与 `PrivacyScreen`（它宣称「不收集统计数据」，本地统计要写清楚不上传）。
+main 的 `docs/PRIVACY.md` 是联网版，两者内容不同，别互相覆盖。
 上架流程见 `docs/STORE-APPLY.md`。
 
 ---

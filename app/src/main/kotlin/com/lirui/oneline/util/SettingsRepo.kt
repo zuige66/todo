@@ -44,8 +44,6 @@ object SettingsRepo {
     private const val KEY_WIDGET_EVENT_PRIORITY = "widget_event_priority"
     private const val KEY_WIDGET_DATE_ONLY = "widget_date_only"
     private const val KEY_WIDGET_HIDE_HEADER = "widget_hide_header"
-    // 隐私政策：存的是「已同意的政策版本号」，0/缺失 = 从未同意。
-    private const val KEY_PRIVACY_ACCEPTED_VERSION = "privacy_accepted_version"
     private const val KEY_FOCUS_DAILY_GOAL = "focus_daily_goal_minutes"
     private const val KEY_FOCUS_RING_MOTION = "focus_ring_motion"
     // 环动效细分：转动 / 扫光各自可关，脉冲间隔可选。KEY_FOCUS_RING_MOTION 仍是总闸。
@@ -518,32 +516,10 @@ object SettingsRepo {
         context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
             .edit().putString(KEY_NOTIF_DUE_WORD, value).apply()
 
-    // ---------- 隐私政策同意（v1.0.0 起） ----------
-    //
-    // 记的是**已同意的政策版本号**，不是一个 boolean。理由：政策改版后要能重新征得同意，
-    // 而 boolean 只能表达"同意过"，没法区分"同意的是哪一版"。
-    //
-    // 首次启动流程见 MainActivity：未同意 → 只渲染 ConsentDialog，不申请任何权限、
-    // 不排闹钟、不建数据库以外的任何副作用。
-
-    /**
-     * 当前隐私政策版本。政策内容有实质变更时 +1，老用户会被重新要求同意。
-     *
-     * v2（2026-11-07）：修正 App 内页脚的「X ICP 备 XXXXXXXX 号-XX」占位符为
-     * 单机免备案说明；同步更新生效日期与 `docs/PRIVACY.md`。
-     * 已同意过 v1 的用户下次打开会重新看到一次同意弹窗 —— 这是有意为之。
-     */
-    const val PRIVACY_POLICY_VERSION = 2
-
-    /** 用户是否已同意**当前版本**的隐私政策。 */
-    fun privacyAccepted(context: Context): Boolean =
-        context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
-            .getInt(KEY_PRIVACY_ACCEPTED_VERSION, 0) >= PRIVACY_POLICY_VERSION
-
-    fun setPrivacyAccepted(context: Context) {
-        context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
-            .edit().putInt(KEY_PRIVACY_ACCEPTED_VERSION, PRIVACY_POLICY_VERSION).apply()
-    }
+    // main 分支自 v1.0.14 起不再有「隐私政策同意版本」这一状态：首启门控与政策页
+    // 只服务于国内商店上架，完整保留在 release/vivo-store 合规分支。
+    // 备份层 BackupRules 仍会过滤旧备份里的 privacy_accepted_version 键（兼容历史文件），
+    // 但这里不再读写它。
 
     // ---------- 专注：每日目标 ----------
 

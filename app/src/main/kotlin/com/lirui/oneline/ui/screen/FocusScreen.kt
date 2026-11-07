@@ -106,7 +106,7 @@ import java.time.LocalDate
  * 全屏专注页。
  *
  * 从首页顶栏的计时器图标进来（见 TodoAppContent），是**应用内覆盖层**，
- * 和 AddSheet / PrivacyScreen 同一套模式 —— 不是第五个 tab。
+ * 和 AddSheet 同一套模式 —— 不是第五个 tab。
  * 理由见 DESIGN.md：专注是"临时模式"，不是"常驻浏览页"，塞进底部导航会把
  * 四个已有入口的层级一起稀释掉。
  *

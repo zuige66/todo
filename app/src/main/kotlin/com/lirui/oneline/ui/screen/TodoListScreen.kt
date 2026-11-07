@@ -2109,7 +2109,7 @@ private fun SettingsScreen(
                     }
                     Spacer(Modifier.height(8.dp))
                     Text(
-                        "三种模式都会一并恢复设置项；隐私同意状态与进行中的专注保持不变。",
+                        "三种模式都会一并恢复设置项；进行中的专注不会被改动或复活。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

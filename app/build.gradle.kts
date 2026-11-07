@@ -303,8 +303,8 @@ android {
         //   · 首页 FAB 底色改 primary（原 primaryContainer 与卡片 cardBackground 同色，
         //     加号像浮在背景上），配 onPrimary；56dp 尺寸与零 elevation 保持不变。
         //   · 隐私政策主体按 docs/COPYRIGHT.md 定稿订正为「黎锐森 / liruisen200@163.com」。
-        versionCode = 47
-        versionName = "1.0.13"
+        versionCode = 48
+        versionName = "1.0.14"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

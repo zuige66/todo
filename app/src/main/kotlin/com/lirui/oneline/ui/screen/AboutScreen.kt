@@ -2,8 +2,10 @@
 
 package com.lirui.oneline.ui.screen
 
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.net.Uri
 import android.os.Build
 import android.widget.Toast
@@ -37,28 +39,31 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
@@ -83,6 +88,12 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lirui.oneline.R
+import com.lirui.oneline.update.ApkInstaller
+import com.lirui.oneline.update.AppUpdate
+import com.lirui.oneline.update.UpdateCheck
+import com.lirui.oneline.update.UpdateDownloadService
+import com.lirui.oneline.update.UpdateService
+import kotlinx.coroutines.launch
 import kotlin.math.cos
 import kotlin.math.floor
 import kotlin.math.sin
@@ -98,9 +109,18 @@ import kotlin.math.sin
  * 1. **配色跟着主题走**：那边硬编码了粉/蓝三套调色板，这里三套渐变直接用当前
  *    `colorScheme` 的 container 轮换生成，换配色不用改一行代码。
  * 2. **没有返回按钮**：作为 tab 页，返回键不该被它拦下来（旧版是覆盖层，才需要 BackHandler）。
- * 3. **没有应用内检查更新**（v1.0.0 起）：应用不申请网络权限，「更新与下载」只是一条
- *    跳浏览器的外链。原因见 AndroidManifest 顶部注释。
+ * 3. **应用内检查更新**（v1.0.14 起从 v1.0.0 的下线状态恢复）：检查逻辑见 [UpdateService]，
+ *    下载走 [ApkInstaller] + 前台服务。Android 非系统应用不能静默安装，最后一步仍是系统安装界面。
  */
+
+/** 检查更新在这一页的可见状态。 */
+private sealed interface UpdateUi {
+    data object Idle : UpdateUi
+    data object Checking : UpdateUi
+    data object UpToDate : UpdateUi
+    /** 仓库还没有发布过任何版本。 */
+    data object NoRelease : UpdateUi
+}
 
 /** 应用备案号。拿到号后填这里，留空则整行不显示。 */
 private const val BEIAN_NUMBER = ""
@@ -147,9 +167,35 @@ fun AboutScreen(
     val logoFadeStart = heroHeightPx * 0.25f
     val logoFadeDistance = heroHeightPx * 0.35f
 
-    // ── 隐私政策 ─────────────────────────────────────────────────────────────
-    // 覆盖层（不进导航栈）：点「隐私政策」时铺满整屏，返回键由 PrivacyPolicyScreen 自己接住。
-    var showPolicy by remember { mutableStateOf(false) }
+    // ── 检查更新 ─────────────────────────────────────────────────────────────
+    var updateUi by remember { mutableStateOf<UpdateUi>(UpdateUi.Idle) }
+    var availableUpdate by remember { mutableStateOf<AppUpdate?>(null) }
+    var failureReason by remember { mutableStateOf<String?>(null) }
+    /** APK 下载进度（0..100）；-1 = 未在下载。由前台服务的显式广播驱动。 */
+    var downloadPercent by remember { mutableIntStateOf(-1) }
+    val scope = rememberCoroutineScope()
+
+    // 下载进度只在页面可见时有意义：切到别的 tab 就解绑，回来重新等广播
+    // （服务是前台服务，下载本身不受影响）。
+    DisposableEffect(Unit) {
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(receiverContext: Context, intent: Intent) {
+                val percent = intent.getIntExtra(UpdateDownloadService.EXTRA_PROGRESS, -1)
+                val done = intent.getBooleanExtra(UpdateDownloadService.EXTRA_DONE, false)
+                downloadPercent = if (done) -1 else percent.coerceIn(0, 100)
+            }
+        }
+        val filter = IntentFilter(UpdateDownloadService.ACTION_UPDATE_PROGRESS)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            context.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            @Suppress("UnspecifiedRegisterReceiverFlag")
+            context.registerReceiver(receiver, filter)
+        }
+        onDispose {
+            runCatching { context.unregisterReceiver(receiver) }
+        }
+    }
 
     // 只读 firstVisibleItem* 会漏掉「hero 还在屏幕上、列表已开始滑」的那一段，
     // 所以第 0 项时要取 scrollOffset，之后直接当作已经滚过整个 hero。
@@ -182,6 +228,37 @@ fun AboutScreen(
         pkgInfo == null -> 0L
         Build.VERSION.SDK_INT >= 28 -> pkgInfo.longVersionCode
         else -> @Suppress("DEPRECATION") pkgInfo.versionCode.toLong()
+    }
+
+    /**
+     * 手动检查更新。
+     *
+     * 三重防重复：函数入口 guard、按钮 enabled、以及「失败只写一个 failureReason」——
+     * 连点十下也只会有一个弹窗实例（同一个状态值不会叠出第二个对话框）。
+     */
+    fun requestUpdateCheck() {
+        if (updateUi is UpdateUi.Checking) return
+        updateUi = UpdateUi.Checking
+        scope.launch {
+            when (val result = UpdateService.check(versionName)) {
+                is UpdateCheck.UpToDate -> {
+                    updateUi = UpdateUi.UpToDate
+                    Toast.makeText(context, "已是最新版本 v$versionName", Toast.LENGTH_SHORT).show()
+                }
+                is UpdateCheck.NoRelease -> {
+                    updateUi = UpdateUi.NoRelease
+                    Toast.makeText(context, "仓库还没有发布过版本", Toast.LENGTH_SHORT).show()
+                }
+                is UpdateCheck.Available -> {
+                    updateUi = UpdateUi.Idle
+                    availableUpdate = result.update
+                }
+                is UpdateCheck.Failed -> {
+                    updateUi = UpdateUi.Idle
+                    failureReason = result.reason
+                }
+            }
+        }
     }
 
     Box(
@@ -241,8 +318,12 @@ fun AboutScreen(
                     AboutDivider()
                     InfoRow("包名", context.packageName)
                     AboutDivider()
-                    // 商店审核会点这一行：必须是内嵌页，不能是外链（本应用没有网络权限）。
-                    LinkRow("隐私政策", "不收集任何个人信息") { showPolicy = true }
+                    UpdateRow(
+                        ui = updateUi,
+                        downloadPercent = downloadPercent,
+                        enabled = updateUi !is UpdateUi.Checking && downloadPercent < 0,
+                        onClick = { requestUpdateCheck() }
+                    )
                 }
             }
             item { AboutSectionTitle("项目") }
@@ -320,10 +401,25 @@ fun AboutScreen(
 
         // v0.4：关于页是导航 tab，左上角不再需要返回按钮（系统返回键也不该被它拦下）。
 
-        // ── 隐私政策覆盖层 ──
-        // 放在 Box 内部最后 = 盖在整页之上；返回键由 PrivacyPolicyScreen 自己接住。
-        if (showPolicy) {
-            PrivacyPolicyScreen(onBack = { showPolicy = false })
+        // ── 更新弹窗 ──
+        // 两个弹窗都由单一状态驱动，所以「连点十次」不会叠出十个对话框。
+        availableUpdate?.let { update ->
+            UpdateAvailableDialog(
+                update = update,
+                currentVersion = versionName,
+                onDismiss = { availableUpdate = null },
+                onDownload = {
+                    availableUpdate = null
+                    ApkInstaller.downloadAndInstall(context, update.apkUrl, update.version)
+                },
+                onOpenPage = {
+                    availableUpdate = null
+                    openUrl(context, update.releaseUrl)
+                }
+            )
+        }
+        failureReason?.let { reason ->
+            UpdateFailedDialog(reason = reason, onDismiss = { failureReason = null })
         }
     }
 }
@@ -376,8 +472,72 @@ private fun InfoRow(title: String, value: String) {
     )
 }
 
+/**
+ * 「检查更新」行：右侧是状态区。
+ *
+ * 状态优先级：下载中 > 检查中 > 文字状态 > 箭头。下载中的百分比来自前台服务的显式广播，
+ * 部分 ROM 会折叠前台服务通知，应用内这个数字才是用户真正看得到的进度。
+ */
 @Composable
-private fun LinkRow(title: String, summary: String, onClick: () -> Unit) {    ListItem(
+private fun UpdateRow(
+    ui: UpdateUi,
+    downloadPercent: Int,
+    enabled: Boolean,
+    onClick: () -> Unit
+) {
+    val cs = MaterialTheme.colorScheme
+    val checking = ui is UpdateUi.Checking
+    val status = when {
+        downloadPercent >= 0 -> "下载中 $downloadPercent%"
+        checking -> "检查中…"
+        ui is UpdateUi.UpToDate -> "已是最新"
+        ui is UpdateUi.NoRelease -> "暂无发布版本"
+        else -> null
+    }
+    ListItem(
+        headlineContent = { Text("检查更新", style = MaterialTheme.typography.bodyLarge) },
+        supportingContent = {
+            Text(
+                if (ui is UpdateUi.UpToDate) "当前已是最新版本"
+                else "从 GitHub Releases 获取最新版本",
+                style = MaterialTheme.typography.bodySmall
+            )
+        },
+        trailingContent = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                if (checking || downloadPercent >= 0) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        strokeWidth = 2.dp,
+                        color = cs.primary
+                    )
+                }
+                if (status != null) {
+                    Text(
+                        status,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = cs.primary
+                    )
+                } else {
+                    Icon(
+                        Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = null,
+                        tint = cs.onSurfaceVariant
+                    )
+                }
+            }
+        },
+        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+        modifier = Modifier.clickable(enabled = enabled, onClick = onClick)
+    )
+}
+
+@Composable
+private fun LinkRow(title: String, summary: String, onClick: () -> Unit) {
+    ListItem(
         headlineContent = { Text(title, style = MaterialTheme.typography.bodyLarge) },
         supportingContent = { Text(summary, style = MaterialTheme.typography.bodySmall) },
         trailingContent = {
