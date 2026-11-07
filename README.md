@@ -27,7 +27,7 @@
 
 <p align="center">
   <sub>当前代码版本 <b>1.0.14（versionCode 48）</b>；最新 Release <b>v1.0.14</b> 已发布。<br />
-  main 自 v1.0.14 起恢复应用内检查更新；博客侧 <code>latest.json</code> 仍是旧内容，只在 GitHub 主源不可达时兜底。</sub>
+  main 自 v1.0.14 起恢复应用内检查更新；博客 <code>latest.json</code> 与文章直链已同步到 1.0.14，GitHub 限流时走同站兜底。</sub>
 </p>
 
 ---

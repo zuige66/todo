@@ -163,7 +163,7 @@ Material 3 Expressive，浅色、深色、跟随系统。
 
 下载
 GitHub Releases：https://github.com/zuige66/todo/releases/latest
-国内镜像：https://blog.zuiges.com/downloads/oneline/todo-0.9.3.apk
+国内镜像：https://blog.zuiges.com/downloads/oneline/todo-1.0.14.apk?v=48
 
 源码：https://github.com/zuige66/todo
 

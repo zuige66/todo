@@ -2541,6 +2541,9 @@ LaunchedEffect(index, dragging) {
 留一个不存在的回退源只会让"检查失败"多等一倍时间。以后补的时候在 `UpdateService` 里加一层
 try/catch 即可，UI 不用改。
 
+> 勘误（v1.0.14）：本段是当时的设计记录。自 v1.0.14 起 blog 回退源已经补上
+> （`blog.zuiges.com/downloads/oneline/latest.json`），同站托管 APK，详见 §57.9。
+
 **权限变化**：新增 `INTERNET` / `ACCESS_NETWORK_STATE` / `FOREGROUND_SERVICE(_DATA_SYNC)` /
 `REQUEST_INSTALL_PACKAGES`。关于页原来那句"完全离线运行，不申请网络权限"已改成准确描述：
 待办只在本机、检查更新只访问 GitHub 且只发送版本号。
@@ -4352,10 +4355,14 @@ Manifest 相应恢复 `INTERNET`、`ACCESS_NETWORK_STATE`（原来被 `tools:nod
 
 旧 `UpdateDownloadService` 下载前会先取 `UpdateService.blogApkUrl()`
 （`latest.json` 里的 APK 直链），想借博客同站托管在国内直连。但博客源早已停止同步，
-停在 `todo-1.0.0.apk` —— 会出现「检查到 v1.0.14、实际下到 1.0.0 旧包」，
+停在 `todo-0.9.3.apk`（versionCode 32）—— 会出现「检查到 v1.0.14、实际下到 0.9.3 旧包」，
 系统安装器再以 versionCode 降级为由拒绝安装。
 本轮**删掉 `blogApkUrl()` 和优先下载逻辑**，下载严格用本次检查结果里的 `apkUrl`：
 GitHub 主源给资产直链，blog 只在**检查**阶段兜底并给出同版本直链，两处不会串版本。
+
+> 2026-11-07 补记：博客源随后已同步到 `1.0.14 / 48`，并同站托管了同版本 APK（见 §57.9）。
+> 但「下载只认本次检查结果的 `apkUrl`」这条设计不改 —— 兜底源自己返回的同站直链
+> 会经由 `parseBlog()` 正常进入 `AppUpdate.apkUrl`，不需要、也不应该再单独去取一次。
 
 ### 57.4 移除的隐私代码
 
@@ -4411,12 +4418,11 @@ cherry-pick 时必须逐行核对 Manifest：
   ```
   说明 `LaunchedEffect(Unit) → UpdateService.check()` 确实发起请求，
   且 403 时按设计回退兜底源，两条路径都没崩、没弹错、没打扰用户。
-- ⚠️ **由此暴露一个真问题（本轮未改，等 zuige 定方案）**：GitHub 未认证 API 限流是
-  60 次/小时/出口 IP，国内网络下 403 很常见；而 blog `latest.json` 仍停在 1.0.0，
-  `parseBlog()` 拿 1.0.0 与本机 1.0.14 一比就判 `UpToDate` ——
-  **兜底源等于「永远查不到新版」**。要真正闭环，要么同步 blog `latest.json`，
-  要么把 GitHub `releases.atom`（公开 feed，不受 API 限流）加为第二兜底，
-  并按 `todo-<version>.apk` 的固定命名构造资产直链。
+- ★ **由此暴露的问题已于同日闭环**（见 §57.9）：GitHub 未认证 API 限流 60 次/小时/出口 IP，
+  国内 403 常见；而当时 blog `latest.json` 还停在 `0.9.3 / 32`，
+  `parseBlog()` 拿 0.9.3 与本机 1.0.14 一比就判 `UpToDate` ——
+  **兜底源等于「永远查不到新版」**。现已把博客源同步到 `1.0.14 / 48` 并同站托管
+  同版本 APK，兜底链路恢复可用；`releases.atom` 第二兜底暂时不必加。
 - 「发现新版能否弹窗」仍未验证：远端 v1.0.14 == 本机 1.0.14，只会静默 `UpToDate`；
   要验得等下一个更高版本。
 
@@ -4433,3 +4439,41 @@ cherry-pick 时必须逐行核对 Manifest：
   `tag=v1.0.14 / draft=false / assets=[todo-1.0.14.apk]`，
   正是 `UpdateService.parse()` 读取的字段，主源链路数据口径正确。
 - tag 名由 zuige 在发布前单独确认（原选 v1.0.13，因与已装机的 1.0.13 撞号改为 v1.0.14）。
+
+### 57.9 博客兜底源同步与 CDN 404 缓存（同日补记）
+
+zuige 要求「blog 源也更新，文章里面的下载也更新」。改动落在 Hexo 仓库
+`/d/Workplace/hexo`（与 App 仓库分开提交），**App 侧代码一行未改**：
+
+| 文件 | 改动 |
+|---|---|
+| `source/downloads/oneline/latest.json` | `versionCode 32→48`、`versionName 0.9.3→1.0.14`；`apkUrl` 指向同站 `todo-1.0.14.apk`；`changelog` 写 1.0.14 本版 + 1.0.3～1.0.13 累计摘要 |
+| `source/downloads/oneline/todo-1.0.14.apk` | 新增，从 `dist/` 复制，sha256 `0970f52edeb432…`（与 Release 资产一致） |
+| `source/_posts/todo-app.md` | 「最新版国内直链」`todo-0.9.3.apk` → `todo-1.0.14.apk?v=48` |
+| `docs/COPY.md`（App 仓库） | 「国内镜像」同步到同一链接 |
+
+`UpdateService.parseBlog()` 只读 `versionName` + `apkUrl`，`versionCode` 仅作信息，
+所以 `versionName` 必须与本机比较口径一致 —— 写 1.0.14 才不会判 `UpToDate`。
+
+**部署踩的两个坑**：
+
+1. ★ `hexo clean` 会删 `public/` 上百个文件，触发 WorkBuddy 的 `safe-delete`
+   批量删除保护（`SAFE_DELETE_BULK_CONFIRM_REQUIRED`, count 50 / threshold 50）直接 FATAL；
+   第一次后台部署只跑到 `Deleted database.` 就断了，`gh-pages` 仍停在 10-21。
+   **跳过 clean**，直接 `npx hexo generate && npx hexo deploy` 即可
+   （两次分别 168 files / 0 files generated，后者是 Hexo 缓存命中，但 deploy 仍正确
+   提交了 17 + 4 个文件变更）。
+2. ★ 部署期间提前探测过一次新 APK 直链，当时 Pages 还没构建完 → 404 被 Cloudflare
+   缓存（`Cache-Control: max-age=14400`，4 小时）。源站文件本身是好的
+   （带参数请求返回 206 + `application/vnd.android.package-archive`）。
+   zuige 定的解法：`apkUrl` 与文章直链都加 `?v=48` 绕过缓存。
+   **`ApkInstaller` 的文件名由 version 构造、不从 URL 取**，所以带查询参数安全；
+   `UpdateDownloadService` 直接把 `apkUrl` 交给 `URL()`，也不受影响。
+
+线上复验：`gh-pages` = `a0b5a15`，raw 源文件与线上 `latest.json`（含不带参数 URL）
+都返回 `48 / 1.0.14` 且 `apkUrl` 带 `?v=48`；`todo-1.0.14.apk?v=48` 返回
+200 / 2,093,308 字节 / sha256 与源文件一致；文章页直链同为新值。
+
+> 遗留：`latest.json` 自身 CF 缓存 `max-age=600`，改动后最多 10 分钟全网一致；
+> 不带参数的原 APK 直链要等 4 小时缓存过期才恢复，期间请用带 `?v=48` 的链接。
+> 「发现新版弹窗」仍未验证（§57.7 末条），要等下一个更高版本。
