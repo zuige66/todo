@@ -4398,15 +4398,27 @@ cherry-pick 时必须逐行核对 Manifest：
 - ★ **最终包权限用 `aapt dump badging` 验证过**：`versionCode=48 / versionName=1.0.14`，
   `INTERNET` / `ACCESS_NETWORK_STATE` / `FOREGROUND_SERVICE_DATA_SYNC` /
   `REQUEST_INSTALL_PACKAGES` 全部进入打包后的 Manifest，合并期没有被任何规则摘掉。
-- ⚠️ **装机未完成**：设备 `10AE721UXN000QG` 处于 `mWakefulness=Asleep` +
-  `mDreamingLockscreen=true`，`adb install -r`、`adb push + shell pm install -r`、
-  唤醒后重试**三次均返回** `INSTALL_FAILED_ABORTED: User rejected permissions`。
-  上一轮 v1.0.13 的 shell pm install 能成功是因为当时设备已解锁；**锁屏状态下没有稳定绕过办法**。
-  临时 APK 已在 `/data/local/tmp/todo-1.0.14.apk`，解锁后执行
-  `adb shell pm install -r /data/local/tmp/todo-1.0.14.apk` 再 `adb shell rm` 掉即可。
-- ⚠️ 「冷启动自动检查是否真的发起请求」「发现新版能否弹出窗」还没有真机证据，
-  需装机后看 `logcat` 里的 `Oneline[Update]`。v1.0.14 Release 已发布，
-  本机装上 1.0.14 后检查结果是 `UpToDate` 静默；要验「发现新版弹窗」得等下一个更高版本。
+- ✅ **装机完成**：vivo 解锁后弹出「外部来源应用 / 继续安装」确认框，
+  用 `uiautomator dump` 的文本 bounds 勾选「已了解应用的风险检测结果」+ tap「继续安装」，
+  机上已是 `48 / 1.0.14`；冷启动 `AndroidRuntime:E` 无 FATAL；
+  关于页文本确认「检查更新」行与 `1.0.14 (48)` 都在。
+  （锁屏时 `adb install` / `shell pm install` 三次都被拒；解锁后靠 UI 点确认才行 ——
+  上一轮 v1.0.13 能直接 `pm install` 是恰好处于已确认状态，不是稳定规律。）
+- ★ **冷启动自动检查有真机日志证据**：
+  ```
+  11-07 16:05:10 W Oneline[Update]: HTTP 403: API rate limit exceeded for 183.13.68.229
+  11-07 16:05:10 I Oneline[Update]: GitHub 主源不可用，回退 blog 源：.../latest.json
+  ```
+  说明 `LaunchedEffect(Unit) → UpdateService.check()` 确实发起请求，
+  且 403 时按设计回退兜底源，两条路径都没崩、没弹错、没打扰用户。
+- ⚠️ **由此暴露一个真问题（本轮未改，等 zuige 定方案）**：GitHub 未认证 API 限流是
+  60 次/小时/出口 IP，国内网络下 403 很常见；而 blog `latest.json` 仍停在 1.0.0，
+  `parseBlog()` 拿 1.0.0 与本机 1.0.14 一比就判 `UpToDate` ——
+  **兜底源等于「永远查不到新版」**。要真正闭环，要么同步 blog `latest.json`，
+  要么把 GitHub `releases.atom`（公开 feed，不受 API 限流）加为第二兜底，
+  并按 `todo-<version>.apk` 的固定命名构造资产直链。
+- 「发现新版能否弹窗」仍未验证：远端 v1.0.14 == 本机 1.0.14，只会静默 `UpToDate`；
+  要验得等下一个更高版本。
 
 ### 57.8 发布（v1.0.14）
 
