@@ -4042,3 +4042,119 @@ FocusScheduler.schedule(context, nowMillis + remaining)
    如实写明「代码版本 X / Release 停在 Y」。
 
 版本 `44 / 1.0.10`。
+
+---
+
+## 54. 数据导出 / 本地备份（v1.0.11，versionCode 45）
+
+需求来自项目调研的 P3 候选：「纯本地、无网络，正好契合『不申请网络权限』的定位，
+也解决用户不敢清数据的顾虑」。zuige 拍板的三点：
+
+1. 恢复要给**三个模式**，不要替用户决定；
+2. 明文文件**会不会泄露**要讲清楚；
+3. **两道确认**：第一层选模式且可取消，第二层再确认才写入。
+4. 隐私政策只补说明文字，`PRIVACY_POLICY_VERSION` 保持 2，不再弹同意。
+
+### 54.1 结论先行：为什么不需要任何新权限
+
+| 事实 | 结论 |
+|---|---|
+| Manifest 无 `INTERNET`，`ACCESS_NETWORK_STATE` 被 `tools:node="remove"` 摘掉 | 备份全程离线，合规定位不变 |
+| SAF（`ACTION_CREATE_DOCUMENT` / `ACTION_OPEN_DOCUMENT`）由系统文件选择器返回 Uri | 不需要 `READ/WRITE_EXTERNAL_STORAGE`；App 只对自己拿到的那一个 Uri 读写 |
+| R8 全开，项目里没有 Gson / Moshi / kotlinx.serialization | 用 Android 平台自带 `org.json`，无反射模型类、无需 keep 规则、不引依赖 |
+
+导出文件是**明文 JSON**（`toString(2)` 缩进，人能直接读、能手工改）。
+代价是：**谁拿到文件谁就能读全部待办**。这句话写进了恢复弹窗、`docs/PRIVACY.md`
+和 App 内政策正文，不藏在文档角落。
+
+### 54.2 备份范围
+
+| 进备份 | 不进备份 | 理由 |
+|---|---|---|
+| `todos` 全表（**含归档**） | `oneline_focus` 的进行中 run | 归档是用户数据不是缓存；run 导出去再导入会复活一个「通知在走、界面没有」的僵尸计时 |
+| `focus_sessions` 全表 | `privacy_accepted_version` | 导入旧备份不该让用户重新弹同意，更不该被旧值绕过当前版本的同意 |
+| `oneline_settings` 全部键值 | `deletedAt` 之外的运行态 | 设置是配置；`deletedAt` 是历史列，照原样保留以对齐 schema |
+| `oneline_focus` 的 `last_minutes` / `last_count_up` | 数据库文件本体 `.db` | 这两个是设置；直接搬 db 会在跨 schema 版本时炸掉 |
+
+文件头：`format="oneline-backup"` / `version=1` / `exportedAtMillis` / `dbVersion=7`。
+版本不认就抛 `IllegalArgumentException` 并给用户看消息，**不猜着读** ——
+读坏一份备份比不读更糟。设置值带类型标签 `{ "t": "b|i|l|d|s", "v": ... }`，
+避免 `getInt` / `getLong` 读错类型让整份恢复失败。
+
+### 54.3 三种恢复模式
+
+| 模式 | 实现 | 代价 |
+|---|---|---|
+| 整份覆盖 | 先撤旧闹钟/通知 → `DELETE FROM todos` + `DELETE FROM focus_sessions` → 按**原 id** 插回 | 会丢现有数据；原 id 保住通知与组件里的 todoId 引用 |
+| 保留并导入 | 现有数据不动，导入行 `id = 0` 让 Room 重新自增后插入 | 可能重复；不重置主键就不会整批 ABORT |
+| 去重导入 | 现有数据不动，`@Insert(onConflict = IGNORE)` 按原 id 插入 | 同 id 已存在就跳过，不覆盖现有行 |
+
+三种模式**都会写回设置**（隐私同意版本除外），这一点在第一层弹窗里明写。
+
+### 54.4 两道确认
+
+- 第一层：显示导出时间、条数、明文风险提示、三个模式单选、设置也会恢复的说明；
+  「取消」/「下一步」。此时**一个字节都没动**。
+- 第二层：再问一次「确定要写入吗」，写清模式后果 +「不可撤销，建议先导出当前数据」；
+  只有这一步的「确认恢复」才调 `BackupManager.restore()`。
+
+### 54.5 恢复后的副作用链（少一步就是坏数据）
+
+```
+撤销旧闹钟/通知（仅整份覆盖）
+  → Room 事务：DELETE ×2 + 批量 INSERT（中途失败整批回滚）
+  → applySettings()（同步 commit，不 clear）
+  → ReminderScheduler.scheduleAllActiveBlocking() 重建全部提醒
+  → WidgetUpdater.refreshAsync() 刷桌面组件
+  → activity.recreate() 让 MainActivity 重读全部 SharedPreferences 设置
+```
+
+★ **`activity.recreate()` 不是可选项**：MainActivity 里二十多个设置都是
+`remember { mutableStateOf(SettingsRepo.xxx(this)) }`，不重建 Activity，
+恢复完之后设置页还会一直显示旧值，看起来像「恢复没生效」。
+
+### 54.6 踩到 / 避开的坑
+
+1. **`RoomDatabase.clearAllTables()` 自己会开事务**。套在 `withTransaction` 里就成了
+   嵌套事务。改用 DAO 的两条 `DELETE FROM`，由外层事务统一兜住。
+2. **SharedPreferences 绝对不能 `clear()`**。`oneline_settings` 里有隐私同意版本、
+   `oneline_focus` 里有进行中的专注 run，清掉会分别导致「重新弹同意」和
+   「正在跑的计时凭空消失、通知却还在走」。正确做法是「把可导出键里备份没有的删掉、
+   备份有的逐个写回」，等价于恢复设置快照又不碰运行态；用 `commit()` 同步落盘。
+3. **`org.json` 在 JVM 单测里是 android.jar stub**（`returnDefaultValues=true`），
+   `JSONObject()` 直接返回默认值，JSON 读写根本测不了。把格式校验、键过滤、
+   文件名生成抽到纯 Kotlin 的 `BackupRules` 补 7 条单测，流读写靠真机验收。
+4. `BackupCodec.putNullableLong` 必须返回 `this`，否则 `.put()` 链断在 `Unit` 上
+   （第一次编译就栽在这里）。
+5. R8 全开 + 无反射序列化 = 用 `org.json` 比引 Gson 更安全，不需要补 keep 规则。
+
+### 54.7 为什么 `PRIVACY_POLICY_VERSION` 不递增
+
+政策文本确实改了，但**没有新增收集行为、没有新增权限、没有新增第三方共享**：
+导出是用户主动发起的一次本地文件写入，App 仍不联网。按 §53 的规矩，
+`PrivacyScreen.kt` 文件头原写着「改内容就递增版本」—— 这条太粗，本轮改成
+「只有实质变更才递增」，并同步改 `docs/PRIVACY.md` 的双载体说明。
+上一版刚从 1 升到 2，再升一次会让老用户连续两次弹同意，属于无收益的打扰。
+
+### 54.8 测试与验收
+
+- `:app:testDebugUnitTest` 通过，本地单测 **322 → 329**（新增 `BackupRulesTest` 7 条）。
+- `assembleRelease` 产出 `dist/todo-1.0.11.apk`，`adb install -r` 装机，
+  机上 `versionCode=45 / versionName=1.0.11`，冷启动 `AndroidRuntime:E` 无 FATAL。
+- **真机端到端验收已跑通（主力 vivo V2324HA）**：
+  ① 设置 → 数据 → 导出备份 → 系统文件选择器给的预填名 `oneline-backup-20261107-0926.json`；
+  ② 保存后读出 24009 字节明文 JSON，`todos`（含 `archived=true` 的行）、`focusSessions`、
+  `settings`、`focusSettings` 四段齐全，`privacy_accepted_version` **0 次命中**；
+  ③ 从同一文件恢复，第一层弹窗显示导出时间 / 条数 / 明文提示 / 三种模式 / 取消 / 下一步，
+  第二层显示「再确认一次 + 去重导入 + 不可撤销」；确认后 App 重建回首页、待办完好、无崩溃。
+- 单测覆盖不到 `org.json`（见 54.6 第 3 条），所以真正的编解码靠上面这次真机验收；
+  「整份覆盖」「保留并导入」两种写入模式未实跑（会真实改动 zuige 的数据，留给他要时再验）。
+
+### 54.9 本轮明确没做
+
+- 不发布 tag / Release（沿用 §53.6 的「暂不发布」决定，tag 仍停 v1.0.2）。
+- 不动合规分支 `release/vivo-store`。
+- 不做自动定时备份 / 云同步 / 加密导出（都会改变「纯本地、零权限」的定位）。
+- 迁移 instrumented 测试仍未实跑（主力机上是 release 签名，debug 包会冲突并清数据）。
+
+版本 `45 / 1.0.11`。

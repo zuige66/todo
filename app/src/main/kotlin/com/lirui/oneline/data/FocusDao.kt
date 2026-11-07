@@ -2,6 +2,7 @@ package com.lirui.oneline.data
 
 import androidx.room.Dao
 import androidx.room.Insert
+import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import com.lirui.oneline.data.model.FocusSession
 import kotlinx.coroutines.flow.Flow
@@ -21,4 +22,14 @@ interface FocusDao {
 
     @Query("DELETE FROM focus_sessions WHERE id = :id")
     suspend fun deleteById(id: Long)
+
+    // ---------- 本地备份（v1.0.11）----------
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAll(items: List<FocusSession>)
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertAllIgnore(items: List<FocusSession>)
+
+    @Query("DELETE FROM focus_sessions")
+    suspend fun clearAll()
 }

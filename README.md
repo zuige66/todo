@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/zuige66/todo/releases"><img src="https://img.shields.io/badge/version-1.0.10-3F3F46?style=flat-square" alt="version" /></a>
+  <a href="https://github.com/zuige66/todo/releases"><img src="https://img.shields.io/badge/version-1.0.11-3F3F46?style=flat-square" alt="version" /></a>
   <img src="https://img.shields.io/badge/platform-Android-3DDC84?style=flat-square" alt="platform" />
   <img src="https://img.shields.io/badge/build-Kotlin%20%2B%20Compose-7F52FF?style=flat-square" alt="build" />
   <img src="https://img.shields.io/badge/storage-Room-4479A1?style=flat-square" alt="storage" />
@@ -26,7 +26,7 @@
 </p>
 
 <p align="center">
-  <sub>当前代码版本 <b>1.0.10（versionCode 44）</b>；GitHub Release 仍停在 v1.0.2，尚未发布新版。<br />
+  <sub>当前代码版本 <b>1.0.11（versionCode 45）</b>；GitHub Release 仍停在 v1.0.2，尚未发布新版。<br />
   原「博客源」直链指向 <code>todo-1.0.0.apk</code>，博客侧早已停止同步，故移除。</sub>
 </p>
 
@@ -69,6 +69,7 @@
 - [专注](#专注)
 - [外观](#外观)
 - [设置项一览](#设置项一览)
+- [数据导出与本地备份](#数据导出与本地备份)
 - [技术实现](#技术实现)
 - [项目结构](#项目结构)
 - [构建与运行](#构建与运行)
@@ -387,6 +388,20 @@ UI 每秒只是重绘。所以掉帧、卡顿、被系统冻结都不会让专�
 
 ---
 
+## 数据导出与本地备份
+
+「设置 → 数据」里可以把**待办（含归档）、全部专注记录和设置项**导出成一个文件，也可以从文件恢复。
+
+- **纯本地、零新增权限**：走 Android 系统文件选择器（SAF），只对你选中的那一个文件读写字节流；不申请 `INTERNET`、不上传、不读取其它文件。
+- **明文 JSON**：文件人能直接读、也能手工改，但**拿到文件的人就能看到你的全部待办**，请自行保管。
+- **恢复三选一**：整份覆盖 / 保留并导入（追加，可能重复）/ 去重导入（按 id 跳过重复）。两道确认：先看清条数与导出时间、选模式（可取消），再确认一次才写入。
+- **不进备份的两类东西**：正在进行的专注（避免复活成僵尸计时）、隐私政策同意版本（避免重新弹同意或绕过同意）。
+- 恢复后会重建全部提醒闹钟、刷新桌面小组件，并重建界面让设置项重新生效。
+
+> 与 `allowBackup=false` 不冲突：这里是**你主动发起**的一次文件导出，系统自动备份仍然关闭。
+
+---
+
 ## 技术实现
 
 | | |
@@ -398,7 +413,7 @@ UI 每秒只是重绘。所以掉帧、卡顿、被系统冻结都不会让专�
 | 导航 | 单 Activity，Compose 内部状态切换（4 个 tab + 专注覆盖层） |
 | 最低版本 | Android 8.0（API 26） |
 | 编译 / 目标 | API 36 |
-| 版本 | 1.0.10（versionCode 44） |
+| 版本 | 1.0.11（versionCode 45） |
 | 包名 | `com.lirui.oneline` |
 | 网络 | **不申请任何网络权限**（v1.0.0 起，检查更新已下线） |
 
@@ -436,7 +451,7 @@ NotificationActionReceiver  「完成」/「撤回」→ 复用同一个归档�
 
 ### 测试
 
-322 条本地单元测试，覆盖解析器、提醒引擎、专注计时与统计、通知标题、版本比较、格式化、时间与首页分组：
+329 条本地单元测试，覆盖解析器、提醒引擎、专注计时与统计、通知标题、备份规则、版本比较、格式化、时间与首页分组：
 
 ```
 Compose 之外的逻辑全部是纯函数，可以直接测
@@ -448,8 +463,12 @@ FocusRulesTest         21 条
 RangeMergeTest         11 条
 FocusStatsTest         11 条
 NotificationTitleTest   9 条
+BackupRulesTest         7 条
 AppTimeTest             3 条
 ```
+
+备份的 JSON 流读写依赖 Android 平台 `org.json`（本地单测里是 android.jar stub），
+所以单测只覆盖 `BackupRules` 的纯判定，真正的导出 / 恢复靠真机验收。
 
 Room 迁移不在本地单测覆盖范围内，另有一组 instrumented 测试
 `app/src/androidTest/.../AppDatabaseMigrationTest.kt`：用 `MigrationTestHelper` +
@@ -464,6 +483,10 @@ Room 迁移不在本地单测覆盖范围内，另有一组 instrumented 测试
 app/src/main/kotlin/com/lirui/oneline/
 ├── MainActivity.kt              入口，主题与设置状态
 ├── OnelineApp.kt                Application：初始化数据库与通知渠道
+├── backup/
+│   ├── BackupRules.kt           格式/版本校验、键过滤、文件名（纯函数）
+│   ├── BackupCodec.kt           明文 JSON 编解码 + 设置写回
+│   └── BackupManager.kt         SAF 流读写 + 三模式恢复 + 提醒/组件重建
 ├── data/
 │   ├── AppDatabase.kt           Room 数据库与迁移（v7）
 │   ├── TodoDao.kt
@@ -522,6 +545,7 @@ app/src/test/java/com/lirui/oneline/
 ├── parser/{ParserTest,RangeMergeTest}.kt
 ├── reminder/{ReminderEngineTest,NotificationTitleTest}.kt
 ├── focus/FocusRulesTest.kt
+├── backup/BackupRulesTest.kt
 └── util/{FormatTest,HomeGroupingTest,AppTimeTest,FocusStatsTest}.kt
 ```
 

@@ -289,8 +289,14 @@ android {
         //     补 v1→v7 迁移链测试（room-testing 2.8.4）。
         //   · 隐私政策定稿：不申请网络权限 / 单机免备案说明；PRIVACY_POLICY_VERSION 1→2；
         //     README 版本与测试数对齐；docs/COPYRIGHT.md 自更新描述勘误。
-        versionCode = 44
-        versionName = "1.0.10"
+        // 1.0.11（2026-11-07）—— 数据导出 / 本地备份（纯本地、零新增权限）：
+        //   · 设置 → 数据：导出（SAF CreateDocument）/ 恢复（SAF OpenDocument），
+        //     明文 JSON，含待办（含归档）、全部专注记录、设置；不备份进行中的专注与隐私同意版本。
+        //   · 恢复三模式：整份覆盖 / 保留并导入 / 去重导入（INSERT OR IGNORE）；
+        //     两道确认（选模式可取消 + 再确认才写入），恢复后重建提醒、刷组件、recreate 重读设置。
+        //   · 政策只补「导出是明文、纯本地不联网」说明，PRIVACY_POLICY_VERSION 保持 2，不再弹同意。
+        versionCode = 45
+        versionName = "1.0.11"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

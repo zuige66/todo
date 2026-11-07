@@ -7,6 +7,9 @@
 package com.lirui.oneline.ui.screen
 
 import android.Manifest
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
 import android.os.Build
 import android.widget.Toast
 
@@ -37,6 +40,8 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -83,6 +88,7 @@ import androidx.compose.material3.ripple
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Surface
@@ -131,6 +137,10 @@ import androidx.compose.ui.zIndex
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.lirui.oneline.backup.BackupCodec
+import com.lirui.oneline.backup.BackupData
+import com.lirui.oneline.backup.BackupManager
+import com.lirui.oneline.backup.BackupRules
 import com.lirui.oneline.data.model.Todo
 import com.lirui.oneline.keepalive.DeviceCompat
 import com.lirui.oneline.keepalive.KeepAlive
@@ -162,9 +172,11 @@ import com.lirui.oneline.util.NotificationStyle
 import com.lirui.oneline.util.Quotes
 import com.lirui.oneline.util.SettingsRepo
 import com.lirui.oneline.widget.WidgetUpdater
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
 private const val TAB_TODO = 0
@@ -1340,6 +1352,17 @@ private fun ArchivedList(
     }
 }
 
+/**
+ * 从 Compose 的 `LocalContext` 里剥出宿主 Activity。
+ * 本地恢复写回的是 SharedPreferences，而 MainActivity 里所有设置都是
+ * `remember { SettingsRepo.xxx() }` —— 不重建 Activity，界面会一直显示旧值。
+ */
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
+}
+
 @Composable
 private fun SettingsScreen(
     themeMode: Int,
@@ -1380,6 +1403,60 @@ private fun SettingsScreen(
     val context = LocalContext.current
     // Used to keep at least one board visible.
     val visibleBoardCount = boardOrder.count { it !in hiddenBoards }
+
+    // ── 数据导出 / 本地恢复（v1.0.11）──
+    // 全程走系统文件选择器（SAF）：不需要任何权限，也不新增网络权限。
+    val appContext = context.applicationContext
+    val activity = remember(context) { context.findActivity() }
+    val backupScope = rememberCoroutineScope()
+    var pendingRestore by remember { mutableStateOf<BackupData?>(null) }
+    var restoreMode by remember { mutableStateOf(BackupRules.RestoreMode.REPLACE) }
+    var showModeDialog by remember { mutableStateOf(false) }
+    var showFinalConfirm by remember { mutableStateOf(false) }
+    var restoreBusy by remember { mutableStateOf(false) }
+
+    val exportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument(BackupRules.MIME_TYPE)
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        backupScope.launch {
+            val outcome = runCatching {
+                val json = withContext(Dispatchers.IO) { BackupCodec.exportJson(appContext) }
+                withContext(Dispatchers.IO) { BackupManager.writeTo(appContext, uri, json) }
+                "备份已导出"
+            }
+            Toast.makeText(
+                appContext,
+                outcome.getOrElse { "导出失败：${it.message}" },
+                Toast.LENGTH_LONG
+            ).show()
+        }
+    }
+
+    val importLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        backupScope.launch {
+            val outcome = runCatching {
+                withContext(Dispatchers.IO) {
+                    BackupCodec.decode(BackupManager.readFrom(appContext, uri))
+                }
+            }
+            outcome.fold(
+                onSuccess = { data ->
+                    pendingRestore = data
+                    restoreMode = BackupRules.RestoreMode.REPLACE
+                    showModeDialog = true
+                },
+                onFailure = {
+                    Toast.makeText(
+                        appContext, "导入失败：${it.message}", Toast.LENGTH_LONG
+                    ).show()
+                }
+            )
+        }
+    }
 
     // ── 提醒可靠性的状态（v0.6 从 ReliabilitySection 上提）──
     // 上提的原因：分组标题要显示"有 N 项需处理"的徽章，徽章和卡片必须读同一份状态 ——
@@ -1895,7 +1972,62 @@ private fun SettingsScreen(
             }
         }
 
-        // ═══ 7. 测试（全页最后）═══
+        // ═══ 7. 数据（v1.0.11）：纯本地导出 / 恢复 ═══
+        item { SectionHeader("数据") }
+        item {
+            SettingsCard {
+                ListItem(
+                    headlineContent = { Text("导出备份", style = MaterialTheme.typography.bodyLarge) },
+                    supportingContent = {
+                        Text(
+                            "待办（含归档）、专注记录与设置写入一个文件；明文 JSON，不联网",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    },
+                    trailingContent = {
+                        Text(
+                            "导出",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    },
+                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                    modifier = Modifier.clickable {
+                        exportLauncher.launch(
+                            BackupRules.suggestedFileName(System.currentTimeMillis())
+                        )
+                    }
+                )
+                ItemDivider()
+                ListItem(
+                    headlineContent = { Text("从备份恢复", style = MaterialTheme.typography.bodyLarge) },
+                    supportingContent = {
+                        Text(
+                            "先看清备份内容、选好恢复方式，再经两道确认才写入",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    },
+                    trailingContent = {
+                        Text(
+                            "选择",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    },
+                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                    modifier = Modifier.clickable {
+                        importLauncher.launch(
+                            arrayOf(
+                                "application/json", "text/plain",
+                                "application/octet-stream", "*/*"
+                            )
+                        )
+                    }
+                )
+            }
+        }
+
+        // ═══ 8. 测试（全页最后）═══
         item { SectionHeader("测试") }
         item {
             SettingsCard {
@@ -1935,6 +2067,120 @@ private fun SettingsScreen(
         // 「关于」v0.4 起是独立的第四个导航项，设置页不再保留入口 ——
         // 两个入口指向同一页，只会让"关于到底在哪"变成一个问题。
         item { Spacer(Modifier.height(24.dp)) }
+    }
+
+    // ── 恢复的两层确认（zuige 2026-11-07 要求）──
+    // 第一层：看清楚备份内容、选恢复模式，随时可「取消」，一个字节都不改。
+    // 第二层：再问一次「确定要写入吗」，才真正动数据。
+    val restoreData = pendingRestore
+    if (showModeDialog && restoreData != null) {
+        AlertDialog(
+            onDismissRequest = { showModeDialog = false; pendingRestore = null },
+            title = { Text("恢复这份备份？") },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    Text(
+                        "导出时间：${BackupRules.formatTime(restoreData.exportedAtMillis)}",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Text(
+                        BackupRules.describe(restoreData.todos.size, restoreData.sessions.size),
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        "文件是明文 JSON，拿到文件的人就能读；本应用不联网、不上传，" +
+                            "保存位置由你在系统文件选择器里决定。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    BackupRules.RestoreMode.values().forEach { mode ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .clickable { restoreMode = mode }
+                                .padding(vertical = 4.dp)
+                        ) {
+                            RadioButton(selected = restoreMode == mode, onClick = null)
+                            Spacer(Modifier.width(6.dp))
+                            Column {
+                                Text(mode.label, style = MaterialTheme.typography.bodyLarge)
+                                Text(
+                                    mode.detail,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "三种模式都会一并恢复设置项；隐私同意状态与进行中的专注保持不变。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showModeDialog = false; pendingRestore = null }) {
+                    Text("取消")
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showModeDialog = false; showFinalConfirm = true }) {
+                    Text("下一步")
+                }
+            }
+        )
+    }
+
+    if (showFinalConfirm && restoreData != null) {
+        AlertDialog(
+            onDismissRequest = { showFinalConfirm = false; pendingRestore = null },
+            title = { Text("再确认一次") },
+            text = {
+                Text(
+                    "将按「${restoreMode.label}」写入备份数据：${restoreMode.detail}。" +
+                        "\n\n此操作不可撤销，建议先导出一份当前数据。"
+                )
+            },
+            dismissButton = {
+                TextButton(onClick = { showFinalConfirm = false; pendingRestore = null }) {
+                    Text("取消")
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !restoreBusy,
+                    onClick = {
+                        restoreBusy = true
+                        val target = restoreData
+                        val mode = restoreMode
+                        backupScope.launch {
+                            val outcome = runCatching {
+                                withContext(Dispatchers.IO) {
+                                    BackupManager.restore(appContext, target, mode)
+                                }
+                            }
+                            Toast.makeText(
+                                appContext,
+                                outcome.getOrElse { "恢复失败：${it.message}" },
+                                Toast.LENGTH_LONG
+                            ).show()
+                            restoreBusy = false
+                            showFinalConfirm = false
+                            pendingRestore = null
+                            // 只有真的写成功了才重建：MainActivity 里全部设置都是
+                            // remember { SettingsRepo.xxx() }，不重建界面读不到新值。
+                            if (outcome.isSuccess) activity?.recreate()
+                        }
+                    }
+                ) { Text("确认恢复") }
+            }
+        )
     }
 }
 
