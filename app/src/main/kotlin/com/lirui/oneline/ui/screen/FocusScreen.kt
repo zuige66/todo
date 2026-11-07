@@ -1259,6 +1259,27 @@ private fun WeekBars(days: List<DayTotal>, today: LocalDate) {
     val accent = MaterialTheme.colorScheme.primary
     val maxSeconds = (days.maxOfOrNull { it.seconds } ?: 0).coerceAtLeast(1)
 
+    // ★ 只画有数据的实心柱。旧版每天先铺一根 fillMaxSize 的浅色"轨道"当占位，
+    //   zuige 反馈 0 分钟的日子不该有柱子 → 轨道整段删掉。
+    //   7 个刻度槽与星期标签保留（日期轴不错位），maxSeconds / frac 不动，
+    //   柱高比例和今天高亮（柱顶数字 + 星期标签的主色）都不受影响。
+    //   全空时给一句空态文案，否则整块卡片一片白，看着像渲染失败。
+    if (days.none { it.seconds > 0 }) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(140.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                "最近 7 天还没有专注记录",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        return
+    }
+
     Row(
         Modifier
             .fillMaxWidth()
@@ -1292,18 +1313,8 @@ private fun WeekBars(days: List<DayTotal>, today: LocalDate) {
                         .fillMaxWidth(),
                     contentAlignment = Alignment.BottomCenter
                 ) {
-                    // 轨道：没有数据时也有 7 根浅色柱子，这一块才读得出"这是柱状图"，
-                    // 而不是一片空卡片（第一版就是一片空，看着像渲染失败）。
-                    // 今天那根轨道染一点主色，扫一眼就知道"最后一根是今天"。
-                    Box(
-                        Modifier
-                            .fillMaxSize()
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(
-                                if (isToday) accent.copy(alpha = 0.12f)
-                                else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f)
-                            )
-                    )
+                    // 无数据的日子这里什么都不画：留空槽位，但不再出现浅色占位柱。
+                    // 「今天是最后一根」靠底部星期标签的主色 + 字重表示，不靠轨道。
                     if (day.seconds > 0) {
                         val frac = (day.seconds.toFloat() / maxSeconds).coerceIn(0.08f, 1f)
                         Box(
