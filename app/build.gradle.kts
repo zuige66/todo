@@ -278,8 +278,19 @@ android {
         //     自定义值落到 actualSeconds 并同步修正 endedAtMillis。通知栏结束仍按旧行为直接记入。
         //   · 切回 Todo 页时 FAB 背后的方形阴影：去掉 AnimatedVisibility 的 scaleIn/scaleOut，
         //     只留淡入淡出，避免 graphicsLayer 几何变换让 elevation outline 回退成矩形。
-        versionCode = 43
-        versionName = "1.0.9"
+        // 1.0.10（2026-11-07）—— 可靠性与文档对齐：
+        //   · FAB 方形阴影二次修：fade 也走 graphicsLayer，去掉 scale 无效；改为把
+        //     FloatingActionButton 的 elevation 四档显式归零，直接消除阴影源。
+        //   · FocusEngine.restore() 过点的倒计时立刻排 now 闹钟 → 走 complete() 落库清通知，
+        //     不再「只补通知就 return」导致永不落库、通知常驻。
+        //   · ReminderScheduler 加 Mutex 串行闸（可等待两路）+ 单线程 scope（fire-and-forget
+        //     两路）；scheduleAllActiveBlocking 逐条 runCatching 隔离，坏数据不拖垮整批。
+        //   · AppDatabase.ALL_MIGRATIONS 暴露给 instrumented 的 MigrationTestHelper，
+        //     补 v1→v7 迁移链测试（room-testing 2.8.4）。
+        //   · 隐私政策定稿：不申请网络权限 / 单机免备案说明；PRIVACY_POLICY_VERSION 1→2；
+        //     README 版本与测试数对齐；docs/COPYRIGHT.md 自更新描述勘误。
+        versionCode = 44
+        versionName = "1.0.10"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -358,6 +369,8 @@ dependencies {
     androidTestImplementation("androidx.test.ext:junit:1.1.5")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+    // Room 迁移测试：MigrationTestHelper 需要 schemas/ 1~7.json（已导出）才能建旧版本库。
+    androidTestImplementation("androidx.room:room-testing:2.8.4")
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 }

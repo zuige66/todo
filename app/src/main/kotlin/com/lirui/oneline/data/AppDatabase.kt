@@ -117,6 +117,16 @@ abstract class AppDatabase : RoomDatabase() {
             return false
         }
 
+        /**
+         * 迁移链唯一清单（v1.0.10）。
+         * instrumented 的 `MigrationTestHelper` 必须拿**同一组** Migration 对象，
+         * 否则测的是"另一条链"；所以从 private 提成数组，运行时和两侧测试共用。
+         */
+        val ALL_MIGRATIONS = arrayOf(
+            MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4,
+            MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7
+        )
+
         fun get(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -124,10 +134,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "oneline.db"
                 )
-                    .addMigrations(
-                        MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4,
-                        MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7
-                    )
+                    .addMigrations(*ALL_MIGRATIONS)
                     .build().also { INSTANCE = it }
             }
         }

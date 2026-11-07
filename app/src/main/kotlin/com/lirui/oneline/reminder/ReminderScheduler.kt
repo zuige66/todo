@@ -5,12 +5,15 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.util.Log
 import com.lirui.oneline.data.AppDatabase
 import com.lirui.oneline.util.SettingsRepo
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * Encloses all AlarmManager scheduling for a todo's reminders.
@@ -18,7 +21,25 @@ import kotlinx.coroutines.launch
  */
 object ReminderScheduler {
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private const val TAG = "ReminderScheduler"
+
+    /**
+     * 重建/重排的**唯一串行闸**（v1.0.10）。
+     *
+     * 四个入口可能同时跑：MainActivity 冷启动、设置页 onRescheduleReminders、
+     * ReminderWatchdog（12h）、BootReceiver / MY_PACKAGE_REPLACED。
+     * 它们是不同协程作用域，没有闸时会并发对同一批 PendingIntent 又 cancel 又 set，
+     * 最后谁赢取决于时序。这里用一把 Mutex 让整批重建互斥。
+     *
+     * ★ Mutex **不可重入**：公开的 [scheduleBlocking] 持锁后调
+     *   [scheduleBlockingLocked]（不加锁），[scheduleAllActiveBlocking] 也只持一次锁，
+     *   否则全量重建内部逐条调用会自己把自己锁死。
+     */
+    private val gate = Mutex()
+
+    // fire-and-forget 的两路（scheduleFor / scheduleAllActive）再叠一层单线程兜底；
+    // 能等的那两路由 gate 收口。两者不冲突。
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO.limitedParallelism(1))
 
     private fun requestCode(todoId: Long, kindOrdinal: Int): Int = (todoId * 10 + kindOrdinal).toInt()
 
@@ -51,6 +72,22 @@ object ReminderScheduler {
         hasExactTime: Boolean,
         startAtMillis: Long? = null,
         endAtMillis: Long? = null
+    ) {
+        gate.withLock {
+            scheduleBlockingLocked(
+                context, todoId, dueAtMillis, hasExactTime, startAtMillis, endAtMillis
+            )
+        }
+    }
+
+    /** 不带锁的实作；只允许被已经持有 [gate] 的调用方使用（见 [gate] 的重入说明）。 */
+    private fun scheduleBlockingLocked(
+        context: Context,
+        todoId: Long,
+        dueAtMillis: Long,
+        hasExactTime: Boolean,
+        startAtMillis: Long?,
+        endAtMillis: Long?
     ) {
         // Cancel any previously set reminders for this todo.
         cancelForId(context, todoId)
@@ -121,12 +158,21 @@ object ReminderScheduler {
      * 用 fire-and-forget 的版本可能整批闹钟还没排完就被回收（这就是"开机后提醒偶尔丢"的成因）。
      */
     suspend fun scheduleAllActiveBlocking(context: Context) {
-        val dao = AppDatabase.get(context).todoDao()
-        dao.getActiveAll().forEach { todo ->
-            todo.dueAtMillis?.let { due ->
-                scheduleBlocking(
-                    context, todo.id, due, todo.hasExactTime, todo.startAtMillis, todo.endAtMillis
-                )
+        gate.withLock {
+            val dao = AppDatabase.get(context).todoDao()
+            dao.getActiveAll().forEach { todo ->
+                todo.dueAtMillis?.let { due ->
+                    // ★ 逐条隔离：一条脏数据 / 某个 ROM 的 AlarmManager 抛异常，
+                    //   不该让后面几十条待办的提醒整批哑掉。
+                    runCatching {
+                        scheduleBlockingLocked(
+                            context, todo.id, due, todo.hasExactTime,
+                            todo.startAtMillis, todo.endAtMillis
+                        )
+                    }.onFailure { e ->
+                        Log.w(TAG, "skip rebuild for todo ${todo.id}", e)
+                    }
+                }
             }
         }
     }

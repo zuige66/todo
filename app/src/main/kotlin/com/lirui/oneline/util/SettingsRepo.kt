@@ -526,8 +526,14 @@ object SettingsRepo {
     // 首次启动流程见 MainActivity：未同意 → 只渲染 ConsentDialog，不申请任何权限、
     // 不排闹钟、不建数据库以外的任何副作用。
 
-    /** 当前隐私政策版本。政策内容有实质变更时 +1，老用户会被重新要求同意。 */
-    const val PRIVACY_POLICY_VERSION = 1
+    /**
+     * 当前隐私政策版本。政策内容有实质变更时 +1，老用户会被重新要求同意。
+     *
+     * v2（2026-11-07）：修正 App 内页脚的「X ICP 备 XXXXXXXX 号-XX」占位符为
+     * 单机免备案说明；同步更新生效日期与 `docs/PRIVACY.md`。
+     * 已同意过 v1 的用户下次打开会重新看到一次同意弹窗 —— 这是有意为之。
+     */
+    const val PRIVACY_POLICY_VERSION = 2
 
     /** 用户是否已同意**当前版本**的隐私政策。 */
     fun privacyAccepted(context: Context): Boolean =

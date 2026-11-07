@@ -72,6 +72,7 @@ import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -475,11 +476,13 @@ private fun TodoAppContent(
                 }
             },
             floatingActionButton = {
-                // ★ 只淡入淡出、不做缩放（v1.0.9）：scaleIn/scaleOut 走 graphicsLayer 的
-                //   几何变换，而 M3 FAB 自带 shadowElevation，变换首帧 outline 会短暂回退
-                //   成矩形轮廓 —— 切回 Todo 时「加号背后正方形阴影闪一下」。
-                //   和 DESIGN.md §32.1 那个灰色方块同源：都是方形容器边界露了出来。
-                //   原本要的只是「别啪地消失」，纯淡入淡出已经满足，且不动几何。
+                // ★ 方形阴影（v1.0.10）：上一版只去掉 scaleIn/scaleOut 没用 —— fadeIn/fadeOut
+                //   **同样**通过 graphicsLayer 建 layer，而 M3 FAB 自带 shadowElevation，
+                //   这个 layer 的 outline 默认是矩形，动画那一两帧阴影就按矩形画出来，
+                //   动画结束 layer 合并才恢复。所以根因是「带 elevation 的 FAB 套在
+                //   AnimatedVisibility 里」，与缩放无关。
+                //   确定性修法 = 消除阴影源：显式把 elevation 四档全归零，
+                //   layer outline 是方是圆都无所谓；淡入淡出保留（不"啪"地消失）。
                 AnimatedVisibility(
                     visible = tab == TAB_TODO,
                     enter = fadeIn(tween(180)),
@@ -488,7 +491,15 @@ private fun TodoAppContent(
                     // 2026-11-05 按 zuige 要求「改回去」：还原经典 M3 的 56dp FAB（0.9.3 观感）。
                     // M3E 的 80dp Medium FAB 只试了一版，视觉上过重；形状阶 / 字阶的其余改动保留。
                     // 图标回默认 24dp，列表底部留白同步从 96dp 收回 8dp（见下方 contentPadding）。
-                    FloatingActionButton(onClick = { showAdd = true }) {
+                    FloatingActionButton(
+                        onClick = { showAdd = true },
+                        elevation = FloatingActionButtonDefaults.elevation(
+                            defaultElevation = 0.dp,
+                            pressedElevation = 0.dp,
+                            focusedElevation = 0.dp,
+                            hoveredElevation = 0.dp
+                        )
+                    ) {
                         Icon(Icons.Default.Add, contentDescription = "添加")
                     }
                 }

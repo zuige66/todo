@@ -11,9 +11,12 @@
 ## 二、关键决策（都有理由，别随手改）
 
 **1. 代码基线用 `release/vivo-store`，不用 `main`**
-zuige 的原话是「main 里面是不是有自动检测更新的要联网」——对。main 有应用内检查更新（GitHub API，需 INTERNET），
-合规分支已删自更新、无网络权限、`allowBackup=false`。软著材料必须与 `docs/PRIVACY.md` 口径一致，
-否则材料里写「联网检测更新」而政策写「不申请网络权限」，自己打自己。
+★ 2026-11-07 勘误：原先这里写「main 有应用内检查更新、需 INTERNET」，是**过期描述**。
+应用内检查更新自 v1.0.0 起已整体下线，**两个分支的 Manifest 都不声明 INTERNET**，
+`allowBackup` 也都是 `false`；合规分支另有隐私弹窗与上架文档。
+选合规分支做基线是因为软著材料必须跟商店上架包一致，**不是因为网络权限有差异**。
+软著材料仍必须与 `docs/PRIVACY.md` 口径一致，否则材料里写「联网检测更新」
+而政策写「不申请网络权限」，自己打自己。
 
 **2. 源程序量按 13088 行填，不是 13077**
 - `find ... | wc -l` = 13077（按换行符数，11 个文件末尾无换行被少算）
@@ -40,7 +43,7 @@ zuige 指定 V1.0.2。审查不核对 versionName，不影响受理；但若证�
 | 文档鉴别材料 | 32 | 封面（无页眉页脚）/ 目录（罗马页码）/ 正文（页眉+阿拉伯页码从1） |
 | 软件设计说明书 | 28 | 10 章 + 3 附录，含 5 张图表 |
 | 产品使用手册 | 21 | 13 章，嵌 5 张真实截图（`docs/screenshots/`） |
-| 软件著作权申请表 | 7 | 全部字段成表 |
+| 软件著作权申请表 | 9 | 全部字段成表 |
 
 分节格式靠 `docx_common.py` 实现：`add_cover` → `add_toc_section`（`pgNumType` 设 upperRoman）→ `start_body`
 （`is_linked_to_previous = False` + `pgNumType` decimal start=1）。页脚页码用 PAGE 域，目录用 TOC 域。
@@ -117,6 +120,90 @@ python-docx + pywin32。
   列入版权登记失信名单及个人征信记录。本套文档由 AI 协助撰写，**与声明不符**。
   已把这条风险如实写进 README、申请表、两个 txt；由申请人本人核实后自行决定是否签署，
   或本人实质性重写文档，或咨询版权中心 010-61090099。不提供任何规避话术。
+
+### 20:10 补记（vivo 商店上架基础信息）
+
+- zuige 在 vivo 后台填资料，要「包名 + 一些基础信息，加到 txt」。
+  新增 `output/软著材料/vivo上架基础信息.txt`（手写、非脚本生成）。
+  ★ 没有塞进 `表单填写速查.txt`：那份是**版权中心表单专用**，且由 `gen_text.py` 生成，
+  手改会在重跑时被覆盖；两套后台字段混在一起也容易填错。
+- aapt 实测 `dist/todo-1.0.1.apk`：包名 `com.lirui.oneline`、35 / 1.0.1、
+  minSdk 26、targetSdk 36、无 INTERNET；权限 9 条（含 WorkManager / AndroidX
+  合并进来的 `WAKE_LOCK` 与 `DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION`）。
+- ★★ **两个现存 APK 都不能上架**：`todo-1.0.1.apk` 构建于 10-26 23:22，
+  而合规分支最后一次改代码是 11-04 23:37（`3533fcc` 合入专注计时 + 统计）；
+  `todo-1.0.2.apk` 是 main（36 / 1.0.2），缺合规分支独有的隐私政策弹窗。
+  上架前必须在 `D:/Workplace/Todo-vivo-store` 重跑 `:app:assembleRelease`。
+- vivo 口径：`doc/947` 个人开发者资质是「版权证明**或**计算机软著二选一」，
+  与 `doc/62` 的「软著 / APP 电子版权证书 / 软著认证证书三选一」不一致 ——
+  前者是后出的个人开发者文档，以提审页实际可选项为准。
+  `doc/722` 单机免 APP 备案但需单机承诺函 + 平台单机测试。
+  `doc/1025` 隐私政策托管由 vivo 服务器生成并托管「唯一、长期有效」链接，
+  **不需要自有域名、不需要备案、不需要写 HTML**；但要求 APK 内跳转链接设为
+  该托管链接，本项目 `PrivacyScreen` 是本地文本页，是否必须改外链待确认。
+- `doc/1080` 是 vivo 官方 MCP（文档点名 WorkBuddy），只读：审核状态 / 版本状态 /
+  驳回原因 / 应用数据 / 平台通知 / 开放能力；不支持提交审核、改资料、发布。
+  token 每账号仅 1 个有效、有效期 3 个月。
+  ★ 官方指引写「清空原内容粘贴」，照做会删掉 `~/.workbuddy/mcp.json` 里已有的
+  4 个自定义 MCP（adb-tui / windows-mcp / rea / mate），**必须只追加那一条**。
+- 顺手修正：申请表 PDF 实际 **9 页**（签章页材料更新后重出过），
+  本文件与 `output/软著材料/README.md` 原写 7 页已过期。
+
+### 20:17 补记（隐私政策定稿 + 合规版重打包）
+
+- zuige 确认实名「黎锐森」、邮箱 `liruisen200@163.com`，生效日期按定稿日填
+  **2026 年 11 月 5 日**。合规 worktree 两份文件同时改：
+  `docs/PRIVACY.md`（头部三行 + 第十节邮箱 + 附录）与
+  `PrivacyScreen.kt`（第九节邮箱 / 博客、`POLICY_EFFECTIVE_DATE`、页脚备案号占位）。
+- ★ App 内隐私政策不是只有 md：文案硬编码在 `PrivacyScreen.kt`。
+  改政策必须两边一起改，并**递增 `SettingsRepo.PRIVACY_POLICY_VERSION`（1 → 2）**，
+  否则已同意过的老用户不会重新看到弹窗（文件头注释就是这么要求的）。
+- ★ 顺带修掉两处会在审核时出事的问题：
+  1. 页脚 / 附录的 `X ICP 备 XXXXXXXX 号-XX` 占位符 → 改为单机免备案说明
+     （依据 `doc/722`）；
+  2. `docs/PRIVACY.md` 写后台常驻「默认关闭」，但代码 `keepAliveEnabled`
+     默认 **true**（zuige 2026-10-23 定首装即常驻）→ 按代码事实统一为「默认开启」。
+- ★ 打包踩坑：`D:/Workplace/Todo-vivo-store` 没有 `keystore.properties`
+  （gitignored，worktree 不共享），首次构建 `validateSigningRelease` 报
+  「Keystore file not set for signing config release」。解法：从主工作区复制该文件
+  到 worktree，把 `storeFile` 改成指向主工作区 `app/oneline-release.keystore`
+  的**绝对路径**（不复制密钥本体），该文件已被 `.gitignore:18` 排除。
+- 结果：`BUILD SUCCESSFUL in 2m 24s`，产物覆盖 `dist/todo-1.0.1.apk`
+  （2,060,020 B，SHA256 `120bbccd…`）。aapt 核对 35 / 1.0.1 / minSdk 26 /
+  targetSdk 36 / 无 INTERNET；apksigner v2+v3 通过、v1 false；
+  dex 内可检出 `liruisen200@163.com`，确认新文案进包。
+- **未装机**：手机当前是 1.0.2 / versionCode 36，装 35 会
+  `INSTALL_FAILED_VERSION_DOWNGRADE`，需先卸载（会清数据），不擅自做。
+- 合规 worktree 三个文件有未提交改动（`PrivacyScreen.kt` / `SettingsRepo.kt` /
+  `docs/PRIVACY.md`），未提交、未 push。
+
+### 20:32 补记（vivo 展示信息页 + 核准(备案)选错）
+
+- zuige 发来三张 vivo 后台截图：商店图标 / 一句话简介 / 应用简介（必填且报错）、
+  官网链接 + 对外联系方式、核准(备案)信息。
+- ★★ **核准(备案)页选了「是」是错的**：截图红字「暂无法查询到核准(备案)记录」，
+  因为本项目单机无 INTERNET、根本没有备案号。应改选「否」-单机 +
+  上传单机承诺函（`doc/722`），备案号框与「日剩余查询次数 3」都不用管。
+  主体证件号 `440***030` / 姓名 `黎*森` 是实名自动带出，选「否」后隐藏。
+- ★ 图标：官方 `doc/12` 2.7.1 要 256/512 的**直角**图标、≤500KB；
+  2.7.2 不得有黑边 / 白边；2.7.6 商店 ICON 需与桌面 ICON 一致。
+  APK 内最大只有 `mipmap-xxxhdpi/ic_launcher.png` **192×192**，低于 256 下限，
+  所以后台不会自动填充、必须手传。
+  从 `icon1_1024_transparent.png`（1024 RGBA 透明）生成两版 512×512 不透明 PNG：
+  - `dist/vivo-store-icon-512-square.png`：品牌紫 `#6750A4` 铺满正方形 + 白对勾，
+    19KB，最符合「直角、无白边」→ **主推**
+  - `dist/vivo-store-icon-512.png`：白底 + 原波浪徽章，23KB，形状与桌面完全一致 → 备选
+  ⚠️ 两难如实标注：square 版形状与桌面波浪不同，可能触 2.7.6；白底版可能触
+  2.7.2「白边」。若因一致性被驳回，需把 APK 内图标也换直角版再重打包
+  （记忆红线：满幅构图不要拆 adaptive icon）。
+- 字段字数：一句话简介 **限 17 字**（主推 15 字「一句话记待办，自动解析日期提醒」）；
+  应用简介页面提示 ≥20 字，但 `doc/12` 2.6.1 要求**不低于 50 字**，已按 266 字写；
+  `doc/12` 2.5 禁止简介含知名品牌 / 蹭词叠词。官网链接 / 对外联系方式非必填，
+  邮箱 `liruisen200@163.com` 共 19 字符，刚好在 20 字限内。
+- 顺手修：`vivo上架基础信息.txt` 第三节前台服务理由原写「默认关闭」，
+  与代码 `keepAliveEnabled` 默认 true 不符，已改「默认开启」。
+- 全部字段与两版图标路径已同步进 `output/软著材料/vivo上架基础信息.txt`、
+  本 README 第十节。未改代码、未重新打包。
 
 ## 七、待办
 

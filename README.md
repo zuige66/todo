@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/zuige66/todo/releases"><img src="https://img.shields.io/badge/release-v1.0.2-3F3F46?style=flat-square" alt="release" /></a>
+  <a href="https://github.com/zuige66/todo/releases"><img src="https://img.shields.io/badge/version-1.0.10-3F3F46?style=flat-square" alt="version" /></a>
   <img src="https://img.shields.io/badge/platform-Android-3DDC84?style=flat-square" alt="platform" />
   <img src="https://img.shields.io/badge/build-Kotlin%20%2B%20Compose-7F52FF?style=flat-square" alt="build" />
   <img src="https://img.shields.io/badge/storage-Room-4479A1?style=flat-square" alt="storage" />
@@ -20,11 +20,14 @@
 <p align="center">
   <a href="https://github.com/zuige66/todo/releases/latest"><b>下载 APK（GitHub）</b></a>
   &nbsp;·&nbsp;
-  <a href="https://blog.zuiges.com/downloads/oneline/todo-1.0.0.apk"><b>下载 APK（博客源）</b></a>
-  &nbsp;·&nbsp;
   <a href="DESIGN.md">设计文档</a>
   &nbsp;·&nbsp;
   <a href="QUOTES.md">文案池</a>
+</p>
+
+<p align="center">
+  <sub>当前代码版本 <b>1.0.10（versionCode 44）</b>；GitHub Release 仍停在 v1.0.2，尚未发布新版。<br />
+  原「博客源」直链指向 <code>todo-1.0.0.apk</code>，博客侧早已停止同步，故移除。</sub>
 </p>
 
 ---
@@ -395,7 +398,7 @@ UI 每秒只是重绘。所以掉帧、卡顿、被系统冻结都不会让专�
 | 导航 | 单 Activity，Compose 内部状态切换（4 个 tab + 专注覆盖层） |
 | 最低版本 | Android 8.0（API 26） |
 | 编译 / 目标 | API 36 |
-| 版本 | 1.0.1（versionCode 35） |
+| 版本 | 1.0.10（versionCode 44） |
 | 包名 | `com.lirui.oneline` |
 | 网络 | **不申请任何网络权限**（v1.0.0 起，检查更新已下线） |
 
@@ -433,7 +436,7 @@ NotificationActionReceiver  「完成」/「撤回」→ 复用同一个归档�
 
 ### 测试
 
-318 条单元测试，覆盖解析器、提醒引擎、专注计时与统计、通知标题、版本比较、格式化、时间与首页分组：
+322 条本地单元测试，覆盖解析器、提醒引擎、专注计时与统计、通知标题、版本比较、格式化、时间与首页分组：
 
 ```
 Compose 之外的逻辑全部是纯函数，可以直接测
@@ -441,12 +444,17 @@ ParserTest            184 条
 FormatTest             29 条
 HomeGroupingTest       28 条
 ReminderEngineTest     26 条
-FocusRulesTest         17 条
+FocusRulesTest         21 条
 RangeMergeTest         11 条
 FocusStatsTest         11 条
 NotificationTitleTest   9 条
 AppTimeTest             3 条
 ```
+
+Room 迁移不在本地单测覆盖范围内，另有一组 instrumented 测试
+`app/src/androidTest/.../AppDatabaseMigrationTest.kt`：用 `MigrationTestHelper` +
+`app/schemas/1~7.json` 建旧版本库，验证 v1→v7 全链、v4→v5 的 `deletedAt DEFAULT NULL`
+和 v6→v7 建表列对齐。需要连设备跑 `:app:connectedDebugAndroidTest`。
 
 ---
 

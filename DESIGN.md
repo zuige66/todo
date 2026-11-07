@@ -3898,3 +3898,147 @@ Todo 时「加号背后方形阴影闪一下」。和 `DESIGN.md §32.1` 那个�
    不能悄悄改语义。
 
 版本 `43 / 1.0.9`。
+
+---
+
+## 53. v1.0.10（2026-11-07）：可靠性四项 · FAB 阴影二次修 · 文档对齐
+
+zuige 把上一轮调研报告里的「最该先修 5 件」整批点名要修，并反馈 FAB 方形阴影**还在**。
+发布（tag/Release）按 zuige 拍板**暂不做**，合规分支不动。
+
+### 53.1 FAB 阴影：上一轮的修法是错的
+
+§52.4 把根因归给 `scaleIn/scaleOut` 的 `graphicsLayer` 几何变换，去掉缩放后
+用户实测**依然闪烁**，说明推断不成立。
+
+重新看代码：`fadeIn()/fadeOut()` **同样**通过 `graphicsLayer` 建 layer（alpha 也是
+一个图形层），而 M3 `FloatingActionButton` 自带 `shadowElevation`。这个 layer 的
+outline 默认是矩形，动画那一两帧 elevation 阴影按矩形绘制；动画结束 layer 合并，
+outline 才恢复成 FAB 的形状 —— 于是「加号背后方形阴影闪一下」。
+**与缩放无关**，只与「带 elevation 的组件套在 AnimatedVisibility 里」有关。
+
+新修法不再调动画参数，而是**消除阴影源**：
+
+```kotlin
+FloatingActionButton(
+    onClick = { showAdd = true },
+    elevation = FloatingActionButtonDefaults.elevation(
+        defaultElevation = 0.dp, pressedElevation = 0.dp,
+        focusedElevation = 0.dp, hoveredElevation = 0.dp
+    )
+) { Icon(Icons.Default.Add, ...) }
+```
+
+淡入淡出保留（原本的需求只是「别啪地消失」），layer outline 是方是圆都无所谓。
+代价：FAB 少一点悬浮感，靠 `containerColor` 与背景对比仍清楚。
+
+★ 这仍是**基于 Compose 绘制机制的推断**，且 adb 当时无设备、无法连拍取证。
+与上一轮不同的是这轮是「消除源」而非「改参数」，无论根因是 scale、fade 还是
+两者叠加都能覆盖。若装机后仍在，下一步是把 `AnimatedVisibility` 整个去掉
+（改成 `if (tab == TAB_TODO)` 直接组合）或给 FAB 显式 `shape = CircleShape`。
+
+### 53.2 `FocusEngine.restore()` 过点兜底
+
+旧代码把正计时和「倒计时已过点」合并成一个分支，只 `showOngoing()` 就 return，
+注释写「交给 UI 的 tick 或闹钟去 complete」。但升级 / 开机 / force-stop 之后
+AlarmManager 条目已丢，用户又未必会进专注页 —— UI tick 根本不跑，
+这次专注**永不落库、常驻通知一直挂着**。
+
+拆成三支，过点那支立刻排一个 `now` 的闹钟：
+
+```kotlin
+if (run.countUp) { showOngoing(); return }
+if (remaining <= 0L) {
+    FocusScheduler.schedule(context, nowMillis)   // → FocusAlarmReceiver → complete()
+    return
+}
+FocusScheduler.schedule(context, nowMillis + remaining)
+```
+
+为什么不直接 `complete()`：它是 `suspend`、`restore` 是同步函数；走闹钟还能复用
+`FocusStore.takeActive()` 的原子去重，不会和 UI tick 写成两条记录。
+过点分支不补通知 —— 马上就要被 `complete()` 清掉，补了反而闪一下。
+
+### 53.3 串行调度 + 逐条容错
+
+四个入口会并发重排：MainActivity 冷启动、设置页 `onRescheduleReminders`、
+`ReminderWatchdog`（12h）、`BootReceiver` / `MY_PACKAGE_REPLACED`。它们分属不同
+协程作用域，没闸时会对同一批 PendingIntent 又 cancel 又 set，谁赢看时序。
+
+- `private val gate = Mutex()`：公开的 `scheduleBlocking` 与
+  `scheduleAllActiveBlocking` 各持锁一次；
+- 内部抽 `scheduleBlockingLocked()` **不加锁** —— Mutex 不可重入，
+  全量重建逐条调用若再拿一次锁会自己锁死；
+- `scope` 改 `Dispatchers.IO.limitedParallelism(1)`，兜住 fire-and-forget 两路；
+- `scheduleAllActiveBlocking` 每条 `runCatching` + `Log.w`，
+  单条脏数据 / ROM 异常不再让后面几十条待办整批哑掉。
+
+★ **纠正报告里的说法**：Mutex 只解决「并发重排」，**不解决墙钟回拨**。
+回拨要用单调时钟或记录 lastRebuild 的 elapsed 戳，是另一件事，本轮没做，
+不包装成「顺带修好」。
+
+### 53.4 Room 迁移 instrumented test
+
+`androidTest` 此前是**空目录**。新增：
+
+- `androidTestImplementation("androidx.room:room-testing:2.8.4")`；
+- `AppDatabase.ALL_MIGRATIONS` 把原本 private 的六个 Migration 提成一个数组，
+  运行时 `.addMigrations(*ALL_MIGRATIONS)` 和测试共用同一组对象 —— 各抄一份
+  等于测了一条根本没在跑的链；
+- `AppDatabaseMigrationTest.kt` 三条：v1→v7 全链（老待办不丢、五列都在、
+  `focus_sessions` 可查）、v4→v5 的 `deletedAt` `dflt_value == "NULL"`
+  （0.9.3 秒崩那条红线）、v6→v7 建表列对齐。
+  `MigrationTestHelper` 靠已导出的 `app/schemas/1~7.json` 建旧版本库。
+
+**验证状态**：`:app:compileDebugAndroidTestKotlin` BUILD SUCCESSFUL（依赖与 API
+签名都对），但**当时 adb 无设备，测试没有真正跑过**。接上设备后要执行
+`:app:connectedDebugAndroidTest`。
+
+### 53.5 文档对齐
+
+| 文件 | 改动 |
+|---|---|
+| `docs/PRIVACY.md` | 头部占位符（日期 / 邮箱）填实；权限表删掉 INTERNET 行、「不申请」清单加入网络；第四节从「检查更新 / latest.json」整段改成「不申请网络权限」定稿；后台常驻「默认关闭」按代码 `KeepAlive` 事实改「默认开启」；附录备案号占位改单机免备案说明 |
+| `PrivacyScreen.kt` | 页脚 `X ICP 备 XXXXXXXX 号-XX` → 单机免备案说明；生效日期 → 2026-11-07 |
+| `SettingsRepo` | `PRIVACY_POLICY_VERSION` 1 → 2 |
+| `README.md` | badge / 版本表 → 1.0.10（versionCode 44）；删除失效的博客 APK 直链并写明 Release 仍停 v1.0.2；测试数 318 → **322**，清单里 `FocusRulesTest` 17 → 21；补 instrumented 测试说明 |
+| `docs/COPYRIGHT.md` | 第 1 节「main 有检查更新、需 INTERNET」勘误：两个分支 Manifest 都不声明 INTERNET、`allowBackup` 都是 false |
+
+★ **关键事实**：App 内 `PrivacyScreen.kt` 的第三/四节**早就是「不联网」定稿**，
+矛盾只在仓库 md 没跟上。所以是 **md 对齐 App**，不是反过来改 App 内容。
+
+★ **备案号不需要填真号**：`docs/COPYRIGHT.md` 与 `docs/STORE-PLAN.md` 都已判定
+纯单机不提供互联网信息服务、无境内接入商，不属于备案对象（vivo `doc/722` 单机
+免备案通道）。`AboutScreen.BEIAN_NUMBER` 本来就留空不显示。填一个假号才是合规风险。
+
+★ **副作用**：改 App 内政策文本按 `PrivacyScreen.kt` 文件头明文规矩必须递增
+`PRIVACY_POLICY_VERSION`，所以**已同意过 v1 的老用户下次打开会重新弹一次同意**。
+这是有意为之，不是疏漏。
+
+★ `docs/COPYRIGHT.md` 里 zuige 自己写的 85 行上架补记（20:10 / 20:17 两段）
+经确认**一并提交**，不再散落在工作区。
+
+### 53.6 本轮明确没做
+
+- **tag / Release**：zuige 选择「暂不发布，先只对齐文档」；tag 仍停 `v1.0.2`，
+  README 里已如实写明「代码 1.0.10、Release 仍停 v1.0.2」。
+- **合规分支 `release/vivo-store`**：不动，它有自己的政策定稿和独立 worktree。
+- **墙钟回拨**：见 53.3，与 Mutex 是两件事。
+- **迁移测试实跑**：无设备，只编译通过。
+- **装机验收**：adb 无设备，APK 已产出但未安装；FAB 阴影需接上手机肉眼确认。
+
+### 53.7 沉淀
+
+1. 视觉 bug 第一次修不好时，**别在原假设上加参数**，先想清楚哪些动画路径会
+   建同一个 layer；实在没法实证就消除现象的物理源（这里是 elevation）。
+2. 同步函数里需要 suspend 逻辑时，优先复用现有异步入口（闹钟 → receiver），
+   别在同步函数里硬起协程。
+3. Mutex 不可重入：公开入口持锁、内部实现不持锁，是「全量 + 单条」两层调用
+   的标准写法。
+4. 死代码（`ALL_MIGRATIONS`）有时是给测试留的口子，暴露比复制好。
+5. 文档与代码不一致时，先判断**哪边才是现行真相**再动手；这次是 App 内文本对、
+   仓库 md 错。
+6. 用户拍板「暂不发布」时，README 不要为了好看把 badge 写成未发布的版本，
+   如实写明「代码版本 X / Release 停在 Y」。
+
+版本 `44 / 1.0.10`。

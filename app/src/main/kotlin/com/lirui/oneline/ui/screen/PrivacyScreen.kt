@@ -124,7 +124,7 @@ private val POLICY_SECTIONS = listOf(
 )
 
 /** 隐私政策的生效日期。改内容时一起改。 */
-private const val POLICY_EFFECTIVE_DATE = "2026 年 10 月 25 日"
+private const val POLICY_EFFECTIVE_DATE = "2026 年 11 月 7 日"
 
 /**
  * 隐私政策全屏页。作为覆盖层使用（不进导航栈），返回键 / 左上角箭头都能退出。
@@ -213,7 +213,7 @@ fun PrivacyPolicyScreen(onBack: () -> Unit) {
                 }
                 item {
                     Text(
-                        "X ICP 备 XXXXXXXX 号-XX",
+                        "本应用为纯单机应用，不提供互联网信息服务，依据相关规定无需 App 备案。",
                         fontSize = 13.sp,
                         color = cs.onSurfaceVariant,
                         modifier = Modifier.padding(top = 32.dp)

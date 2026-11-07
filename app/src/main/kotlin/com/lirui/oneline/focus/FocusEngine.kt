@@ -150,9 +150,20 @@ object FocusEngine {
             return
         }
         val remaining = FocusRules.remainingMillis(run, nowMillis)
-        if (run.countUp || remaining <= 0L) {
-            // 正计时本来就没有闹钟；倒计时已经过点了，交给 UI 的 tick 或闹钟去 complete。
+        if (run.countUp) {
+            // 正计时没有终点，本来就不排闹钟，只补通知。
             FocusNotifier.showOngoing(context, run, nowMillis)
+            return
+        }
+        if (remaining <= 0L) {
+            // ★ 已过点（v1.0.10 修）：旧代码和正计时合并成一个分支，只 showOngoing 就 return，
+            //   注释写「交给 UI 的 tick 或闹钟去 complete」。但升级 / 开机 / force-stop 之后
+            //   AlarmManager 条目已经没了，而用户未必会进专注页 —— UI tick 根本不跑，
+            //   于是这次专注永远不落库、常驻通知一直挂着。
+            //   立刻排一个 now 的闹钟，让 FocusAlarmReceiver → complete() 走统一的
+            //   落库 + 清通知路径（takeActive 原子去重，不会和 UI tick 写两条）。
+            //   这里不直接调 complete()：它是 suspend，restore 是同步函数。
+            FocusScheduler.schedule(context, nowMillis)
             return
         }
         FocusScheduler.schedule(context, nowMillis + remaining)
