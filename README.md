@@ -34,7 +34,7 @@
 
 独立的 Android 待办应用：**输入框是唯一入口**，没有日期分类面板、没有账号。一句话里写了日期和时间，就自动解析并排好精确闹钟；句中写「标签作业」就自动带上「作业」这个标签，**不用打任何符号**；剩下的文字都是详情；只写了一句事，就安静地落在「无日期」里。
 
-数据全部留在本机。main 分支自 v1.0.14 起会用网络权限做应用内检查更新；v1.0.15 起还会**在你主动登录雨课堂 / 课堂派之后**读取你在那些平台上的作业与考试，用来生成待办 —— 仅本机存储、不上传任何数据（见「隐私与网络」与「作业自动导入」）。
+数据全部留在本机。会联网的地方只有两处：应用内检查更新，以及（v1.0.15 起）在你主动登录雨课堂 / 课堂派之后读取那些平台上的作业，用来生成待办。
 
 ---
 
@@ -400,23 +400,6 @@ UI 每秒只是重绘。所以掉帧、卡顿、被系统冻结都不会让专�
 
 ---
 
-## 隐私与网络
-
-**main 分支会联网，但只用于检查更新；待办数据始终只在本机，不上传。**
-
-- v1.0.14 起恢复应用内「检查更新」：冷启动自动查一次、关于页可手动查；只读取
-  GitHub Releases 的公开版本信息，检查失败静默不打扰，详见 `docs/PRIVACY.md`
-- 你点「下载更新」才会下载 APK，安装最后一步是**系统安装界面**并由你确认；不能静默安装
-- **没有**首次启动隐私政策同意弹窗，也没有应用内政策页 —— 那是国内商店上架版的要求，
-  完整保留在 `release/vivo-store` 合规分支
-- 待办 / 专注 / 设置 / 备份文件只在本地，`allowBackup=false` 未变；不上传任何使用数据
-- ⚠️ 合规分支**不申请任何网络权限**：往那边合功能 diff 时必须逐行核对 Manifest，
-  别把 `INTERNET` / `REQUEST_INSTALL_PACKAGES` / FileProvider 带过去
-
-完整权限清单与网络请求目标见 `docs/PRIVACY.md`。
-
----
-
 ## 数据导出与本地备份
 
 「设置 → 数据」里可以把**待办（含归档）、全部专注记录和设置项**导出成一个文件，也可以从文件恢复。
@@ -445,7 +428,7 @@ UI 每秒只是重绘。所以掉帧、卡顿、被系统冻结都不会让专�
 | 编译 / 目标 | API 36 |
 | 版本 | 1.0.15（versionCode 49） |
 | 包名 | `com.lirui.oneline` |
-| 网络 | `INTERNET` / `ACCESS_NETWORK_STATE` / `REQUEST_INSTALL_PACKAGES` / `FOREGROUND_SERVICE_DATA_SYNC`（仅应用内自更新，见 `docs/PRIVACY.md`） |
+| 网络 | `INTERNET` / `ACCESS_NETWORK_STATE` / `REQUEST_INSTALL_PACKAGES` / `FOREGROUND_SERVICE_DATA_SYNC`（仅应用内自更新与作业抓取） |
 | 自更新 | GitHub Releases API + 兜底静态源；前台服务下载 APK → 系统安装界面 |
 
 ### 数据模型
@@ -631,10 +614,11 @@ adb install -r app/build/outputs/apk/release/app-release.apk
 > 也不要把 `update/` 目录、`UpdateDialog.kt`、关于页的检查更新行合过去。
 > 自动合并无冲突也要重新编译验证（曾经踩过参数对不上的坑）。
 
-合规分支的 `versionCode` 必须独立递增；涉及新数据存储、通知或权限时，同步更新
-**那条分支的** `docs/PRIVACY.md` 与 `PrivacyScreen`（它宣称「不收集统计数据」，本地统计要写清楚不上传）。
-main 的 `docs/PRIVACY.md` 是联网版，两者内容不同，别互相覆盖。
-上架流程见 `docs/STORE-APPLY.md`。
+合规分支的 `versionCode` 必须独立递增；涉及新数据存储、通知或权限时，同步更新**那条分支的** `docs/PRIVACY.md`。
+
+`docs/PRIVACY.md` 与 `PrivacyScreen` 是**那条分支专属**的（商店上架需要）。main 不再有这两个东西 ——
+zuige 2026-11-16 决定不上架商店后，main 上的隐私政策文件与同意门控已全部移除。
+所以 cherry-pick 功能改动时**不要**把那条分支的 `PRIVACY.md` / `PrivacyScreen` 带回来，反之亦然。
 
 ---
 
@@ -688,13 +672,6 @@ main 的 `docs/PRIVACY.md` 是联网版，两者内容不同，别互相覆盖�
 - **截止时间 `00:00` 视为前一天 23:59**。平台用「某天 0 点」表示当天结束，直接按零点存会让提醒早一分钟、列表差一天。
 - **平台只发一种入口**。雨课堂里作业 / 小测 / 考试都是同一个「考试」类型，所以类型按标题命名判断，显示成 `作业-数字电路与逻辑设计（一）` 这样。
 
-### 隐私
-
-- 账号密码由你在**平台官方页面**输入，App 看不到、不存储
-- 会话凭证留在本机 WebView，不进 SharedPreferences、不上传
-- 抓到的作业只写本机数据库，**不回传任何服务器**
-- 关掉总开关后不建 WebView、不读凭证、不发任何请求
-
 ### 已知边界
 
 - 学校若使用独立子域部署，目前走平台默认站点（已适配的情况见下文平台差异）
@@ -720,7 +697,6 @@ main 的 `docs/PRIVACY.md` 是联网版，两者内容不同，别互相覆盖�
 | **[AGENTS.md](AGENTS.md)** | **项目开发规矩**：技术栈基线、新功能「旧模块 → Google 官方 → 开源参考 → 最后手写」四级顺序、UI 红线、双分支边界、发版两个源 + 博客文章的同步流程、改动收尾清单。**每次改动前先读** |
 | [DESIGN.md](DESIGN.md) | 设计决策、解析语义、踩过的坑与源码级结论（按版本追加，现至 §97） |
 | [docs/DEV-NOTES.md](docs/DEV-NOTES.md) | 2026-10-22 从项目记忆迁出的历史归档（只读） |
-| [docs/PRIVACY.md](docs/PRIVACY.md) | 权限清单与隐私政策（两个分支内容不同） |
 | [docs/BACKGROUND.md](docs/BACKGROUND.md) | 后台保活 / 精确闹钟 / 厂商兼容 |
 | [docs/STORE-PLAN.md](docs/STORE-PLAN.md) · [docs/STORE-RELEASE.md](docs/STORE-RELEASE.md) | 商店上架计划与合规改造记录（后者为分叉前快照） |
 | [docs/COPY.md](docs/COPY.md) | 对外分享文案：小红书短文案 + 酷安首发长文案 |

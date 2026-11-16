@@ -545,7 +545,8 @@ object SettingsRepo {
             .edit().putString(KEY_NOTIF_DUE_WORD, value).apply()
 
     // main 分支自 v1.0.14 起不再有「隐私政策同意版本」这一状态：首启门控与政策页
-    // 只服务于国内商店上架，完整保留在 release/vivo-store 合规分支。
+    // 只服务于国内商店上架。zuige 2026-11-16 明确不打算上架商店了，
+    // main 上的隐私政策文件与相关 UI 已全部移除；release/vivo-store 分支仍保留。
     // 备份层 BackupRules 仍会过滤旧备份里的 privacy_accepted_version 键（兼容历史文件），
     // 但这里不再读写它。
 

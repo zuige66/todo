@@ -98,8 +98,10 @@ class MainActivity : androidx.activity.ComponentActivity() {
     /**
      * 申请通知权限（Android 13+）。
      *
-     * main 分支自 v1.0.14 起移除了隐私同意门控 —— 那条门控只服务于国内商店上架，
-     * 仍完整保留在 `release/vivo-store` 合规分支。这里在冷启动初始化里直接申请。
+     * main 分支自 v1.0.14 起移除了隐私同意门控 —— 那条门控只服务于国内商店上架。
+     * zuige 2026-11-16 明确「不打算上架商店了」，所以 main 上的隐私政策 / 同意弹窗
+     * 已全部清掉，只剩 `release/vivo-store` 那条分支保留（它仍用于 vivo 后台）。
+     * 这里在冷启动初始化里直接申请权限，不再有前置门控。
      */
     private fun requestNotificationPermissionIfNeeded() {
         if (Build.VERSION.SDK_INT < 33) return
