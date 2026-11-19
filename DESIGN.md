@@ -7078,3 +7078,33 @@ AGENTS.md §70.5 记录过、这里再强调一次：
 - GitHub Release / tag 已复验通过；博客线上复验见当轮对话（Cloudflare 404 缓存 4h，`apkUrl` 带 `?v=49` 绕缓存）。
 - 合规分支 `release/vivo-store` 全程未触碰（软著冻结），本功能为永久功能分叉。
 - `output/` 与 `show/` 的未提交项按红线未 add、未提交。
+
+---
+
+## §100 v1.0.16 —— 修复「点下载无反应」：恢复下载服务的 Manifest 注册（2026-11-19）
+
+### 100.1 现象与影响
+- 用户反馈：检查更新弹窗**正常**出现，但点「下载更新」后没有任何反应 —— 不下载、无进度条、不拉起安装；关于页手动检查更新后的下载按钮同样失效。
+- 影响面：`main` 分支自 **v1.0.14 起所有版本**的应用内自更新下载链路完全瘫痪（检查可用、下载不可用）。合规分支无此功能，不受影响。
+
+### 100.2 根因（git 历史三段式）
+| 版本 | commit | `UpdateDownloadService` 的 `<service>` 声明 |
+| --- | --- | --- |
+| v0.5.3 | `328a611` | ✅ 有（`exported=false` + `foregroundServiceType="dataSync"`）|
+| v1.0.0 上架 | `e7fb97e` | ❌ 随应用内自更新一起下线，连同 `update/` 包、FileProvider 全删 |
+| v1.0.14 恢复自更新 | `92dd747` | ❌ **只补回网络权限（INTERNET / ACCESS_NETWORK_STATE / FOREGROUND_SERVICE_DATA_SYNC / REQUEST_INSTALL_PACKAGES）与 FileProvider，唯独漏了 `<service>` 节点本身** |
+
+- 服务类（`update/UpdateDownloadService.kt`）一直在、`ApkInstaller` 调用链也在，但 Manifest 没注册 → `context.startForegroundService()` 抛 `IllegalArgumentException`（未注册组件），被 `ApkInstaller` 的 `try/catch` 吞掉，只闪一条「无法启动下载」Toast，用户几乎看不到。
+- 三个现象由同一根因解释：① 检查更新走 `UpdateService.check()` 纯 HTTP，不依赖服务 → 弹窗正常；② 下载服务拉不起来 → 不下载、不安装；③ 进度广播由该服务发出 → 服务不存在 → 关于页进度条永远不出现。
+- 用户记忆里「之前有进度条」对应 v0.5.3 及更早版本 —— 那时服务是注册的。
+
+### 100.3 修复
+- 仅改 `app/src/main/AndroidManifest.xml`：在 `<application>` 内补回
+  `<service android:name=".update.UpdateDownloadService" android:exported="false" android:foregroundServiceType="dataSync" />`（照 v0.5.3 原样，含 `dataSync` 前台服务类型，与代码里 `ServiceCompat.startForeground(..., FOREGROUND_SERVICE_TYPE_DATA_SYNC)` 及 `FOREGROUND_SERVICE_DATA_SYNC` 权限对齐）。
+- 其余链路本就正确、未动：`file_paths.xml` 只暴露 `filesDir/update/`、`FileProvider` authority `${applicationId}.fileprovider` 与代码一致、关于页广播接收器按 `RECEIVER_NOT_EXPORTED` 注册、通知渠道/前台服务类型/16KB 进度节流均完好。
+- 四级实现顺序：本次为「恢复既有声明」，无新功能，不涉及第 2~4 级；判定逻辑（版本比较、进度值）已有 `VersionTest` 等单测覆盖，无需重写。
+
+### 100.4 分支与验证
+- 只落 `main`。`release/vivo-store` 处于软著申请冻结期（AGENTS.md §4），且本就无自更新功能，不动、不 cherry-pick、不记欠账。
+- 版本号 `1.0.16 / 50`（`versionCode` 50 单调递增，未复用已装机号）。
+- 验证：合并后 Manifest 应含该 `<service>`；`:app:testDebugUnitTest` + `:app:assembleRelease` 通过。真机下载/安装链路需装机实测（涉及操控手机与解锁，按 AGENTS.md §6 单独授权）。

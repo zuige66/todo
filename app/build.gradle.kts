@@ -306,8 +306,10 @@ android {
         // 1.0.15 = 作业自动导入（雨课堂 / 课堂派）：登录官方页 → 抓取作业/小测/考试
         //          → 预览确认 → 写进待办并排提醒；一键抓取 + 冷启动/回前台/后台周期自动抓取
         //          + 新作业通知。DB v8→v9（todos 加 source / externalId）。
-        versionCode = 49
-        versionName = "1.0.15"
+        // 1.0.16 = 修复 v1.0.14 恢复自更新时漏注册 UpdateDownloadService 导致「点下载无反应、
+        //          无进度条、不安装」；只补 Manifest <service> 声明，见 DESIGN.md §100。
+        versionCode = 50
+        versionName = "1.0.16"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

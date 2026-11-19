@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/zuige66/todo/releases"><img src="https://img.shields.io/badge/version-1.0.15-3F3F46?style=flat-square" alt="version" /></a>
+  <a href="https://github.com/zuige66/todo/releases"><img src="https://img.shields.io/badge/version-1.0.16-3F3F46?style=flat-square" alt="version" /></a>
   <img src="https://img.shields.io/badge/platform-Android-3DDC84?style=flat-square" alt="platform" />
   <img src="https://img.shields.io/badge/build-Kotlin%20%2B%20Compose-7F52FF?style=flat-square" alt="build" />
   <img src="https://img.shields.io/badge/storage-Room-4479A1?style=flat-square" alt="storage" />
@@ -26,8 +26,8 @@
 </p>
 
 <p align="center">
-  <sub>当前代码版本 <b>1.0.15（versionCode 49）</b>；最新 Release <b>v1.0.15</b> 已发布。<br />
-  v1.0.15 新增<b>作业自动导入</b>（雨课堂 / 课堂派）；main 自 v1.0.14 起恢复应用内检查更新；博客 <code>latest.json</code> 与文章直链已同步到 1.0.15。</sub>
+  <sub>当前代码版本 <b>1.0.16（versionCode 50）</b>；最新 Release <b>v1.0.16</b> 已发布。<br />
+  v1.0.16 修复「检查更新提示后点下载无反应」（补回下载服务的 Manifest 注册）；v1.0.15 新增<b>作业自动导入</b>（雨课堂 / 课堂派）；博客 <code>latest.json</code> 与文章直链已同步到 1.0.16。</sub>
 </p>
 
 ---
@@ -443,7 +443,7 @@ UI 每秒只是重绘。所以掉帧、卡顿、被系统冻结都不会让专�
 | 导航 | 单 Activity，Compose 内部状态切换（4 个 tab + 专注覆盖层） |
 | 最低版本 | Android 8.0（API 26） |
 | 编译 / 目标 | API 36 |
-| 版本 | 1.0.15（versionCode 49） |
+| 版本 | 1.0.16（versionCode 50） |
 | 包名 | `com.lirui.oneline` |
 | 网络 | `INTERNET` / `ACCESS_NETWORK_STATE` / `REQUEST_INSTALL_PACKAGES` / `FOREGROUND_SERVICE_DATA_SYNC`（仅应用内自更新，见 `docs/PRIVACY.md`） |
 | 自更新 | GitHub Releases API + 兜底静态源；前台服务下载 APK → 系统安装界面 |

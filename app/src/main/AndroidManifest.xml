@@ -119,6 +119,16 @@
                 android:value="日程提醒常驻：用于及时响应提醒通知上的操作，用户可在设置里关闭" />
         </service>
 
+        <!-- 更新包下载：前台服务（dataSync）。不导出，只能由本 App 启动。
+             ★ v1.0.14（92dd747）恢复自更新时补了网络权限与 FileProvider，
+               却漏了这条 <service> —— 服务未注册，点「下载更新」时
+               startForegroundService 拉不起来，无下载 / 无进度广播 / 无安装。
+               v1.0.16 照 v0.5.3 原样补回（见 DESIGN.md §100）。 -->
+        <service
+            android:name=".update.UpdateDownloadService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
         <!-- 桌面小组件：一个 provider，纵横可拉。2×2 = 紧凑行 4 条；拉高 = 标准行 6 条。
              ★ exported=true 是故意的：部分国产 Launcher（澎湃/vivo 实测）bind 组件时
              不是特权身份，exported=false 会导致组件进不了系统列表（v0.8.1 的 404 根因）。
