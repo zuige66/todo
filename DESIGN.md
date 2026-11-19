@@ -7108,3 +7108,11 @@ AGENTS.md §70.5 记录过、这里再强调一次：
 - 只落 `main`。`release/vivo-store` 处于软著申请冻结期（AGENTS.md §4），且本就无自更新功能，不动、不 cherry-pick、不记欠账。
 - 版本号 `1.0.16 / 50`（`versionCode` 50 单调递增，未复用已装机号）。
 - 验证：合并后 Manifest 应含该 `<service>`；`:app:testDebugUnitTest` + `:app:assembleRelease` 通过。真机下载/安装链路需装机实测（涉及操控手机与解锁，按 AGENTS.md §6 单独授权）。
+
+### 100.5 发布落地（2026-11-19）
+- **提交**：`7d31989`（5 文件：Manifest / build.gradle.kts / DESIGN §100 / README / docs/COPY.md），已 `git push origin main`。
+- **产物**：`dist/todo-1.0.16.apk`，sha256 `a8050bc1d76ef6e27f8a29e32ccaa64a718779dd3dd94df975437af6a09f6b1b`，签名 SHA-256 `c0847ef1…2548`（与 v1.0.14/15 一致）。
+- **源一 GitHub Release**：id `451463720`，tag `v1.0.16`，draft=false；资产 id `768010025` `todo-1.0.16.apk`（2,210,984 B，digest 与 dist 一致）；`git fetch --tags` 拿到 tag；`/releases/latest` 复验 `tag=v1.0.16 / draft=false / assets=[todo-1.0.16.apk]`。
+- **源二 Hexo 兜底源**（独立仓库）：`latest.json` → `versionCode 50 / versionName 1.0.16 / apkUrl …todo-1.0.16.apk?v=50`，changelog 从本节摘；APK 复制到 `source/downloads/oneline/`；文章 `todo-app.md` 改下载直链 + 版本描述。`hexo` push 前 rebase 到 `68bf0ca`（Actions 回写的 `[skip ci]`），提交 `58f37ec` push 触发 Actions 部署；无关未提交 `azure-sea.js` 用 stash 保护、push 后原样恢复。
+- **三处 APK sha256 一致**（构建产物 / dist / GitHub 资产 / hexo source 均为 `a8050bc1…`）。
+- **未做**：真机下载/安装实测（需单独授权 adb 操控 + 解锁，见 §6 红线）；合规分支全程未触碰。
